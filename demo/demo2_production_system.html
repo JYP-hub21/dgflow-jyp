@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>동일유리 AX - 생산실적 자동 집계 시스템</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; background: #f5f7fa; color: #222; }
+
+.header { background: #1a1a2e; color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 20px; font-weight: 700; }
+.header .subtitle { font-size: 13px; color: #8892b0; }
+.header .logo { font-size: 13px; color: #64ffda; font-weight: 600; }
+
+.steps-bar { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 20px 32px; display: flex; align-items: center; justify-content: center; }
+.step-item { display: flex; align-items: center; }
+.step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; border: 2px solid #ccc; color: #999; background: #fff; transition: all 0.3s; cursor: pointer; }
+.step-circle.active { background: #c0392b; border-color: #c0392b; color: #fff; }
+.step-circle.done { background: #27ae60; border-color: #27ae60; color: #fff; }
+.step-label { font-size: 12px; color: #999; margin-left: 8px; margin-right: 16px; transition: all 0.3s; white-space: nowrap; }
+.step-label.active { color: #c0392b; font-weight: 700; }
+.step-label.done { color: #27ae60; font-weight: 700; }
+.step-connector { width: 40px; height: 2px; background: #ddd; margin: 0 4px; transition: background 0.3s; }
+.step-connector.done { background: #27ae60; }
+
+.main { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+.step-content { display: none; }
+.step-content.active { display: block; }
+
+.card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 28px; margin-bottom: 20px; }
+.card h2 { font-size: 20px; color: #1a1a2e; margin-bottom: 6px; }
+.card h3 { font-size: 16px; color: #c0392b; margin-bottom: 12px; margin-top: 8px; }
+.card .desc { font-size: 14px; color: #666; margin-bottom: 20px; line-height: 1.6; }
+
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #c0392b; color: #fff; padding: 10px 12px; text-align: center; font-weight: 600; white-space: nowrap; position: sticky; top: 0; }
+td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; vertical-align: middle; }
+tr:nth-child(even) { background: #fdf8f8; }
+tr:hover { background: #ffeaea; }
+td.left { text-align: left; }
+tr.subtotal td { background: #fce4ec !important; font-weight: 700; }
+tr.total td { background: #e8eaf6 !important; font-weight: 700; font-size: 14px; }
+th.blue { background: #2b579a; }
+
+.btn { padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-primary { background: #c0392b; color: #fff; }
+.btn-primary:hover { background: #96281b; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #1e8c4c; }
+.btn-outline { background: #fff; color: #c0392b; border: 2px solid #c0392b; }
+.btn-outline:hover { background: #fff5f5; }
+.btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 6px; }
+.btn-group { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+.stat-card { background: #fff; border-radius: 10px; padding: 20px; text-align: center; border: 1px solid #e8e8e8; }
+.stat-card .num { font-size: 32px; font-weight: 800; color: #c0392b; }
+.stat-card .label { font-size: 13px; color: #888; margin-top: 4px; }
+.stat-card.green .num { color: #27ae60; }
+.stat-card.blue .num { color: #2b579a; }
+
+.scenario-box { background: #fff5f5; border-left: 4px solid #c0392b; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; }
+.scenario-box .label { font-size: 12px; color: #c0392b; font-weight: 700; margin-bottom: 4px; }
+.scenario-box .text { font-size: 14px; color: #333; line-height: 1.6; }
+
+.scenario-box.blue { background: #f0f4ff; border-left-color: #2b579a; }
+.scenario-box.blue .label { color: #2b579a; }
+
+.progress-bar { width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; margin: 16px 0; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #c0392b, #27ae60); border-radius: 4px; transition: width 1.5s ease; }
+
+/* 날짜/라인 선택 */
+.select-row { display: flex; gap: 24px; align-items: center; margin: 20px 0; flex-wrap: wrap; }
+.select-group { display: flex; flex-direction: column; gap: 6px; }
+.select-group label { font-size: 13px; color: #888; font-weight: 600; }
+.select-group select, .select-group input[type="date"] {
+  padding: 10px 16px; border: 2px solid #ddd; border-radius: 8px; font-size: 15px; font-weight: 600;
+  font-family: '맑은 고딕'; color: #333; background: #fff; }
+.select-group select:focus, .select-group input:focus { border-color: #c0392b; outline: none; }
+
+/* 생산 입력 카드 */
+.prod-order-card { border: 1px solid #e0e0e0; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
+.prod-order-header { background: #f8f8f8; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.prod-order-header:hover { background: #f0f0f0; }
+.prod-order-header .title { font-size: 15px; font-weight: 700; color: #1a1a2e; }
+.prod-order-header .meta { font-size: 12px; color: #888; }
+.prod-order-header .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+.badge-waiting { background: #f5f5f5; color: #999; }
+.badge-inputting { background: #fff3e0; color: #e67e22; }
+.badge-done { background: #e8f5e9; color: #27ae60; }
+.prod-order-body { padding: 16px 20px; display: none; }
+.prod-order-body.open { display: block; }
+
+/* 항목 입력 행 */
+.input-item { display: grid; grid-template-columns: 40px 1.5fr 1fr 90px 90px 100px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.input-item.header { font-weight: 700; font-size: 12px; color: #888; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+.input-item .no { font-weight: 700; color: #c0392b; text-align: center; }
+.input-item .spec { font-size: 12px; color: #666; }
+.input-item input[type="number"] { width: 80px; padding: 7px; border: 2px solid #ddd; border-radius: 6px; text-align: center; font-size: 14px; font-weight: 700; font-family: '맑은 고딕'; }
+.input-item input:focus { border-color: #c0392b; outline: none; }
+.input-item .status { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 10px; text-align: center; }
+.s-done { background: #e8f5e9; color: #27ae60; }
+.s-partial { background: #fff3e0; color: #e67e22; }
+.s-none { background: #f5f5f5; color: #bbb; }
+
+/* 비교 하이라이트 */
+.compare-old { background: #fff3e0; border-left: 3px solid #e67e22; padding: 16px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+.compare-new { background: #e8f5e9; border-left: 3px solid #27ae60; padding: 16px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+
+/* 주간 차트 */
+.weekly-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 200px; padding: 20px 0; }
+.bar-item { flex: 1; display: flex; flex-direction: column; align-items: center; }
+.bar { width: 100%; border-radius: 4px 4px 0 0; transition: height 1s ease; }
+.bar-label { font-size: 11px; color: #888; margin-top: 6px; }
+.bar-value { font-size: 11px; font-weight: 700; color: #333; margin-bottom: 4px; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.animate { animation: fadeIn 0.5s ease; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>생산실적 자동 집계 시스템</h1>
+    <div class="subtitle">동일유리 AX 프로젝트 — Demo #2</div>
+  </div>
+  <div class="logo">DONGIL GLASS AX</div>
+</div>
+
+<div class="steps-bar">
+  <div class="step-item"><div class="step-circle active" onclick="goStep(1)">1</div><div class="step-label active">생산일자 설정</div></div>
+  <div class="step-connector"></div>
+  <div class="step-item"><div class="step-circle" onclick="goStep(2)">2</div><div class="step-label">생산실적 입력</div></div>
+  <div class="step-connector"></div>
+  <div class="step-item"><div class="step-circle" onclick="goStep(3)">3</div><div class="step-label">복층생산일지</div></div>
+  <div class="step-connector"></div>
+  <div class="step-item"><div class="step-circle" onclick="goStep(4)">4</div><div class="step-label">절단일보</div></div>
+  <div class="step-connector"></div>
+  <div class="step-item"><div class="step-circle" onclick="goStep(5)">5</div><div class="step-label">주간 집계</div></div>
+</div>
+
+<div class="main">
+
+<!-- ==================== STEP 1 ==================== -->
+<div class="step-content active" id="step1">
+  <div class="card animate">
+    <h2>Step 1. 생산일자 및 라인 설정</h2>
+    <div class="desc">오늘 날짜와 생산 라인을 선택하면, 해당 일자에 생산 예정인 작업의뢰서 목록을 자동으로 불러옵니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">시나리오</div>
+      <div class="text">오늘은 <b>2026년 8월 25일</b>입니다. 복층 1호기에서 오늘 하루 동안 <b>3건의 작업의뢰서에 걸쳐</b> 생산합니다.<br>
+      하나의 작업의뢰서를 하루에 다 끝내기도 하고, 며칠에 걸쳐 나눠서 생산(분할 생산)하기도 합니다.</div>
+    </div>
+
+    <div class="select-row">
+      <div class="select-group">
+        <label>생산일자</label>
+        <input type="date" value="2026-08-25">
+      </div>
+      <div class="select-group">
+        <label>생산 라인</label>
+        <select>
+          <option selected>복층 1호기</option>
+          <option>복층 2호기</option>
+        </select>
+      </div>
+      <div class="select-group">
+        <label>근무 구분</label>
+        <select>
+          <option selected>평일 (8시간)</option>
+          <option>주간연장 (11시간)</option>
+          <option>주말 (8시간)</option>
+        </select>
+      </div>
+      <div class="select-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" onclick="loadOrders()">작업의뢰서 불러오기</button>
+      </div>
+    </div>
+
+    <div id="orderListArea" style="display:none;">
+      <h3>오늘 생산 예정 작업의뢰서 (3건)</h3>
+      <div class="table-wrap">
+        <table>
+          <tr><th>의뢰번호</th><th>업체명</th><th>현장명</th><th>총 수량</th><th>총 면적</th><th>납품일</th><th>기 생산</th><th>잔여 수량</th><th>상태</th></tr>
+          <tr>
+            <td><b>26-1826</b></td><td class="left">에이치엘디앤아이한라(주)ww</td><td class="left">파주선유리 후분양 공동주택 1공구</td>
+            <td>280</td><td>242.30</td><td>08-28</td><td style="color:#e67e22;">120</td><td style="color:#c0392b; font-weight:700;">160</td>
+            <td><span style="background:#fff3e0; color:#e67e22; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600;">분할생산중</span></td>
+          </tr>
+          <tr>
+            <td><b>26-1861</b></td><td class="left">극동건설(주)b</td><td class="left">성남금토 A-4BL 아파트 2공구</td>
+            <td>660</td><td>520.60</td><td>08-28</td><td style="color:#e67e22;">540</td><td style="color:#c0392b; font-weight:700;">120</td>
+            <td><span style="background:#fff3e0; color:#e67e22; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600;">분할생산중</span></td>
+          </tr>
+          <tr>
+            <td><b>26-2248</b></td><td class="left">(주)대진글라스a</td><td class="left">대우건설_산성역헤리스톤3BL</td>
+            <td>102</td><td>139.91</td><td>08-29</td><td>0</td><td style="color:#c0392b; font-weight:700;">102</td>
+            <td><span style="background:#f5f5f5; color:#999; padding:3px 10px; border-radius:10px; font-size:11px; font-weight:600;">신규</span></td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="compare-old">
+        <b>현재 방식 (AS-IS):</b> 생산 후 작업의뢰서에 빨간펜으로 수기 체크 → 퇴근 후 엑셀에 수동 입력 → 다음날 아침 제출
+      </div>
+      <div class="compare-new">
+        <b>AX 방식 (TO-BE):</b> 생산 중 수량 입력 → 복층생산일지·절단일보 자동 생성 → 실시간 집계
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="goStep(2)">다음: 생산실적 입력 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 2 ==================== -->
+<div class="step-content" id="step2">
+  <div class="card animate">
+    <h2>Step 2. 오늘의 생산실적 입력</h2>
+    <div class="desc">오늘 생산한 <b>모든 작업의뢰서의 실적</b>을 한 화면에서 입력합니다. 작업의뢰서를 펼쳐서 항목별 수량을 입력하세요.</div>
+
+    <div class="scenario-box">
+      <div class="label">시나리오</div>
+      <div class="text">
+        <b>26-1826</b> (한라-파주): 잔여 160매 중 오늘 <b>160매 전량 생산</b> (완료)<br>
+        <b>26-1861</b> (극동-성남): 잔여 120매 중 오늘 <b>120매 전량 생산</b> (완료)<br>
+        <b>26-2248</b> (대진-대우): 전체 102매 중 오늘 <b>60매만 생산</b> (분할생산, 잔여 42매는 내일)
+      </div>
+    </div>
+
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div style="font-size:16px; font-weight:700; color:#1a1a2e;">2026년 8월 25일 | 복층 1호기</div>
+      <button class="btn btn-outline btn-sm" onclick="autoFillAll()">데모: 전체 자동 채우기</button>
+    </div>
+
+    <!-- 주문 1 -->
+    <div class="prod-order-card" id="order0">
+      <div class="prod-order-header" onclick="toggleOrder(0)">
+        <div>
+          <span class="title">26-1826</span>
+          <span class="meta"> | 에이치엘디앤아이한라(주)ww | 파주선유리 후분양 | 잔여 160매</span>
+          <span class="badge badge-waiting" id="orderBadge0">대기</span>
+        </div>
+        <span style="font-size:18px;" id="orderArrow0">▼</span>
+      </div>
+      <div class="prod-order-body" id="orderBody0">
+        <div class="input-item header">
+          <div>No</div><div>품명</div><div>규격</div><div>잔여수량</div><div>생산수량</div><div>상태</div>
+        </div>
+        <div id="items0"></div>
+      </div>
+    </div>
+
+    <!-- 주문 2 -->
+    <div class="prod-order-card" id="order1">
+      <div class="prod-order-header" onclick="toggleOrder(1)">
+        <div>
+          <span class="title">26-1861</span>
+          <span class="meta"> | 극동건설(주)b | 성남금토 A-4BL | 잔여 120매</span>
+          <span class="badge badge-waiting" id="orderBadge1">대기</span>
+        </div>
+        <span style="font-size:18px;" id="orderArrow1">▼</span>
+      </div>
+      <div class="prod-order-body" id="orderBody1">
+        <div class="input-item header">
+          <div>No</div><div>품명</div><div>규격</div><div>잔여수량</div><div>생산수량</div><div>상태</div>
+        </div>
+        <div id="items1"></div>
+      </div>
+    </div>
+
+    <!-- 주문 3 -->
+    <div class="prod-order-card" id="order2">
+      <div class="prod-order-header" onclick="toggleOrder(2)">
+        <div>
+          <span class="title">26-2248</span>
+          <span class="meta"> | (주)대진글라스a | 산성역헤리스톤3BL | 잔여 102매</span>
+          <span class="badge badge-waiting" id="orderBadge2">대기</span>
+        </div>
+        <span style="font-size:18px;" id="orderArrow2">▼</span>
+      </div>
+      <div class="prod-order-body" id="orderBody2">
+        <div class="input-item header">
+          <div>No</div><div>품명</div><div>규격</div><div>잔여수량</div><div>생산수량</div><div>상태</div>
+        </div>
+        <div id="items2"></div>
+      </div>
+    </div>
+
+    <!-- 합계 -->
+    <div class="stat-row" id="totalStats">
+      <div class="stat-card"><div class="num" id="sTotal">0</div><div class="label">오늘 총 생산(매)</div></div>
+      <div class="stat-card green"><div class="num" id="sOrders">0 / 3</div><div class="label">완료 주문</div></div>
+      <div class="stat-card blue"><div class="num" id="sM2">0</div><div class="label">생산 면적(m2)</div></div>
+      <div class="stat-card"><div class="num" id="sRemain">382</div><div class="label">잔여 수량(매)</div></div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(1)">← 이전</button>
+      <button class="btn btn-primary" onclick="goStep(3)">다음: 복층생산일지 생성 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 3 ==================== -->
+<div class="step-content" id="step3">
+  <div class="card animate">
+    <h2>Step 3. 복층생산일지 자동 생성</h2>
+    <div class="desc">오늘 하루 동안 <b>여러 작업의뢰서에 걸쳐 생산한 실적</b>이 하나의 일간 생산일지로 자동 정리됩니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">핵심 변화</div>
+      <div class="text">
+        <b>기존:</b> 작업의뢰서에 빨간펜 수기 체크 → 퇴근 후 엑셀에 한 행씩 수동 입력 (30분~1시간 소요)<br>
+        <b>AX:</b> 생산 수량 입력 즉시 → 복층생산일지 <b>자동 생성</b> (외판+내판 쌍 자동, 수량(평) 자동 계산)
+      </div>
+    </div>
+
+    <div id="genProgress" style="display:none;">
+      <div style="font-size:14px; color:#c0392b; font-weight:600; margin-bottom:8px;">복층생산일지 생성 중...</div>
+      <div class="progress-bar"><div class="progress-fill" id="genFill" style="width:0%"></div></div>
+    </div>
+
+    <div id="genResult" style="display:none;">
+      <div class="stat-row">
+        <div class="stat-card"><div class="num">3건</div><div class="label">주문번호</div></div>
+        <div class="stat-card"><div class="num">340</div><div class="label">총 생산(매)</div></div>
+        <div class="stat-card green"><div class="num">16행</div><div class="label">자동 생성 행 수</div></div>
+        <div class="stat-card blue"><div class="num">517.0</div><div class="label">총 면적(m2)</div></div>
+      </div>
+
+      <h3>(복층유리) 생산일지 — 2026년 8월 25일</h3>
+      <div class="table-wrap">
+        <table>
+          <tr><th>주문번호</th><th>거래처(발주자)</th><th>종류</th><th>재료종류</th><th>두께</th><th>AR</th><th>가로</th><th>세로</th><th>수량외</th><th>수량(매)</th><th>수량(평)</th></tr>
+
+          <tr><td>26-1826</td><td class="left">에이치엘디앤아이한라(주)ww 파주선유리 후분양</td><td>U3</td><td class="left">5CLh/s+12Ar.+5로이</td><td>22</td><td>AR</td><td>1688</td><td>1810</td><td>1조외9</td><td>10</td><td>30.6</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12Ar.+5로이</td><td>22</td><td>AR</td><td>1688</td><td>1810</td><td>1조외9</td><td>10</td><td>30.6</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CLh/s+12Ar.+5로이</td><td>22</td><td>AR</td><td>761</td><td>1810</td><td>2조외18</td><td>20</td><td>27.6</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12Ar.+5로이</td><td>22</td><td>AR</td><td>761</td><td>1810</td><td>2조외18</td><td>20</td><td>27.6</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CLh/s+12Ar.+5로이</td><td>22</td><td>AR</td><td>738</td><td>1310</td><td>4조외36</td><td>40</td><td>38.8</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12Ar.+5로이</td><td>22</td><td>AR</td><td>738</td><td>1310</td><td>4조외36</td><td>40</td><td>38.8</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CLh/s+12A+5로이</td><td>22</td><td></td><td>288</td><td>910</td><td>1조외9</td><td>10</td><td>2.6</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12A+5로이</td><td>22</td><td></td><td>288</td><td>910</td><td>1조외9</td><td>10</td><td>2.6</td></tr>
+          <tr class="subtotal"><td colspan="2">26-1826 소계</td><td colspan="7"></td><td>160</td><td>199.2</td></tr>
+
+          <tr><td>26-1861</td><td class="left">극동건설(주)b 성남금토 A-4BL 아파트 2공구</td><td>U3</td><td class="left">5newGN+12단열(Ar.)+5로이</td><td>22</td><td>AR</td><td>1650</td><td>1963</td><td>3조외27</td><td>30</td><td>97.2</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12단열(Ar.)+5로이</td><td>22</td><td>AR</td><td>1650</td><td>1963</td><td>3조외27</td><td>30</td><td>97.2</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5newGN+12단열(Ar.)+5로이</td><td>22</td><td>AR</td><td>766</td><td>1963</td><td>3조외27</td><td>30</td><td>45.0</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">5CL+12단열(Ar.)+5로이</td><td>22</td><td>AR</td><td>766</td><td>1963</td><td>3조외27</td><td>30</td><td>45.0</td></tr>
+          <tr class="subtotal"><td colspan="2">26-1861 소계</td><td colspan="7"></td><td>120</td><td>284.4</td></tr>
+
+          <tr><td>26-2248</td><td class="left">(주)대진글라스a 산성역헤리스톤3BL</td><td>U3</td><td class="left">6CL+12A+6CL</td><td>24</td><td></td><td>435</td><td>794</td><td>3조외27</td><td>30</td><td>10.4</td></tr>
+          <tr><td></td><td></td><td>U3</td><td class="left">6CL+12A+6로이</td><td>24</td><td></td><td>285</td><td>794</td><td>3조외27</td><td>30</td><td>6.8</td></tr>
+          <tr class="subtotal"><td colspan="2">26-2248 소계 (분할: 60/102)</td><td colspan="7"></td><td>60</td><td>17.2</td></tr>
+
+          <tr class="total"><td colspan="2">합계 (8월 25일)</td><td colspan="7"></td><td>340</td><td>500.8</td></tr>
+        </table>
+      </div>
+
+      <div class="scenario-box blue" style="margin-top:16px;">
+        <div class="label">자동 처리된 항목</div>
+        <div class="text">
+          ✓ 복층유리 = 외판 + 내판이므로 <b>1건 입력 → 2행 자동 생성</b> (외판/내판 쌍)<br>
+          ✓ 수량(평) = 가로 × 세로 × 수량 / 1,000,000 <b>자동 계산</b><br>
+          ✓ 수량외 형식 ({조}조외{매}) <b>자동 변환</b><br>
+          ✓ 분할 생산(26-2248: 60/102) 시 <b>잔여 수량 자동 추적</b> → 다음날 이어서 입력 가능
+        </div>
+      </div>
+
+      <div style="display:flex; gap:16px;">
+        <button class="btn btn-success" onclick="alert('복층생산일지(2026.08.25).xlsx가 다운로드됩니다.\n(데모에서는 실제 다운로드 미지원)')">📥 복층생산일지 다운로드</button>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(2)">← 이전</button>
+      <button class="btn btn-primary" onclick="goStep(4)">다음: 절단일보 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 4 ==================== -->
+<div class="step-content" id="step4">
+  <div class="card animate">
+    <h2>Step 4. 절단일보 자동 생성</h2>
+    <div class="desc">오늘 재단(절단)한 유리와 사용한 원판 정보가 자동으로 절단일보에 기록됩니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">핵심 변화</div>
+      <div class="text">
+        <b>기존:</b> 작업의뢰서 뒷면에 원판 종류·수량 수기 메모 → 퇴근 후 절단일보 엑셀에 수동 입력<br>
+        <b>AX:</b> 복층생산일지 데이터에서 재단 대상 자동 추출 → 원판 정보만 확인/수정 → 절단일보 <b>자동 생성</b>
+      </div>
+    </div>
+
+    <h3>절단일보 — 2026년 8월 25일</h3>
+    <div class="table-wrap">
+      <table>
+        <tr>
+          <th colspan="6" style="background:#c0392b;">재단 대상 (복층생산일지에서 자동 추출)</th>
+          <th style="background:#888; width:8px;"></th>
+          <th colspan="5" class="blue">사용 원판</th>
+          <th>비고</th>
+        </tr>
+        <tr><th>주문번호</th><th>거래처</th><th>두께</th><th>품명</th><th>수량</th><th>m2</th><th style="background:#888;"></th><th class="blue">원판 품명</th><th class="blue">가로</th><th class="blue">세로</th><th class="blue">수량</th><th class="blue">m2</th><th>비고</th></tr>
+        <tr><td>26-1826</td><td class="left">한라-파주</td><td>22</td><td class="left">5CLh/s+5로이</td><td>80</td><td>81.2</td><td style="background:#f5f5f5;"></td><td>5CLh/s</td><td>1981</td><td>3353</td><td>14</td><td>93.0</td><td></td></tr>
+        <tr><td></td><td></td><td>22</td><td class="left">5CL+5로이</td><td>80</td><td>81.2</td><td style="background:#f5f5f5;"></td><td>5CL</td><td>1981</td><td>3353</td><td>14</td><td>93.0</td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td><td></td><td style="background:#f5f5f5;"></td><td>5SUPER+2.0</td><td>1981</td><td>3353</td><td>14</td><td>93.0</td><td></td></tr>
+        <tr style="height:4px; background:#f0f0f0;"><td colspan="13"></td></tr>
+        <tr><td>26-1861</td><td class="left">극동-성남</td><td>22</td><td class="left">5newGN+5로이</td><td>60</td><td>142.2</td><td style="background:#f5f5f5;"></td><td>5NX</td><td>1829</td><td>3353</td><td>24</td><td>147.2</td><td></td></tr>
+        <tr><td></td><td></td><td>22</td><td class="left">5CL+5로이</td><td>60</td><td>142.2</td><td style="background:#f5f5f5;"></td><td>5CL</td><td>1829</td><td>3353</td><td>24</td><td>147.2</td><td></td></tr>
+        <tr><td></td><td></td><td></td><td></td><td></td><td></td><td style="background:#f5f5f5;"></td><td>5SUPER+2.0</td><td>1829</td><td>3353</td><td>24</td><td>147.2</td><td></td></tr>
+        <tr style="height:4px; background:#f0f0f0;"><td colspan="13"></td></tr>
+        <tr><td>26-2248</td><td class="left">대진-대우</td><td>24</td><td class="left">6CL+6CL</td><td>60</td><td>82.3</td><td style="background:#f5f5f5;"></td><td>6CL</td><td>2438</td><td>3353</td><td>12</td><td>98.1</td><td>일면투명</td></tr>
+        <tr class="total"><td colspan="4">합계</td><td>340</td><td>529.1</td><td style="background:#e8eaf6;"></td><td></td><td></td><td></td><td>126</td><td>818.7</td><td></td></tr>
+      </table>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card"><div class="num">340</div><div class="label">재단 수량(매)</div></div>
+      <div class="stat-card green"><div class="num">529.1</div><div class="label">재단 면적(m2)</div></div>
+      <div class="stat-card"><div class="num">126</div><div class="label">원판 사용(장)</div></div>
+      <div class="stat-card blue"><div class="num">818.7</div><div class="label">원판 면적(m2)</div></div>
+    </div>
+
+    <div class="scenario-box blue">
+      <div class="label">확인된 표준 원판 규격</div>
+      <div class="text" style="display:flex; gap:24px; flex-wrap:wrap;">
+        <span>① 2438 × 3353mm (8.17m2)</span>
+        <span>② 1981 × 3353mm (6.64m2)</span>
+        <span>③ 1829 × 3353mm (6.13m2)</span>
+        <span>④ 1829 × 3048mm (5.57m2)</span>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:16px;">
+      <button class="btn btn-success" onclick="alert('절단일보(2026.08.25).xlsx가 다운로드됩니다.\n(데모에서는 실제 다운로드 미지원)')">📥 절단일보 다운로드</button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(3)">← 이전</button>
+      <button class="btn btn-primary" onclick="goStep(5)">다음: 주간 집계 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 5 ==================== -->
+<div class="step-content" id="step5">
+  <div class="card animate">
+    <h2>Step 5. 주간 생산실적 자동 집계</h2>
+    <div class="desc">일간 복층생산일지 데이터가 자동으로 주간 단위로 집계됩니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">핵심 변화</div>
+      <div class="text">
+        <b>기존:</b> 매주 월요일 아침, 지난 주 일간 생산일지를 보며 주간생산일지(52열) 엑셀에 수동 집계<br>
+        <b>AX:</b> 일간 데이터 입력 즉시 → 주간 KPI(생산조, M2, 시간당 생산성, 목표대비%) <b>자동 집계·시각화</b>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card"><div class="num">1,595</div><div class="label">주간 생산조</div></div>
+      <div class="stat-card green"><div class="num">1,706.6</div><div class="label">주간 생산M2</div></div>
+      <div class="stat-card"><div class="num">39.6</div><div class="label">시간당 생산조</div></div>
+      <div class="stat-card blue"><div class="num">60.0%</div><div class="label">목표대비 달성률</div></div>
+    </div>
+
+    <div class="weekly-grid">
+      <div>
+        <h3>일별 생산조 (34주차)</h3>
+        <div class="bar-chart" id="barChart1"></div>
+      </div>
+      <div>
+        <h3>일별 생산 M2 (34주차)</h3>
+        <div class="bar-chart" id="barChart2"></div>
+      </div>
+    </div>
+
+    <h3 style="margin-top:24px;">주간생산일지 1호기 — 34주차 (8월 4주)</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>날짜</th><th>요일</th><th>근무</th><th>시간</th><th>인원</th><th>바코드</th><th>생산조</th><th>시간당조</th><th>생산M2</th><th>시간당M2</th><th>목표대비</th><th>사유</th></tr>
+        <tr style="color:#aaa;"><td>8/17</td><td>월</td><td>휴무</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td></td></tr>
+        <tr><td>8/18</td><td>화</td><td>평일</td><td>8.25h</td><td>5</td><td>297</td><td>299</td><td>36.2</td><td>284.6</td><td>34.5</td><td>55%</td><td class="left">대진 산성역헤리스톤-미니라인70조</td></tr>
+        <tr><td>8/19</td><td>수</td><td>평일</td><td>8h</td><td>5</td><td>231</td><td>254</td><td>31.8</td><td>237.8</td><td>29.7</td><td>48%</td><td class="left">극동 성남금토-Ar+소규격100조</td></tr>
+        <tr><td>8/20</td><td>목</td><td>평일</td><td>8h</td><td>6</td><td>203</td><td>203</td><td>25.4</td><td>423.2</td><td>52.9</td><td>38%</td><td class="left">접합+대규격90조, 대규격60조</td></tr>
+        <tr style="background:#e8f5e9;"><td>8/21</td><td>금</td><td>평일</td><td>8h</td><td>6</td><td>442</td><td>442</td><td>55.3</td><td>408.6</td><td>51.1</td><td style="color:#27ae60; font-weight:700;">84%</td><td class="left" style="color:#27ae60;">★ 최고 실적일</td></tr>
+        <tr><td>8/22</td><td>토</td><td>주말</td><td>8h</td><td>5</td><td>397</td><td>397</td><td>49.6</td><td>352.5</td><td>44.1</td><td>75%</td><td class="left">극동 성남금토-Ar+소규격104조</td></tr>
+        <tr class="total"><td colspan="4">소계 (40.25h)</td><td></td><td></td><td>1,595</td><td>39.6</td><td>1,706.6</td><td>42.4</td><td>60%</td><td></td></tr>
+      </table>
+    </div>
+
+    <div style="display:flex; gap:16px; margin-top:20px;">
+      <button class="btn btn-success" onclick="alert('주간생산일지(34주차).xlsx가 다운로드됩니다.\n(데모에서는 실제 다운로드 미지원)')">📥 주간생산일지 다운로드</button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(4)">← 이전</button>
+      <button class="btn btn-success" onclick="goStep(1)">🔄 처음부터 다시</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ── 작업의뢰서별 항목 데이터 ──
+const orders = [
+  { // 26-1826
+    items: [
+      {no:1, 품명:'22T 5CLh/s+12Ar.+5로이', 규격:'1,688×1,810', 잔여:10, target:10, w:1688, h:1810},
+      {no:2, 품명:'', 규격:'761×1,810', 잔여:20, target:20, w:761, h:1810},
+      {no:3, 품명:'', 규격:'738×1,310', 잔여:40, target:40, w:738, h:1310},
+      {no:4, 품명:'', 규격:'288×910', 잔여:10, target:10, w:288, h:910},
+      {no:5, 품명:'22T 5CL+12Ar.+5로이', 규격:'2,114×1,810', 잔여:10, target:10, w:2114, h:1810},
+      {no:6, 품명:'', 규격:'861×1,810', 잔여:10, target:10, w:861, h:1810},
+      {no:7, 품명:'22T 5CLh/s+12A+5로이', 규격:'738×1,810', 잔여:10, target:10, w:738, h:1810},
+      {no:8, 품명:'', 규격:'228×910', 잔여:20, target:20, w:228, h:910},
+      {no:9, 품명:'', 규격:'208×910', 잔여:10, target:10, w:208, h:910},
+      {no:10, 품명:'', 규격:'438×270', 잔여:20, target:20, w:438, h:270},
+    ]
+  },
+  { // 26-1861
+    items: [
+      {no:1, 품명:'22T 5newGN+12단열(Ar.)+5로이', 규격:'1,650×1,963', 잔여:30, target:30, w:1650, h:1963},
+      {no:2, 품명:'', 규격:'766×1,963', 잔여:30, target:30, w:766, h:1963},
+      {no:3, 품명:'', 규격:'608×963', 잔여:24, target:24, w:608, h:963},
+      {no:4, 품명:'', 규격:'458×963', 잔여:24, target:24, w:458, h:963},
+      {no:5, 품명:'', 규격:'257×763', 잔여:12, target:12, w:257, h:763},
+    ]
+  },
+  { // 26-2248 (분할 생산: 60/102)
+    items: [
+      {no:1, 품명:'24T 6CL+12A+6CL', 규격:'435×794', 잔여:34, target:20, w:435, h:794},
+      {no:2, 품명:'', 규격:'285×794', 잔여:34, target:20, w:285, h:794},
+      {no:3, 품명:'24T 6CL+12A+6로이', 규격:'742×1,748', 잔여:17, target:10, w:742, h:1748},
+      {no:4, 품명:'', 규격:'591×1,748', 잔여:17, target:10, w:591, h:1748},
+    ]
+  }
+];
+
+// ── 렌더링 ──
+function renderItems() {
+  orders.forEach((order, oi) => {
+    const container = document.getElementById('items' + oi);
+    let html = '';
+    order.items.forEach((item, ii) => {
+      html += `<div class="input-item">
+        <div class="no">${item.no}</div>
+        <div>${item.품명 || '<span style="color:#bbb;">(상동)</span>'}</div>
+        <div class="spec">${item.규격}</div>
+        <div style="font-weight:600;">${item.잔여}</div>
+        <div><input type="number" id="inp_${oi}_${ii}" value="0" min="0" max="${item.잔여}" onchange="updateAll()"></div>
+        <div id="st_${oi}_${ii}"><span class="status s-none">-</span></div>
+      </div>`;
+    });
+    container.innerHTML = html;
+  });
+}
+
+function updateAll() {
+  let grandTotal = 0, grandM2 = 0, completedOrders = 0;
+  let totalRemain = 0;
+
+  orders.forEach((order, oi) => {
+    let orderTotal = 0, orderDone = true, orderStarted = false;
+    order.items.forEach((item, ii) => {
+      const val = parseInt(document.getElementById(`inp_${oi}_${ii}`).value) || 0;
+      const stEl = document.getElementById(`st_${oi}_${ii}`);
+      orderTotal += val;
+      grandM2 += (item.w * item.h * val) / 1000000;
+      const remain = item.잔여 - val;
+      totalRemain += remain;
+
+      if (val >= item.잔여) {
+        stEl.innerHTML = '<span class="status s-done">완료 ✓</span>';
+      } else if (val > 0) {
+        stEl.innerHTML = `<span class="status s-partial">${val}/${item.잔여}</span>`;
+        orderDone = false;
+        orderStarted = true;
+      } else {
+        stEl.innerHTML = '<span class="status s-none">-</span>';
+        orderDone = false;
+      }
+      if (val > 0) orderStarted = true;
+    });
+
+    grandTotal += orderTotal;
+    const badge = document.getElementById('orderBadge' + oi);
+    if (orderDone && orderStarted) {
+      badge.className = 'badge badge-done'; badge.textContent = '완료 ✓';
+      completedOrders++;
+    } else if (orderStarted) {
+      badge.className = 'badge badge-inputting'; badge.textContent = '입력중';
+    } else {
+      badge.className = 'badge badge-waiting'; badge.textContent = '대기';
+    }
+  });
+
+  document.getElementById('sTotal').textContent = grandTotal;
+  document.getElementById('sOrders').textContent = completedOrders + ' / 3';
+  document.getElementById('sM2').textContent = grandM2.toFixed(1);
+  document.getElementById('sRemain').textContent = totalRemain;
+}
+
+function autoFillAll() {
+  orders.forEach((order, oi) => {
+    const body = document.getElementById('orderBody' + oi);
+    body.classList.add('open');
+    document.getElementById('orderArrow' + oi).textContent = '▲';
+
+    order.items.forEach((item, ii) => {
+      const input = document.getElementById(`inp_${oi}_${ii}`);
+      let current = 0;
+      const target = item.target;
+      const step = () => {
+        if (current < target) {
+          current += Math.max(1, Math.floor(target / 10));
+          if (current > target) current = target;
+          input.value = current;
+          updateAll();
+          setTimeout(step, 40);
+        }
+      };
+      setTimeout(step, oi * 600 + ii * 80);
+    });
+  });
+}
+
+function toggleOrder(idx) {
+  const body = document.getElementById('orderBody' + idx);
+  const arrow = document.getElementById('orderArrow' + idx);
+  body.classList.toggle('open');
+  arrow.textContent = body.classList.contains('open') ? '▲' : '▼';
+}
+
+function loadOrders() {
+  document.getElementById('orderListArea').style.display = 'block';
+  document.getElementById('orderListArea').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ── 주간 차트 ──
+function renderCharts() {
+  const days = ['월(휴)', '화', '수', '목', '금', '토'];
+  const prodJo = [0, 299, 254, 203, 442, 397];
+  const prodM2 = [0, 284.6, 237.8, 423.2, 408.6, 352.5];
+
+  const maxJo = 500, maxM2 = 500;
+  let html1 = '', html2 = '';
+  days.forEach((d, i) => {
+    const h1 = prodJo[i] === 0 ? 4 : (prodJo[i] / maxJo * 160);
+    const h2 = prodM2[i] === 0 ? 4 : (prodM2[i] / maxM2 * 160);
+    const color = i === 4 ? '#27ae60' : (prodJo[i] === 0 ? '#eee' : '#c0392b');
+    html1 += `<div class="bar-item"><div class="bar-value">${prodJo[i] || '-'}</div><div class="bar" style="height:${h1}px; background:${color};"></div><div class="bar-label">${d}</div></div>`;
+    html2 += `<div class="bar-item"><div class="bar-value">${prodM2[i] || '-'}</div><div class="bar" style="height:${h2}px; background:${color};"></div><div class="bar-label">${d}</div></div>`;
+  });
+  document.getElementById('barChart1').innerHTML = html1;
+  document.getElementById('barChart2').innerHTML = html2;
+}
+
+// ── Step 3 생성 애니메이션 ──
+function animateGeneration() {
+  const prog = document.getElementById('genProgress');
+  const result = document.getElementById('genResult');
+  prog.style.display = 'block';
+  result.style.display = 'none';
+  let w = 0;
+  const fill = document.getElementById('genFill');
+  const interval = setInterval(() => {
+    w += 4;
+    fill.style.width = w + '%';
+    if (w >= 100) {
+      clearInterval(interval);
+      setTimeout(() => {
+        prog.style.display = 'none';
+        result.style.display = 'block';
+      }, 300);
+    }
+  }, 30);
+}
+
+// ── 스텝 네비게이션 ──
+let currentStep = 1;
+
+function goStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  updateStepBar();
+  if (n === 3) animateGeneration();
+  if (n === 5) setTimeout(renderCharts, 100);
+}
+
+function updateStepBar() {
+  const circles = document.querySelectorAll('.step-circle');
+  const labels = document.querySelectorAll('.step-label');
+  const connectors = document.querySelectorAll('.step-connector');
+  circles.forEach((c, i) => {
+    c.classList.remove('active', 'done');
+    labels[i].classList.remove('active', 'done');
+    if (i + 1 === currentStep) { c.classList.add('active'); labels[i].classList.add('active'); }
+    else if (i + 1 < currentStep) { c.classList.add('done'); labels[i].classList.add('done'); c.textContent = '✓'; }
+    else { c.textContent = i + 1; }
+  });
+  connectors.forEach((c, i) => { c.classList.toggle('done', i + 1 < currentStep); });
+}
+
+// 초기화
+renderItems();
+</script>
+
+</body>
+</html>

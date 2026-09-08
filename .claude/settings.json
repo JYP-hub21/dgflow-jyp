@@ -1,0 +1,77 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -f package.json ] && grep -q typescript package.json 2>/dev/null; then npx tsc --noEmit --pretty 2>&1 | head -30; else echo \"[SKIP] TypeScript not initialized yet\"; fi'",
+            "timeout": 30000,
+            "description": "TypeScript 타입 체크 (코드 수정 후 자동 실행)"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if [ -f package.json ] && grep -q eslint package.json 2>/dev/null; then npx eslint --quiet --max-warnings 0 $(git diff --name-only --diff-filter=ACMR 2>/dev/null | grep -E \"\\.(ts|tsx)$\" | head -5) 2>&1 | head -20; else echo \"[SKIP] ESLint not initialized yet\"; fi'",
+            "timeout": 30000,
+            "description": "ESLint 검사 (변경된 TS/TSX 파일 대상)"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npx *)",
+      "Bash(npm *)",
+      "Bash(node *)",
+      "Bash(echo *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(git stash*)",
+      "Bash(git merge *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *.ts*)",
+      "Bash(rm *.js*)",
+      "Bash(rm *.css*)",
+      "Bash(rm *.json)",
+      "Bash(rm *.sql)",
+      "Bash(rm -r node_modules*)",
+      "Bash(rm -r .next*)",
+      "Bash(cd *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(curl *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(sort *)",
+      "Bash(find *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(env *)",
+      "Bash(export *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf D:*)",
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}

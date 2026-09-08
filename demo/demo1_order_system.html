@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>동일유리 AX - 발주서 자동 정리 및 검증 시스템</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: '맑은 고딕', 'Malgun Gothic', sans-serif; background: #f5f7fa; color: #222; }
+
+/* 헤더 */
+.header { background: #1a1a2e; color: #fff; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+.header h1 { font-size: 20px; font-weight: 700; }
+.header .subtitle { font-size: 13px; color: #8892b0; }
+.header .logo { font-size: 13px; color: #64ffda; font-weight: 600; }
+
+/* 스텝 인디케이터 */
+.steps-bar { background: #fff; border-bottom: 1px solid #e0e0e0; padding: 20px 32px; display: flex; align-items: center; justify-content: center; gap: 0; }
+.step-item { display: flex; align-items: center; gap: 0; }
+.step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 700; border: 2px solid #ccc; color: #999; background: #fff; transition: all 0.3s; cursor: pointer; }
+.step-circle.active { background: #2b579a; border-color: #2b579a; color: #fff; }
+.step-circle.done { background: #27ae60; border-color: #27ae60; color: #fff; }
+.step-label { font-size: 12px; color: #999; margin-left: 8px; margin-right: 16px; transition: all 0.3s; white-space: nowrap; }
+.step-label.active { color: #2b579a; font-weight: 700; }
+.step-label.done { color: #27ae60; font-weight: 700; }
+.step-connector { width: 40px; height: 2px; background: #ddd; margin: 0 4px; transition: background 0.3s; }
+.step-connector.done { background: #27ae60; }
+
+/* 메인 */
+.main { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+.step-content { display: none; }
+.step-content.active { display: block; }
+
+/* 카드 */
+.card { background: #fff; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 28px; margin-bottom: 20px; }
+.card h2 { font-size: 20px; color: #1a1a2e; margin-bottom: 6px; }
+.card h3 { font-size: 16px; color: #2b579a; margin-bottom: 12px; }
+.card .desc { font-size: 14px; color: #666; margin-bottom: 20px; line-height: 1.6; }
+
+/* 테이블 */
+.table-wrap { overflow-x: auto; margin: 16px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: #2b579a; color: #fff; padding: 10px 12px; text-align: center; font-weight: 600; white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid #eee; text-align: center; vertical-align: middle; }
+tr:nth-child(even) { background: #f8f9fc; }
+tr:hover { background: #eef2ff; }
+td.left { text-align: left; }
+tr.highlight td { background: #fff3e0 !important; }
+tr.error td { background: #ffebee !important; }
+tr.match td { background: #e8f5e9 !important; }
+
+/* 버튼 */
+.btn { padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-primary { background: #2b579a; color: #fff; }
+.btn-primary:hover { background: #1e3f73; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #1e8c4c; }
+.btn-outline { background: #fff; color: #2b579a; border: 2px solid #2b579a; }
+.btn-outline:hover { background: #f0f4ff; }
+.btn-group { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+
+/* 업로드 영역 */
+.upload-area { border: 3px dashed #ccc; border-radius: 16px; padding: 60px; text-align: center; cursor: pointer; transition: all 0.3s; }
+.upload-area:hover { border-color: #2b579a; background: #f0f4ff; }
+.upload-area .icon { font-size: 48px; margin-bottom: 16px; }
+.upload-area p { font-size: 16px; color: #666; }
+.upload-area .filename { font-size: 18px; color: #2b579a; font-weight: 700; margin-top: 12px; }
+
+/* 진행 바 */
+.progress-bar { width: 100%; height: 8px; background: #e0e0e0; border-radius: 4px; margin: 16px 0; overflow: hidden; }
+.progress-fill { height: 100%; background: linear-gradient(90deg, #2b579a, #27ae60); border-radius: 4px; transition: width 1.5s ease; }
+
+/* 비교 뷰 */
+.compare-grid { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 0; align-items: start; }
+.compare-arrow { display: flex; align-items: center; justify-content: center; padding-top: 60px; font-size: 28px; color: #2b579a; }
+
+/* 통계 카드 */
+.stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+.stat-card { background: #fff; border-radius: 10px; padding: 20px; text-align: center; border: 1px solid #e8e8e8; }
+.stat-card .num { font-size: 32px; font-weight: 800; color: #2b579a; }
+.stat-card .label { font-size: 13px; color: #888; margin-top: 4px; }
+.stat-card.green .num { color: #27ae60; }
+.stat-card.red .num { color: #e74c3c; }
+.stat-card.orange .num { color: #e67e22; }
+
+/* 결과 배지 */
+.badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.badge-success { background: #e8f5e9; color: #27ae60; }
+.badge-error { background: #ffebee; color: #e74c3c; }
+.badge-warn { background: #fff3e0; color: #e67e22; }
+
+/* 다운로드 버튼 아이콘 */
+.btn .ico { margin-right: 6px; }
+
+/* 애니메이션 */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.animate { animation: fadeIn 0.5s ease; }
+
+.scenario-box { background: #f0f4ff; border-left: 4px solid #2b579a; padding: 16px 20px; border-radius: 0 8px 8px 0; margin-bottom: 20px; }
+.scenario-box .label { font-size: 12px; color: #2b579a; font-weight: 700; margin-bottom: 4px; }
+.scenario-box .text { font-size: 14px; color: #333; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>발주서 자동 정리 및 검증 시스템</h1>
+    <div class="subtitle">동일유리 AX 프로젝트 — Demo #1</div>
+  </div>
+  <div class="logo">DONGIL GLASS AX</div>
+</div>
+
+<div class="steps-bar" id="stepsBar">
+  <div class="step-item">
+    <div class="step-circle active" onclick="goStep(1)">1</div>
+    <div class="step-label active">발주서 업로드</div>
+  </div>
+  <div class="step-connector"></div>
+  <div class="step-item">
+    <div class="step-circle" onclick="goStep(2)">2</div>
+    <div class="step-label">자동 파싱</div>
+  </div>
+  <div class="step-connector"></div>
+  <div class="step-item">
+    <div class="step-circle" onclick="goStep(3)">3</div>
+    <div class="step-label">규격 그룹핑</div>
+  </div>
+  <div class="step-connector"></div>
+  <div class="step-item">
+    <div class="step-circle" onclick="goStep(4)">4</div>
+    <div class="step-label">ERP 데이터 생성</div>
+  </div>
+  <div class="step-connector"></div>
+  <div class="step-item">
+    <div class="step-circle" onclick="goStep(5)">5</div>
+    <div class="step-label">작업의뢰서 업로드</div>
+  </div>
+  <div class="step-connector"></div>
+  <div class="step-item">
+    <div class="step-circle" onclick="goStep(6)">6</div>
+    <div class="step-label">자동 비교 검증</div>
+  </div>
+</div>
+
+<div class="main">
+
+<!-- ==================== STEP 1 ==================== -->
+<div class="step-content active" id="step1">
+  <div class="card animate">
+    <h2>Step 1. 발주서 엑셀 파일 업로드</h2>
+    <div class="desc">담당자로부터 수신한 발주서 엑셀 파일을 업로드합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">시나리오</div>
+      <div class="text">대진글라스로부터 <b>대우건설_산성역헤리스톤 3BL 현장</b> 302동 1~6층 발주서를 수신했습니다.<br>
+      업체명: (주)대진글라스a / 현장: 대우건설_산성역헤리스톤3BL / 의뢰일자: 2026-08-21</div>
+    </div>
+
+    <div class="upload-area" id="uploadArea" onclick="simulateUpload()">
+      <div class="icon">📁</div>
+      <p>발주서 엑셀 파일을 클릭하여 업로드하세요</p>
+      <p style="font-size:13px; color:#aaa; margin-top:8px;">지원 형식: .xlsx, .xls</p>
+    </div>
+
+    <div id="uploadResult" style="display:none; margin-top:20px;">
+      <div style="display:flex; align-items:center; gap:12px; padding:16px; background:#e8f5e9; border-radius:8px;">
+        <span style="font-size:28px;">✅</span>
+        <div>
+          <div style="font-weight:700; font-size:16px;">외주 대진글라스 발주서.xlsx</div>
+          <div style="font-size:13px; color:#666;">시트: 대우산성역헤리스톤3BL | 34행 × 17열 | 업로드 완료</div>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="goStep(2)">다음: 자동 파싱 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 2 ==================== -->
+<div class="step-content" id="step2">
+  <div class="card animate">
+    <h2>Step 2. 발주서 자동 파싱 결과</h2>
+    <div class="desc">업로드된 발주서에서 품명, 규격, 수량, 위치 정보를 자동으로 추출합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">자동 처리</div>
+      <div class="text">발주서 양식을 자동 인식하고, 34개 항목의 <b>품명 · 가로 · 세로 · 수량 · 동 · 라인 · 창위치 · 타입 · 구분</b>을 추출했습니다.</div>
+    </div>
+
+    <div id="parseProgress" style="display:none;">
+      <div style="font-size:14px; color:#2b579a; font-weight:600; margin-bottom:8px;">파싱 중...</div>
+      <div class="progress-bar"><div class="progress-fill" id="parseFill" style="width:0%"></div></div>
+    </div>
+
+    <div id="parseResult" style="display:none;">
+      <div class="stat-row">
+        <div class="stat-card"><div class="num">34</div><div class="label">추출 항목 수</div></div>
+        <div class="stat-card green"><div class="num">4</div><div class="label">품명 종류</div></div>
+        <div class="stat-card orange"><div class="num">3</div><div class="label">라인 수</div></div>
+        <div class="stat-card"><div class="num">262</div><div class="label">총 수량(매)</div></div>
+      </div>
+
+      <h3>파싱된 발주 데이터 (34행)</h3>
+      <div class="table-wrap">
+        <table id="parseTable"></table>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="goStep(1)">← 이전</button>
+        <button class="btn btn-primary" onclick="goStep(3)">다음: 규격 그룹핑 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 3 ==================== -->
+<div class="step-content" id="step3">
+  <div class="card animate">
+    <h2>Step 3. 동일 규격 자동 그룹핑</h2>
+    <div class="desc">동일한 품명 · 규격(가로×세로)의 항목을 자동으로 묶어 ERP 입력용으로 정리합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">자동 처리</div>
+      <div class="text"><b>34행 → 10행</b>으로 압축 | 라인 통합(1~3라인→1~3), 타입 통합(59A,B), 위치 통합(침실2,3) | M2 면적 자동 계산</div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card"><div class="num">34 → 10</div><div class="label">행 수 압축</div></div>
+      <div class="stat-card green"><div class="num">71%</div><div class="label">압축률</div></div>
+      <div class="stat-card orange"><div class="num">343.25</div><div class="label">총 면적(M2)</div></div>
+      <div class="stat-card"><div class="num">262</div><div class="label">총 수량 일치 ✓</div></div>
+    </div>
+
+    <div class="compare-grid">
+      <div>
+        <h3>원본 (품명별 행 수)</h3>
+        <table>
+          <tr><th>품명</th><th>행 수</th><th>수량 합계</th></tr>
+          <tr><td class="left">26.76T 접합+로이</td><td>11</td><td>63</td></tr>
+          <tr><td class="left">24T 6CL+12A+6CL (내창)</td><td>6</td><td>68</td></tr>
+          <tr><td class="left">24T 6CL+12A+6로이 (외창)</td><td>15</td><td>131</td></tr>
+          <tr style="font-weight:700; background:#f0f4ff;"><td>합계</td><td>34 (중복 포함)</td><td>-</td></tr>
+          <tr><td class="left">24T 6CL+12A+6CL (내창_LS)</td><td>+12</td><td>+102</td></tr>
+        </table>
+      </div>
+      <div class="compare-arrow">→</div>
+      <div>
+        <h3>그룹핑 결과 (ERP 입력용)</h3>
+        <table id="groupTable"></table>
+      </div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(2)">← 이전</button>
+      <button class="btn btn-primary" onclick="goStep(4)">다음: ERP 데이터 생성 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 4 ==================== -->
+<div class="step-content" id="step4">
+  <div class="card animate">
+    <h2>Step 4. ERP(바이투) 입력용 엑셀 자동 생성</h2>
+    <div class="desc">그룹핑 결과를 ERP(바이투) import 양식(16열)에 맞춰 자동으로 변환합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">자동 처리</div>
+      <div class="text">주문번호 자동 채번 (<b>260821-08</b>) | 품명 자동 변환 | 두께 자동 계산 | 면적(m2) 자동 산출 | 거래처·현장명 자동 매핑</div>
+    </div>
+
+    <h3>생성된 ERP 엑셀 양식</h3>
+    <div class="table-wrap">
+      <table id="erpTable"></table>
+    </div>
+
+    <div style="display:flex; gap:16px; margin-top:16px;">
+      <button class="btn btn-success" onclick="alert('ERP 엑셀 파일이 다운로드됩니다.\n(데모에서는 실제 다운로드 미지원)')">
+        <span class="ico">📥</span> ERP 엑셀 다운로드
+      </button>
+      <button class="btn btn-outline" onclick="alert('ERP(바이투)에 데이터를 직접 전송합니다.\n(향후 API 연동 시 구현 예정)')">
+        <span class="ico">🔗</span> ERP 직접 전송 (향후)
+      </button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(3)">← 이전</button>
+      <button class="btn btn-primary" onclick="goStep(5)">다음: 작업의뢰서 업로드 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 5: 작업의뢰서 업로드 ==================== -->
+<div class="step-content" id="step5">
+  <div class="card animate">
+    <h2>Step 5. 작업의뢰서 업로드</h2>
+    <div class="desc">ERP(바이투)에서 출력된 작업의뢰서를 업로드하여 원본 발주서와 비교 검증합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">시나리오</div>
+      <div class="text">Step 4에서 생성한 ERP 데이터를 바이투에 입력하고, 작업의뢰서를 출력했습니다.<br>
+      의뢰번호 <b>26-2247</b>, <b>26-2248</b> — (주)대진글라스a / 대우건설_산성역헤리스톤3BL 현장<br>
+      이 작업의뢰서를 업로드하여 <b>원본 발주서와 일치하는지 자동 검증</b>합니다.</div>
+    </div>
+
+    <div class="upload-area" id="uploadArea2" onclick="simulateUpload2()">
+      <div class="icon">📄</div>
+      <p>ERP에서 출력된 <b>작업의뢰서</b> 파일을 업로드하세요</p>
+      <p style="font-size:13px; color:#aaa; margin-top:8px;">지원 형식: .xlsx, .xls, .pdf (스캔본)</p>
+    </div>
+
+    <div id="uploadResult2" style="display:none; margin-top:20px;">
+      <div style="display:flex; align-items:center; gap:12px; padding:16px; background:#e8f5e9; border-radius:8px; margin-bottom:12px;">
+        <span style="font-size:28px;">✅</span>
+        <div>
+          <div style="font-weight:700; font-size:16px;">작업의뢰서_26-2247_대진글라스.xlsx</div>
+          <div style="font-size:13px; color:#666;">의뢰번호: 26-2247 | 업체: (주)대진글라스a | 현장: 산성역헤리스톤3BL | 10항목</div>
+        </div>
+      </div>
+
+      <h3>업로드된 작업의뢰서 미리보기</h3>
+      <div class="table-wrap">
+        <table>
+          <tr><th>No</th><th>품명</th><th>규격</th><th>수량</th><th>면적</th><th>비고</th></tr>
+          <tr><td>1</td><td class="left">26.76T 10.76투명접합+10A+6로이</td><td>1,646 × 1,748</td><td>17</td><td>48.96</td><td class="left">302동1~3라인 거실 외창픽스</td></tr>
+          <tr><td>2</td><td class="left"></td><td>591 × 1,748</td><td>34</td><td>35.02</td><td class="left">302동1~3라인 침실2,3 외창픽스</td></tr>
+          <tr><td>3</td><td class="left"></td><td>543 × 1,745</td><td style="color:#e74c3c; font-weight:700;">10</td><td>9.50</td><td class="left">302동1,2라인 발코니1 단창픽스</td></tr>
+          <tr style="font-weight:700; background:#f0f4ff;"><td></td><td>소계</td><td></td><td>61</td><td>93.48</td><td></td></tr>
+          <tr><td>4</td><td class="left">24T 6CL+12A+6CL</td><td>435 × 794</td><td>34</td><td>11.90</td><td class="left">302동1~3라인 주방/식당 내창</td></tr>
+          <tr><td>5</td><td class="left"></td><td>285 × 794</td><td>34</td><td>9.52</td><td class="left">302동1~3라인 다용도 내창</td></tr>
+          <tr style="font-weight:700; background:#f0f4ff;"><td></td><td>소계</td><td></td><td>68</td><td>21.42</td><td></td></tr>
+          <tr><td>6</td><td class="left">24T 6CL+12A+6로이</td><td>742 × 1,748</td><td>17</td><td>22.10</td><td class="left">302동1~3라인 거실 외창밴트</td></tr>
+          <tr><td>7</td><td class="left"></td><td>591 × 1,746</td><td>34</td><td>35.02</td><td class="left">302동1~3라인 침실2,3 외창밴트</td></tr>
+          <tr><td>8</td><td class="left"></td><td>543 × 1,745</td><td>12</td><td>11.40</td><td class="left">302동1,2라인 발코니1 단창밴트</td></tr>
+          <tr><td>9</td><td class="left"></td><td>441 × 798</td><td>34</td><td>11.90</td><td class="left">302동1~3라인 주방/식당 외창</td></tr>
+          <tr><td>10</td><td class="left"></td><td>291 × 798</td><td>34</td><td>9.52</td><td class="left">302동1~3라인 다용도 외창</td></tr>
+          <tr style="font-weight:700; background:#f0f4ff;"><td></td><td>소계</td><td></td><td>131</td><td>89.94</td><td></td></tr>
+          <tr style="font-weight:700; background:#e8eaf6;"><td></td><td>합계</td><td></td><td>260</td><td>204.84</td><td></td></tr>
+        </table>
+      </div>
+
+      <div style="background:#fff3e0; border-radius:8px; padding:16px; margin-top:16px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">👀</span>
+          <span style="font-weight:600; color:#e67e22;">비교 대상이 준비되었습니다</span>
+        </div>
+        <div style="font-size:13px; color:#666; margin-top:8px;">
+          <b>좌측:</b> Step 3에서 생성한 ERP 입력 데이터 (원본 발주서 기준) &nbsp;↔&nbsp;
+          <b>우측:</b> 방금 업로드한 작업의뢰서 (ERP 출력물)
+        </div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="goStep(4)">← 이전</button>
+        <button class="btn btn-primary" onclick="goStep(6)">다음: 자동 비교 검증 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== STEP 6: 자동 비교 검증 ==================== -->
+<div class="step-content" id="step6">
+  <div class="card animate">
+    <h2>Step 6. 발주서 ↔ 작업의뢰서 자동 비교 검증</h2>
+    <div class="desc">Step 3의 원본 발주 데이터와 Step 5에서 업로드한 작업의뢰서(26-2247)를 항목별로 자동 대조합니다.</div>
+
+    <div class="scenario-box">
+      <div class="label">시나리오</div>
+      <div class="text">ERP 입력 후 출력된 작업의뢰서(의뢰번호: <b>26-2247</b>)를 원본 발주 데이터와 자동 대조합니다.<br>
+      <span style="color:#e74c3c; font-weight:600;">의도적으로 2건의 불일치를 시뮬레이션합니다.</span></div>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-card green"><div class="num">8</div><div class="label">일치 항목</div></div>
+      <div class="stat-card red"><div class="num">2</div><div class="label">불일치 항목</div></div>
+      <div class="stat-card orange"><div class="num">80%</div><div class="label">일치율</div></div>
+      <div class="stat-card"><div class="num">10</div><div class="label">총 검증 항목</div></div>
+    </div>
+
+    <h3>검증 결과 상세</h3>
+    <div class="table-wrap">
+      <table id="verifyTable"></table>
+    </div>
+
+    <div style="margin-top:20px;">
+      <h3>불일치 상세 리포트</h3>
+      <div style="background:#ffebee; border-radius:8px; padding:16px; margin-top:12px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+          <span style="font-size:20px;">⚠️</span>
+          <span style="font-weight:700; color:#c0392b; font-size:15px;">2건의 불일치가 발견되었습니다</span>
+        </div>
+        <div style="font-size:13px; line-height:1.8; color:#333;">
+          <b>[항목 3] 발코니1 단창픽스 — 수량 불일치</b><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;발주서: <span style="color:#2b579a; font-weight:600;">12매</span> → 작업의뢰서: <span style="color:#e74c3c; font-weight:600;">10매</span> (차이: -2매)<br><br>
+          <b>[항목 7] 침실2,3 외창밴트 — 규격 불일치</b><br>
+          &nbsp;&nbsp;&nbsp;&nbsp;발주서: <span style="color:#2b579a; font-weight:600;">591 × 1,748</span> → 작업의뢰서: <span style="color:#e74c3c; font-weight:600;">591 × 1,746</span> (세로 2mm 차이)
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:16px; margin-top:20px;">
+      <button class="btn btn-success" onclick="alert('검증 리포트가 다운로드됩니다.\n(데모에서는 실제 다운로드 미지원)')">
+        <span class="ico">📋</span> 검증 리포트 다운로드
+      </button>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-outline" onclick="goStep(5)">← 이전</button>
+      <button class="btn btn-success" onclick="goStep(1)">🔄 처음부터 다시</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ── 데이터 ──
+const rawData = [
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:543, 세로:1745, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'발코니1', 타입:'59A', 구분:'단창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:543, 세로:1745, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'발코니1', 타입:'59B', 구분:'단창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'침실2', 타입:'59A', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'침실3', 타입:'59A', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'침실2', 타입:'59B', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'침실3', 타입:'59B', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'침실2', 타입:'59A', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:591, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'침실3', 타입:'59A', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:1646, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'거실', 타입:'59A', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:1646, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'거실', 타입:'59B', 구분:'외창픽스'},
+  {품명:'5CL/0.76PVB/5CL+10ALC+6EMT178', 가로:1646, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'거실', 타입:'59A', 구분:'외창픽스'},
+  {품명:'6CL+12ALC+6CL', 가로:285, 세로:794, 수량:12, 동:'302동', 라인:'1라인(1~6층)', 창:'다용도', 타입:'59A', 구분:'내창'},
+  {품명:'6CL+12ALC+6CL', 가로:285, 세로:794, 수량:12, 동:'302동', 라인:'2라인(1~6층)', 창:'다용도', 타입:'59B', 구분:'내창'},
+  {품명:'6CL+12ALC+6CL', 가로:285, 세로:794, 수량:10, 동:'302동', 라인:'3라인(2~6층)', 창:'다용도', 타입:'59A', 구분:'내창'},
+  {품명:'6CL+12ALC+6CL', 가로:435, 세로:794, 수량:12, 동:'302동', 라인:'1라인(1~6층)', 창:'주방/식당', 타입:'59A', 구분:'내창'},
+  {품명:'6CL+12ALC+6CL', 가로:435, 세로:794, 수량:12, 동:'302동', 라인:'2라인(1~6층)', 창:'주방/식당', 타입:'59B', 구분:'내창'},
+  {품명:'6CL+12ALC+6CL', 가로:435, 세로:794, 수량:10, 동:'302동', 라인:'3라인(2~6층)', 창:'주방/식당', 타입:'59A', 구분:'내창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:291, 세로:798, 수량:12, 동:'302동', 라인:'1라인(1~6층)', 창:'다용도', 타입:'59A', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:291, 세로:798, 수량:12, 동:'302동', 라인:'2라인(1~6층)', 창:'다용도', 타입:'59B', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:291, 세로:798, 수량:10, 동:'302동', 라인:'3라인(2~6층)', 창:'다용도', 타입:'59A', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:441, 세로:798, 수량:12, 동:'302동', 라인:'1라인(1~6층)', 창:'주방/식당', 타입:'59A', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:441, 세로:798, 수량:12, 동:'302동', 라인:'2라인(1~6층)', 창:'주방/식당', 타입:'59B', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:441, 세로:798, 수량:10, 동:'302동', 라인:'3라인(2~6층)', 창:'주방/식당', 타입:'59A', 구분:'외창'},
+  {품명:'6CL+12ALC+6EMT178', 가로:543, 세로:1745, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'발코니1', 타입:'59A', 구분:'단창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:543, 세로:1745, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'발코니1', 타입:'59B', 구분:'단창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'침실2', 타입:'59A', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'침실3', 타입:'59A', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'침실2', 타입:'59B', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'침실3', 타입:'59B', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'침실2', 타입:'59A', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:591, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'침실3', 타입:'59A', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:742, 세로:1748, 수량:6, 동:'302동', 라인:'1라인(1~6층)', 창:'거실', 타입:'59A', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:742, 세로:1748, 수량:6, 동:'302동', 라인:'2라인(1~6층)', 창:'거실', 타입:'59B', 구분:'외창밴트'},
+  {품명:'6CL+12ALC+6EMT178', 가로:742, 세로:1748, 수량:5, 동:'302동', 라인:'3라인(2~6층)', 창:'거실', 타입:'59A', 구분:'외창밴트'},
+];
+
+const groupedData = [
+  {no:1, erpName:'26.76T 10.76투명접합+10A+6로이', 가로:1646, 세로:1748, 수량:17, m2:48.96, 위치:'302동1~3라인(1~6층)거실59A,B외창픽스'},
+  {no:2, erpName:'', 가로:591, 세로:1748, 수량:34, m2:35.02, 위치:'302동1~3라인(1~6층)침실2,3 59A,B외창픽스'},
+  {no:3, erpName:'', 가로:543, 세로:1745, 수량:12, m2:11.40, 위치:'302동1,2라인(1~6층)발코니159A,B단창픽스'},
+  {no:4, erpName:'24T 6CL+12A+6CL', 가로:435, 세로:794, 수량:34, m2:11.90, 위치:'302동1~3라인(1~6층)주방/식당59A,B내창'},
+  {no:5, erpName:'', 가로:285, 세로:794, 수량:34, m2:9.52, 위치:'302동1~3라인(1~6층)다용도59A,B내창'},
+  {no:6, erpName:'24T 6CL+12A+6로이', 가로:742, 세로:1748, 수량:17, m2:22.10, 위치:'302동1~3라인(1~6층)거실59A,B외창밴트'},
+  {no:7, erpName:'', 가로:591, 세로:1748, 수량:34, m2:35.02, 위치:'302동1~3라인(1~6층)침실2,3 59A,B외창밴트'},
+  {no:8, erpName:'', 가로:543, 세로:1745, 수량:12, m2:11.40, 위치:'302동1,2라인(1~6층)발코니1 59A.B단창밴트'},
+  {no:9, erpName:'', 가로:441, 세로:798, 수량:34, m2:11.90, 위치:'302동1~3라인(1~6층)주방/식당59A,B외창'},
+  {no:10, erpName:'', 가로:291, 세로:798, 수량:34, m2:9.52, 위치:'302동1~3라인(1~6층)다용도59A,B외창'},
+];
+
+const verifyData = [
+  {no:1, 품명:'26.76T 접합+로이', 규격:'1,646×1,748', 발주수량:17, 의뢰수량:17, status:'match'},
+  {no:2, 품명:'', 규격:'591×1,748', 발주수량:34, 의뢰수량:34, status:'match'},
+  {no:3, 품명:'', 규격:'543×1,745', 발주수량:12, 의뢰수량:10, status:'error', detail:'수량 불일치 (-2매)'},
+  {no:4, 품명:'24T 6CL+12A+6CL', 규격:'435×794', 발주수량:34, 의뢰수량:34, status:'match'},
+  {no:5, 품명:'', 규격:'285×794', 발주수량:34, 의뢰수량:34, status:'match'},
+  {no:6, 품명:'24T 6CL+12A+6로이', 규격:'742×1,748', 발주수량:17, 의뢰수량:17, status:'match'},
+  {no:7, 품명:'', 규격:'591×1,748', 발주수량:34, 의뢰수량:34, status:'error', detail:'규격 불일치 (세로 1748→1746)'},
+  {no:8, 품명:'', 규격:'543×1,745', 발주수량:12, 의뢰수량:12, status:'match'},
+  {no:9, 품명:'', 규격:'441×798', 발주수량:34, 의뢰수량:34, status:'match'},
+  {no:10, 품명:'', 규격:'291×798', 발주수량:34, 의뢰수량:34, status:'match'},
+];
+
+// ── 렌더링 ──
+function renderParseTable() {
+  let html = '<tr><th>No</th><th>품명</th><th>가로</th><th>세로</th><th>수량</th><th>동</th><th>라인</th><th>창위치</th><th>타입</th><th>구분</th></tr>';
+  rawData.forEach((r, i) => {
+    const short = r.품명.length > 20 ? r.품명.substring(0, 18) + '...' : r.품명;
+    html += `<tr><td>${i+1}</td><td class="left" title="${r.품명}">${short}</td><td>${r.가로}</td><td>${r.세로}</td><td>${r.수량}</td><td>${r.동}</td><td>${r.라인}</td><td>${r.창}</td><td>${r.타입}</td><td>${r.구분}</td></tr>`;
+  });
+  document.getElementById('parseTable').innerHTML = html;
+}
+
+function renderGroupTable() {
+  let html = '<tr><th>No</th><th>품명 (ERP)</th><th>가로</th><th>세로</th><th>수량</th><th>M2</th><th>위치 (묶음)</th></tr>';
+  groupedData.forEach(r => {
+    html += `<tr><td>${r.no}</td><td class="left">${r.erpName}</td><td>${r.가로.toLocaleString()}</td><td>${r.세로.toLocaleString()}</td><td>${r.수량}</td><td>${r.m2.toFixed(2)}</td><td class="left">${r.위치}</td></tr>`;
+    if (r.no === 3 || r.no === 5) {
+      const sub = r.no === 3 ? 63 : 68;
+      const subM2 = r.no === 3 ? 95.38 : 21.42;
+      html += `<tr style="background:#e8eaf6; font-weight:700;"><td></td><td>소계</td><td></td><td></td><td>${sub}</td><td>${subM2}</td><td></td></tr>`;
+    }
+  });
+  html += `<tr style="background:#c5cae9; font-weight:700;"><td></td><td>합계</td><td></td><td></td><td>262</td><td>206.74</td><td></td></tr>`;
+  document.getElementById('groupTable').innerHTML = html;
+}
+
+function renderErpTable() {
+  const erpItems = [
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'10.76투명접합+10A+6로이', 두께:'26.76', 가로:1646, 세로:1748, 수량:17, 면적:532.76, 비고:'거실59A,B외창픽스'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'10.76투명접합+10A+6로이', 두께:'26.76', 가로:591, 세로:1748, 수량:34, 면적:382.58, 비고:'침실2,3 외창픽스'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'10.76투명접합+10A+6로이', 두께:'26.76', 가로:543, 세로:1745, 수량:12, 면적:123.85, 비고:'발코니1 단창픽스'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6CL', 두께:'24', 가로:435, 세로:794, 수량:34, 면적:127.91, 비고:'주방/식당 내창'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6CL', 두께:'24', 가로:285, 세로:794, 수량:34, 면적:83.80, 비고:'다용도 내창'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6로이', 두께:'24', 가로:742, 세로:1748, 수량:17, 면적:240.16, 비고:'거실 외창밴트'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6로이', 두께:'24', 가로:591, 세로:1748, 수량:34, 면적:382.58, 비고:'침실2,3 외창밴트'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6로이', 두께:'24', 가로:543, 세로:1745, 수량:12, 면적:123.85, 비고:'발코니1 단창밴트'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6로이', 두께:'24', 가로:441, 세로:798, 수량:34, 면적:130.33, 비고:'주방/식당 외창'},
+    {주문번호:'260821-08', 거래처:'(주)대진글라스a', 현장:'대우건설_산성역헤리스톤3BL', 품명:'6CL+12A+6로이', 두께:'24', 가로:291, 세로:798, 수량:34, 면적:86.00, 비고:'다용도 외창'},
+  ];
+  let html = '<tr><th>주문번호</th><th>거래처</th><th>현장명</th><th>구분</th><th>품명</th><th>두께</th><th>가로</th><th>세로</th><th>수량</th><th>면적</th><th>비고</th></tr>';
+  erpItems.forEach(r => {
+    html += `<tr><td>${r.주문번호}</td><td class="left">${r.거래처}</td><td class="left">${r.현장}</td><td>TP</td><td class="left">${r.품명}</td><td>${r.두께}</td><td>${r.가로}</td><td>${r.세로}</td><td>${r.수량}</td><td>${r.면적}</td><td class="left">${r.비고}</td></tr>`;
+  });
+  document.getElementById('erpTable').innerHTML = html;
+}
+
+function renderVerifyTable() {
+  let html = '<tr><th>No</th><th>품명</th><th>규격</th><th>발주 수량</th><th>의뢰 수량</th><th>결과</th><th>상세</th></tr>';
+  verifyData.forEach(r => {
+    const cls = r.status === 'match' ? 'match' : 'error';
+    const badge = r.status === 'match' ? '<span class="badge badge-success">일치 ✓</span>' : '<span class="badge badge-error">불일치 ✗</span>';
+    html += `<tr class="${cls}"><td>${r.no}</td><td class="left">${r.품명}</td><td>${r.규격}</td><td>${r.발주수량}</td><td>${r.의뢰수량}</td><td>${badge}</td><td class="left">${r.detail || ''}</td></tr>`;
+  });
+  document.getElementById('verifyTable').innerHTML = html;
+}
+
+// ── 초기 렌더링 ──
+renderParseTable();
+renderGroupTable();
+renderErpTable();
+renderVerifyTable();
+
+// ── 스텝 네비게이션 ──
+let currentStep = 1;
+
+function goStep(n) {
+  if (n === 2 && currentStep === 1) {
+    simulateParsing();
+  }
+  currentStep = n;
+  document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  updateStepBar();
+}
+
+function updateStepBar() {
+  const circles = document.querySelectorAll('.step-circle');
+  const labels = document.querySelectorAll('.step-label');
+  const connectors = document.querySelectorAll('.step-connector');
+  circles.forEach((c, i) => {
+    c.classList.remove('active', 'done');
+    labels[i].classList.remove('active', 'done');
+    if (i + 1 === currentStep) { c.classList.add('active'); labels[i].classList.add('active'); }
+    else if (i + 1 < currentStep) { c.classList.add('done'); labels[i].classList.add('done'); c.textContent = '✓'; }
+    else { c.textContent = i + 1; }
+  });
+  connectors.forEach((c, i) => {
+    c.classList.toggle('done', i + 1 < currentStep);
+  });
+}
+
+// ── 시뮬레이션 ──
+function simulateUpload() {
+  const area = document.getElementById('uploadArea');
+  area.innerHTML = '<div class="icon">⏳</div><p>파일 업로드 중...</p>';
+  setTimeout(() => {
+    area.style.display = 'none';
+    document.getElementById('uploadResult').style.display = 'block';
+  }, 1000);
+}
+
+function simulateUpload2() {
+  const area = document.getElementById('uploadArea2');
+  area.innerHTML = '<div class="icon">⏳</div><p>작업의뢰서 업로드 중...</p>';
+  setTimeout(() => {
+    area.style.display = 'none';
+    document.getElementById('uploadResult2').style.display = 'block';
+  }, 1000);
+}
+
+function simulateParsing() {
+  const prog = document.getElementById('parseProgress');
+  const result = document.getElementById('parseResult');
+  prog.style.display = 'block';
+  result.style.display = 'none';
+  let w = 0;
+  const fill = document.getElementById('parseFill');
+  const interval = setInterval(() => {
+    w += 5;
+    fill.style.width = w + '%';
+    if (w >= 100) {
+      clearInterval(interval);
+      setTimeout(() => {
+        prog.style.display = 'none';
+        result.style.display = 'block';
+      }, 300);
+    }
+  }, 40);
+}
+</script>
+
+</body>
+</html>
