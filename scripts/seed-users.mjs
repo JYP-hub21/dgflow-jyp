@@ -1,5 +1,5 @@
 /**
- * DG-Flow 테스트 사용자 5명 생성
+ * DG-Flow 사용자 9명 생성 (역할별 5명 + 공사관리부 담당자 4명)
  * 역할별 1명씩: admin, construction_mgr, biz_support, production_mgr, system_admin
  */
 
@@ -23,6 +23,11 @@ const TEST_USERS = [
   { email: 'support@dgflow.kr', password: 'dgflow2026!', name: '이지원', role: 'biz_support', department: '경영지원팀' },
   { email: 'production@dgflow.kr', password: 'dgflow2026!', name: '최생산', role: 'production_mgr', department: '생산관리팀' },
   { email: 'sysadmin@dgflow.kr', password: 'dgflow2026!', name: '정시스', role: 'system_admin', department: '시스템관리' },
+  // 공사관리부 실무 담당자 — 실제 발주서를 쓰는 사람들
+  { email: 'ahn@dgflow.kr', password: 'dgflow2026!', name: '안광식', role: 'construction_mgr', department: '공사관리부' },
+  { email: 'lee@dgflow.kr', password: 'dgflow2026!', name: '이충언', role: 'construction_mgr', department: '공사관리부' },
+  { email: 'kim@dgflow.kr', password: 'dgflow2026!', name: '김길홍', role: 'construction_mgr', department: '공사관리부' },
+  { email: 'oh@dgflow.kr',  password: 'dgflow2026!', name: '오동석', role: 'construction_mgr', department: '공사관리부' },
 ];
 
 async function seedUsers() {
