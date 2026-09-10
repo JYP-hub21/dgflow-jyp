@@ -34,7 +34,11 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     customer: { name: string; short_name: string };
     site: { site_name: string };
     creator: { name: string };
-  };
+  } | null;
+
+  const isUpload = workOrder.source === 'upload';
+  const customerName = order?.customer?.short_name || workOrder.customer_name || '-';
+  const siteName = order?.site?.site_name || workOrder.site_name || '-';
 
   // 품목 목록 + 생산 진행률
   const { data: items } = await supabase
@@ -81,14 +85,17 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             <h1 className="text-2xl font-bold">작업의뢰서 {workOrder.work_order_number}</h1>
             <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
           </div>
-          <p className="text-gray-500 mt-1">
-            {order.customer.short_name} / {order.site.site_name}
-          </p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-gray-500">
+              {customerName} / {siteName}
+            </p>
+            {isUpload && <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">바이투 업로드</Badge>}
+          </div>
         </div>
         <div className="text-right text-sm text-gray-500">
           <p>의뢰일: {workOrder.request_date}</p>
-          <p>납품일: {workOrder.delivery_date || order.delivery_date || '-'}</p>
-          <p>작성자: {order.creator.name}</p>
+          <p>납품일: {workOrder.delivery_date || order?.delivery_date || '-'}</p>
+          {order?.creator?.name && <p>작성자: {order.creator.name}</p>}
         </div>
       </div>
 

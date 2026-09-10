@@ -46,17 +46,19 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
               {(!workOrders || workOrders.length === 0) ? (
                 <TableRow><TableCell colSpan={7} className="text-center py-8 text-gray-500">진행 중인 생산이 없습니다.</TableCell></TableRow>
               ) : workOrders.map(wo => {
-                const order = wo.order as { customer: { short_name: string }; site: { site_name: string } };
+                const order = wo.order as { customer: { short_name: string }; site: { site_name: string } } | null;
                 const items = wo.items as { quantity: number; produced_quantity: number }[];
                 const totalQty = items.reduce((s, i) => s + i.quantity, 0);
                 const producedQty = items.reduce((s, i) => s + i.produced_quantity, 0);
                 const progress = totalQty > 0 ? Math.round(producedQty / totalQty * 100) : 0;
+                const customerName = order?.customer?.short_name || wo.customer_name || '-';
+                const siteName = order?.site?.site_name || wo.site_name || '-';
 
                 return (
                   <TableRow key={wo.id}>
                     <TableCell className="font-medium">{wo.work_order_number}</TableCell>
-                    <TableCell>{order?.customer?.short_name}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{order?.site?.site_name}</TableCell>
+                    <TableCell>{customerName}</TableCell>
+                    <TableCell className="max-w-[200px] truncate">{siteName}</TableCell>
                     <TableCell className="text-right">{totalQty}</TableCell>
                     <TableCell className="text-right">{producedQty}</TableCell>
                     <TableCell>

@@ -55,7 +55,8 @@
 - 품명 표기가 발주서와 ERP에서 다름 — dgflow_product_name_mappings 테이블로 변환 (11건)
 - 면적 계산: `가로(mm) x 세로(mm) x 수량 / 1,000,000` (m2)
 - 주문 상태 14단계: types/order-status.ts에 정의 (작성중→작성완료→고객승인대기→...→생산완료)
-- 최종승인 시 작업의뢰서 자동 생성 (1클릭, ERP 엑셀은 별도 다운로드)
+- 작업의뢰서 생성 2경로: (A) 최종승인 시 주문에서 자동 생성 (B) 바이투 엑셀 직접 업로드 (주문 없이)
+- 작업의뢰서 order_id는 NULLABLE — 바이투 업로드 시 null, 대신 customer_name/site_name 자체 저장
 - 주문번호 형식: `{YYMMDD}-{일련번호}`, 의뢰번호 형식: `{YY}-{4자리}`
 - 공사관리부는 본인 주문만 수정/삭제 가능 (타인 주문은 조회만)
 
@@ -89,7 +90,7 @@
 - API: `app/api/{feature}/route.ts`
 - 컴포넌트: `components/{feature}/{ComponentName}.tsx`
 - 비즈니스 로직: `lib/{domain}/{module}.ts`
-- 파서: `lib/parser/excel-order.ts`
+- 파서: `lib/parser/excel-order.ts` (발주서), `lib/parser/work-order-excel.ts` (바이투 작업의뢰서)
 - SQL: `supabase/migrations/{timestamp}_{description}.sql`
 
 ### Supabase 클라이언트 사용 규칙
@@ -116,6 +117,12 @@ docs: 문서 갱신
 ```
 
 ## 남은 작업
+- **[진행중] STEP 8B: 바이투 작업의뢰서 엑셀 직접 업로드 (FR-16)**
+  - DB: order_id nullable + customer_name/site_name/source 컬럼 추가
+  - 파서: lib/parser/work-order-excel.ts (바이투 27열 → 의뢰번호별 그룹핑)
+  - API: POST /api/work-orders/upload
+  - UI: 업로드 모달 + 목록/상세 null 안전 처리
+  - 참고: data/바이투 업로드양식.xlsx (772행, 15개 의뢰번호)
 - Q4 ERP 마스터 데이터 시딩 (경영지원팀에 요청 완료, 수령 대기)
 - Vercel 프로덕션 배포
 - 주간생산일지 집계/엑셀 출력

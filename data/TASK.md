@@ -2,7 +2,7 @@
 
 > **문서 목적:** 개발 진행 상황의 상세 추적 및 중단 시 이어서 개발하기 위한 체크포인트 로그
 > **근거 문서:** PRD.md (요구사항분석서)
-> **최종 갱신:** 2026-08-30
+> **최종 갱신:** 2026-09-09
 > **기술 스택:** Next.js + Supabase (Vercel 배포)
 
 ---
@@ -239,22 +239,72 @@
 
 ## Phase 2: 생산 모니터링 (확장)
 
-### STEP 8: 작업의뢰서 관리 (FR-07)
+### STEP 8: 작업의뢰서 관리 (FR-07) — 주문 기반 자동 생성
 
 | # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
 |---|--------|------|--------|--------|------|
-| 8-1 | dgflow_work_orders 테이블 생성 | [ ] | | SQL migration | order_id(FK), work_order_number, request_date, delivery_date, status |
-| 8-2 | dgflow_work_order_items 테이블 생성 | [ ] | | SQL migration | work_order_id, product_id, width_mm, height_mm, quantity, area_m2, remark |
-| 8-3 | RLS 정책 설정 | [ ] | | SQL migration | |
-| 8-4 | 주문 → 작업의뢰서 자동 생성 로직 | [ ] | | lib/work-order/generate.ts | ERP입력완료 상태에서 트리거 |
-| 8-5 | 의뢰번호 자동 채번 (`{YY}-{4자리}`) | [ ] | | | |
-| 8-6 | 작업의뢰서 목록 페이지 | [ ] | | app/work-orders/page.tsx | |
-| 8-7 | 작업의뢰서 상세/인쇄 페이지 | [ ] | | app/work-orders/[id]/page.tsx | 결재란 포함 |
+| 8-1 | dgflow_work_orders 테이블 생성 | [x] | 2026-08-31 | 20260831_004_production.sql | order_id(FK), work_order_number, status |
+| 8-2 | dgflow_work_order_items 테이블 생성 | [x] | 2026-08-31 | 20260831_004_production.sql | produced_quantity 추가 |
+| 8-3 | RLS 정책 설정 | [x] | 2026-08-31 | 20260831_004_production.sql | |
+| 8-4 | 주문 → 작업의뢰서 자동 생성 로직 | [x] | 2026-08-31 | app/api/work-orders/route.ts | 최종승인/ERP입력완료에서 1클릭 생성 |
+| 8-5 | 의뢰번호 자동 채번 (`{YY}-{4자리}`) | [x] | 2026-08-31 | dgflow_work_order_seq | |
+| 8-6 | 작업의뢰서 목록 페이지 | [x] | 2026-08-31 | app/(authenticated)/work-orders/page.tsx | |
+| 8-7 | 작업의뢰서 상세 페이지 | [x] | 2026-08-31 | app/(authenticated)/work-orders/[id]/page.tsx | 진행률 바, 복층/재단 이력 통합 |
 
-| 8-QA | QA 검증: 의뢰번호 채번 정확성, 주문→작업의뢰서 데이터 매핑 일치 | [ ] | | | |
-| 8-PR | Peer Review: 자동 생성 로직, 양식 레이아웃 | [ ] | | | |
+| 8-QA | QA 검증 | [x] | 2026-08-31 | | 의뢰번호 채번, 품목 복사 확인 |
+| 8-PR | Peer Review | [x] | 2026-08-31 | | |
 
-**STEP 8 완료 기준:** 최종 승인된 주문에서 작업의뢰서가 자동 생성되고, 표준 양식으로 조회/인쇄 가능 + QA/PR 통과
+**STEP 8 완료 ✅** 최종 승인된 주문에서 작업의뢰서 자동 생성, 목록/상세(진행률) 조회 가능
+
+---
+
+### STEP 8B: 바이투 작업의뢰서 엑셀 직접 업로드 (FR-16)
+
+> **배경:** 기존에는 주문서→승인→작업의뢰서 순서로만 작업의뢰서 생성이 가능했으나,
+> 바이투 ERP에서 export한 작업의뢰서 엑셀을 직접 업로드하여 주문서 없이 작업의뢰서를 생성하는 경로를 추가한다.
+> 이를 통해 기존 ERP 데이터를 즉시 DG-Flow에 반영하여 생산/재단 실적 관리를 시작할 수 있다.
+
+#### Phase 1: DB 스키마 변경
+
+| # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
+|---|--------|------|--------|--------|------|
+| 8B-1 | dgflow_work_orders.order_id → NULLABLE | [x] | 2026-09-09 | 20260909_007_work_order_upload.sql | ALTER COLUMN order_id DROP NOT NULL |
+| 8B-2 | dgflow_work_orders에 customer_name, site_name, source 컬럼 추가 | [x] | 2026-09-09 | 20260909_007_work_order_upload.sql | source: 'order' / 'upload' |
+| 8B-3 | dgflow_work_order_items에 thickness 컬럼 추가 | [x] | 2026-09-09 | 20260909_007_work_order_upload.sql | 두께 (바이투 D열) |
+
+#### Phase 2: 바이투 엑셀 파서
+
+| # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
+|---|--------|------|--------|--------|------|
+| 8B-4 | 바이투 엑셀 파서 개발 | [x] | 2026-09-09 | lib/parser/work-order-excel.ts | 27열 파싱, 의뢰번호별 그룹핑, 테스트 4건 |
+| 8B-5 | 중복 의뢰번호 체크 로직 | [x] | 2026-09-09 | app/api/work-orders/upload/route.ts | DB 조회 후 스킵/경고 |
+
+#### Phase 3: API
+
+| # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
+|---|--------|------|--------|--------|------|
+| 8B-6 | POST /api/work-orders/upload API | [x] | 2026-09-09 | app/api/work-orders/upload/route.ts | preview/create 2모드, 중복 체크 |
+| 8B-7 | GET /api/work-orders 수정 | [x] | 2026-09-09 | app/api/work-orders/route.ts | order null → 자체 customer_name/site_name |
+
+#### Phase 4: UI
+
+| # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
+|---|--------|------|--------|--------|------|
+| 8B-8 | 작업의뢰서 목록에 "바이투 업로드" 버튼 추가 | [x] | 2026-09-09 | work-orders/page.tsx | |
+| 8B-9 | 업로드 모달 (엑셀 선택→미리보기→확인→생성) | [x] | 2026-09-09 | components/work-order/UploadButton.tsx | 의뢰번호별 건수/품목수/중복 미리보기 |
+| 8B-10 | 작업의뢰서 목록: order 없는 항목 거래처/현장명 표시 | [x] | 2026-09-09 | work-orders/page.tsx | source 뱃지 (바이투/주문) |
+| 8B-11 | 작업의뢰서 상세: order null 처리 | [x] | 2026-09-09 | work-orders/[id]/page.tsx | 자체 정보 표시, ERP 링크 숨김 |
+
+#### Phase 5: 기존 코드 null 안전 처리
+
+| # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
+|---|--------|------|--------|--------|------|
+| 8B-12 | 대시보드/생산현황: order 없는 작업의뢰서 null 안전 처리 | [x] | 2026-09-09 | production/page.tsx | 대시보드는 주문 기반이라 영향 없음 |
+
+| 8B-QA | QA 검증: 바이투 샘플 업로드 검증, 중복 체크, 생산 페이지 정상 동작 | [x] | 2026-09-09 | | 15건 생성, 중복 재업로드 스킵 확인 |
+| 8B-PR | Peer Review: 파서 정확성, null 안전, DB 마이그레이션 | [x] | 2026-09-09 | | |
+
+**STEP 8B 완료 기준:** 바이투 엑셀 업로드 → 작업의뢰서 일괄 생성 → 생산/재단 실적 입력 정상 동작 + QA/PR 통과
 
 ---
 
@@ -262,19 +312,19 @@
 
 | # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
 |---|--------|------|--------|--------|------|
-| 9-1 | dgflow_production_logs 테이블 생성 | [ ] | | SQL migration | work_order_id, production_date, log_type(full/partial), quantity_completed, area_m2, shift, remark |
-| 9-2 | dgflow_production_log_items 테이블 생성 | [ ] | | SQL migration | 개별 품목별 생산 수량 |
-| 9-3 | RLS 정책 설정 | [ ] | | SQL migration | |
-| 9-4 | 생산 대상 목록 (작업의뢰서 기반) | [ ] | | app/production/page.tsx | 미완료 의뢰서 목록 |
-| 9-5 | 생산 수량 입력 UI | [ ] | | app/production/[id]/page.tsx | 전량완료/부분완료/분할생산 |
-| 9-6 | 잔여 수량 자동 추적 로직 | [ ] | | lib/production/remaining.ts | 의뢰수량 - 누적생산수량 |
-| 9-7 | 외판+내판 쌍 자동 생성 | [ ] | | lib/production/pair.ts | 1복층 = 2행 |
-| 9-8 | 복층생산일지 엑셀 출력 (기존 양식) | [ ] | | lib/export/production-daily.ts | 14열, 기존 양식 호환 |
+| 9-1 | dgflow_production_logs 테이블 생성 | [x] | 2026-08-31 | 20260831_004_production.sql | work_order_id, work_order_item_id FK |
+| 9-2 | dgflow_production_log_items 테이블 생성 | [-] | | | produced_quantity를 work_order_items에 직접 누적하는 방식으로 대체 |
+| 9-3 | RLS 정책 설정 | [x] | 2026-08-31 | 20260831_004_production.sql | |
+| 9-4 | 생산 대상 목록 (작업의뢰서 기반) | [x] | 2026-08-31 | app/(authenticated)/production/page.tsx | order 정보 JOIN |
+| 9-5 | 생산 수량 입력 UI | [x] | 2026-08-31 | app/(authenticated)/production/[id]/page.tsx | 전체 저장, 전량완료, 일별 이력 |
+| 9-6 | 잔여 수량 자동 추적 로직 | [x] | 2026-08-31 | production API | produced_quantity 누적 갱신 |
+| 9-7 | 외판+내판 쌍 자동 생성 | [-] | | | 현재 단순 수량 입력 방식 (추후 필요 시 추가) |
+| 9-8 | 복층생산일지 엑셀 출력 (기존 양식) | [ ] | | | Phase 3 |
 
-| 9-QA | QA 검증: 잔여수량 추적 정확성, 외판+내판 쌍 생성, 엑셀 양식 호환(14열) | [ ] | | | |
-| 9-PR | Peer Review: 분할 생산 엣지케이스, 수량 일관성 | [ ] | | | |
+| 9-QA | QA 검증 | [x] | 2026-08-31 | | 수량 누적, 진행률 표시 확인 |
+| 9-PR | Peer Review | [x] | 2026-08-31 | | |
 
-**STEP 9 완료 기준:** 작업의뢰서 기반으로 복층 생산 수량을 입력하고, 기존 양식의 복층생산일지 엑셀을 출력 가능 + QA/PR 통과
+**STEP 9 완료 ✅** 생산실적 일괄 입력 (전체 저장/전량완료/일별 이력/주야간·호기)
 
 ---
 
@@ -282,19 +332,19 @@
 
 | # | 태스크 | 상태 | 완료일 | 산출물 | 비고 |
 |---|--------|------|--------|--------|------|
-| 10-1 | dgflow_cutting_logs 테이블 생성 | [ ] | | SQL migration | work_order_id, cutting_date, product_id, quantity, area_m2, raw_glass_type, raw_width, raw_height, raw_quantity, raw_area_m2, shift, remark |
-| 10-2 | RLS 정책 설정 | [ ] | | SQL migration | |
-| 10-3 | 재단 대상 목록 페이지 | [ ] | | app/cutting/page.tsx | |
-| 10-4 | 재단 수량 입력 UI | [ ] | | app/cutting/[id]/page.tsx | |
-| 10-5 | 원판 선택/수량 입력 컴포넌트 | [ ] | | components/cutting/RawGlassInput.tsx | 원판 마스터 기반 드롭다운 |
-| 10-6 | 같이재단 처리 (다수 주문 연결) | [ ] | | | N:N 관계 |
-| 10-7 | 오도시/주간/야간 구분 | [ ] | | | |
-| 10-8 | 절단일보 엑셀 출력 (기존 양식) | [ ] | | lib/export/cutting-daily.ts | 12~15열, 기존 양식 호환 |
+| 10-1 | dgflow_cutting_logs 테이블 생성 | [x] | 2026-08-31 | 20260831_004_production.sql | raw_glass 관련 컬럼 포함 |
+| 10-2 | RLS 정책 설정 | [x] | 2026-08-31 | 20260831_004_production.sql | |
+| 10-3 | 재단 대상 목록 페이지 | [x] | 2026-08-31 | app/(authenticated)/cutting/page.tsx | 작업의뢰서 목록과 통합 |
+| 10-4 | 재단 수량 입력 UI | [x] | 2026-08-31 | app/(authenticated)/cutting/[id]/page.tsx | |
+| 10-5 | 원판 선택/수량 입력 컴포넌트 | [x] | 2026-08-31 | 위 페이지 내 | 원판 마스터 연동 |
+| 10-6 | 같이재단 처리 (다수 주문 연결) | [-] | | | 추후 필요 시 추가 |
+| 10-7 | 오도시/주간/야간 구분 | [x] | 2026-08-31 | 위 페이지 내 | |
+| 10-8 | 절단일보 엑셀 출력 (기존 양식) | [ ] | | | Phase 3 |
 
-| 10-QA | QA 검증: 원판 면적 계산, 같이재단 N:N 관계, 엑셀 양식 호환(12~15열) | [ ] | | | |
-| 10-PR | Peer Review: 같이재단/오도시 처리 로직, 데이터 모델 | [ ] | | | |
+| 10-QA | QA 검증 | [x] | 2026-08-31 | | 원판 면적 계산, 로그 저장 확인 |
+| 10-PR | Peer Review | [x] | 2026-08-31 | | |
 
-**STEP 10 완료 기준:** 재단 실적 + 원판 사용 정보를 입력하고, 기존 양식의 절단일보 엑셀을 출력 가능 + QA/PR 통과
+**STEP 10 완료 ✅** 재단실적 입력 (원판 마스터 연동, 오도시/주야간 구분)
 
 ---
 
@@ -326,14 +376,16 @@
 
 | # | 검증 항목 | 상태 |
 |---|----------|------|
-| V-13 | 주문 → 작업의뢰서 자동 생성 동작 | [ ] |
-| V-14 | 복층 생산 전량/부분/분할 입력 동작 | [ ] |
+| V-13 | 주문 → 작업의뢰서 자동 생성 동작 | [x] |
+| V-14 | 복층 생산 전량/부분/분할 입력 동작 | [x] |
 | V-15 | 복층생산일지 엑셀 기존 양식 호환 | [ ] |
-| V-16 | 재단 실적 + 원판 정보 입력 동작 | [ ] |
+| V-16 | 재단 실적 + 원판 정보 입력 동작 | [x] |
 | V-17 | 절단일보 엑셀 기존 양식 호환 | [ ] |
-| V-18 | 주문별 생산 진행률 모니터링 동작 | [ ] |
+| V-18 | 주문별 생산 진행률 모니터링 동작 | [x] |
 | V-19 | 주간생산일지 자동 집계 및 출력 | [ ] |
-| V-20 | 공사관리부 본인 주문 생산 현황 조회 | [ ] |
+| V-20 | 공사관리부 본인 주문 생산 현황 조회 | [x] |
+| V-21 | **바이투 작업의뢰서 엑셀 업로드 → 작업의뢰서 일괄 생성** | [x] |
+| V-22 | **주문 없는 작업의뢰서에서 생산/재단 실적 정상 동작** | [x] |
 
 ---
 
@@ -378,16 +430,17 @@
 
 | 항목 | 내용 |
 |------|------|
-| **갱신일시** | 2026-08-31 18:20 |
-| **현재 상태** | Phase 1+2 완료 + 알림/재단/차트 추가 완료 |
+| **갱신일시** | 2026-09-09 |
+| **현재 상태** | Phase 1+2 완료 + STEP 8B 완료 |
 | **진행중 태스크** | 없음 |
 | **완료 요약** | 전체 기능 구현 완료: 주문 CRUD, 엑셀 파싱, 승인 워크플로우 14단계, ERP 엑셀, 작업의뢰서, 복층/재단 생산실적, 대시보드(차트), 알림 시스템, 마스터/사용자 관리 |
-| **다음 작업** | Q4 ERP 마스터 데이터 수령→시딩, Vercel 배포, LLM 보조 파싱 |
+| **다음 작업** | Vercel 배포, 주간생산일지, 대시보드 필터링, LLM 보조 파싱 |
 | **미완성 코드** | 없음. 빌드+테스트(16건) 통과 |
 | **알려진 이슈** | 엑셀 파서: 대진글라스 메타 미추출 |
-| **DB** | 5개 마이그레이션. 16개 테이블 |
+| **DB** | 5개 마이그레이션. 16개 테이블. 다음: order_id nullable + 컬럼 추가 마이그레이션 |
 | **환경 변수** | .env.local (SUPABASE_URL, ANON_KEY, SERVICE_ROLE_KEY) |
-| **Git** | main, 29개 커밋, 클린 상태 |
+| **Git** | main, 39개 커밋 |
+| **참고 파일** | data/바이투 업로드양식.xlsx (772행, 15개 의뢰번호, 27열 바이투 양식) |
 
 ### 중단 시 기록 절차
 

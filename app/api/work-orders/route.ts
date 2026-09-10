@@ -84,5 +84,16 @@ export async function GET() {
     .limit(50);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ data });
+
+  // order null인 경우 자체 customer_name/site_name 사용하도록 정규화
+  const normalized = (data || []).map(wo => {
+    const order = wo.order as { order_number: string; customer: { short_name: string }; site: { site_name: string } } | null;
+    return {
+      ...wo,
+      display_customer: order?.customer?.short_name || wo.customer_name || '-',
+      display_site: order?.site?.site_name || wo.site_name || '-',
+    };
+  });
+
+  return NextResponse.json({ data: normalized });
 }
