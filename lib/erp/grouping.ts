@@ -1,4 +1,5 @@
 interface OrderItem {
+  id?: string;
   product_name: string;
   width_mm: number;
   height_mm: number;
@@ -17,6 +18,10 @@ interface GroupedItem {
   height_mm: number;
   quantity: number;
   location_summary: string;
+  /** 이 한 줄로 묶인 발주 품목의 id들 — 원본과 대조할 때 쓴다 */
+  source_item_ids: string[];
+  /** 몇 줄이 묶였는지 */
+  source_count: number;
 }
 
 /**
@@ -42,6 +47,8 @@ export function groupBySpec(items: OrderItem[]): GroupedItem[] {
       height_mm: parseInt(h),
       quantity: group.quantity,
       location_summary: summarizeLocations(group.items),
+      source_item_ids: group.items.map(i => i.id).filter(Boolean) as string[],
+      source_count: group.items.length,
     };
   });
 }

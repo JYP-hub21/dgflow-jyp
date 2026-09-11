@@ -8,7 +8,22 @@ export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { order_id } = await request.json();
+  // items 가 오면 담당자가 규격별로 묶고 품명을 직접 적은 결과다.
+  // 없으면 예전처럼 발주 품목을 그대로 복사한다 (하위호환).
+  const { order_id, items: draftItems } = (await request.json()) as {
+    order_id: string;
+    items?: {
+      product_id: string | null;
+      product_name: string;        // 담당자가 적은 작업의뢰서 품명
+      source_product_name: string; // 발주의뢰서 원본 품명
+      width_mm: number;
+      height_mm: number;
+      quantity: number;
+      location_summary: string | null;
+      source_item_count: number;
+      remark: string | null;
+    }[];
+  };
   const supabase = createServiceRoleClient();
 
   // 주문 확인
@@ -24,12 +39,20 @@ export async function POST(request: NextRequest) {
   }
 
   // 의뢰번호 채번: YY-NNNN
+  // 올해 만들어진 마지막 번호를 찾아 그다음 번호를 쓴다.
+  // (예전에는 DB 함수 exec_sql 을 불렀는데 그 함수가 실제로는 없어서 번호가 늘 0001로
+  //  고정됐고, 두 번째 작업의뢰서를 만들면 번호가 중복되어 실패했다.)
   const year = format(new Date(), 'yy');
-  const { data: seqData } = await supabase.rpc('exec_sql', {
-    query: `SELECT nextval('dgflow_work_order_seq') as seq`,
-  });
-  const seq = seqData?.[0]?.seq || 1;
-  const workOrderNumber = `${year}-${String(seq).padStart(4, '0')}`;
+  const { data: lastWo } = await supabase
+    .from('dgflow_work_orders')
+    .select('work_order_number')
+    .like('work_order_number', `${year}-%`)
+    .order('work_order_number', { ascending: false })
+    .limit(1);
+  const lastSeq = lastWo?.[0]?.work_order_number
+    ? parseInt(String(lastWo[0].work_order_number).split('-')[1], 10)
+    : 0;
+  const workOrderNumber = `${year}-${String(lastSeq + 1).padStart(4, '0')}`;
 
   // 작업의뢰서 생성
   const { data: workOrder, error: woError } = await supabase
@@ -45,18 +68,37 @@ export async function POST(request: NextRequest) {
 
   if (woError) return NextResponse.json({ error: woError.message }, { status: 500 });
 
-  // 작업의뢰서 품목 복사
+  // 작업의뢰서 품목
   const items = (order.items || []) as { product_id: string; product_name: string; width_mm: number; height_mm: number; quantity: number; remark: string; sort_order: number }[];
-  const woItems = items.map((item, idx) => ({
-    work_order_id: workOrder.id,
-    product_id: item.product_id,
-    product_name: item.product_name,
-    width_mm: item.width_mm,
-    height_mm: item.height_mm,
-    quantity: item.quantity,
-    remark: item.remark,
-    sort_order: idx,
-  }));
+  const woItems = draftItems && draftItems.length > 0
+    // 담당자가 규격별로 묶고 품명을 직접 적은 결과
+    ? draftItems.map((item, idx) => ({
+        work_order_id: workOrder.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        source_product_name: item.source_product_name,
+        location_summary: item.location_summary,
+        source_item_count: item.source_item_count,
+        width_mm: item.width_mm,
+        height_mm: item.height_mm,
+        quantity: item.quantity,
+        remark: item.remark,
+        sort_order: idx,
+      }))
+    // 예전 방식: 발주 품목을 그대로 복사
+    : items.map((item, idx) => ({
+        work_order_id: workOrder.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        source_product_name: item.product_name,
+        location_summary: null,
+        source_item_count: 1,
+        width_mm: item.width_mm,
+        height_mm: item.height_mm,
+        quantity: item.quantity,
+        remark: item.remark,
+        sort_order: idx,
+      }));
 
   await supabase.from('dgflow_work_order_items').insert(woItems);
 

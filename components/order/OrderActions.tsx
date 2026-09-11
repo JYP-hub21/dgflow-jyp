@@ -16,7 +16,7 @@ interface OrderActionsProps {
 
 const ROLE_ACTIONS: Record<string, OrderStatus[]> = {
   construction_mgr: ['completed', 'pending_customer'],
-  biz_support: ['under_review', 'review_completed'],
+  biz_support: ['under_review', 'review_completed', 'work_order_created'],
   admin: ['final_approved', 'rejected_by_admin', 'review_completed'],
   system_admin: ['completed', 'pending_customer', 'under_review', 'review_completed', 'final_approved', 'rejected_by_admin', 'work_order_created'],
 };
@@ -59,31 +59,17 @@ export default function OrderActions({ orderId, currentStatus, userRole }: Order
     router.refresh();
   }
 
-  async function handleWorkOrderCreate() {
-    setLoading(true);
-    await fetch('/api/work-orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId }),
-    });
-    setLoading(false);
-    router.refresh();
-  }
-
   async function handleFinalApprove() {
     setLoading(true);
-    // 1. 최종승인 상태 변경
+    // 최종승인 상태로 바꾼다
     await fetch(`/api/orders/${orderId}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'final_approved' }),
     });
-    // 2. 작업의뢰서 자동 생성
-    await fetch('/api/work-orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId }),
-    });
+    // 작업의뢰서는 여기서 자동으로 만들지 않는다.
+    // 규격별로 묶고 품명을 정하는 일은 경영지원팀 담당자의 판단이므로,
+    // 승인 후 [작업의뢰서 만들기] 버튼에서 확인을 거쳐 만든다.
     setLoading(false);
     router.refresh();
   }
@@ -166,12 +152,12 @@ export default function OrderActions({ orderId, currentStatus, userRole }: Order
               );
             }
 
-            // 최종승인 → 작업의뢰서 자동 생성
+            // 최종승인 (작업의뢰서는 다음 단계에서 담당자가 만든다)
             if (status === 'final_approved') {
               return (
                 <Button key={status} onClick={handleFinalApprove} disabled={loading}>
                   <CheckCircle className="mr-2 h-4 w-4" />
-                  최종 승인 (작업의뢰서 자동 생성)
+                  최종 승인
                 </Button>
               );
             }
@@ -186,12 +172,12 @@ export default function OrderActions({ orderId, currentStatus, userRole }: Order
               );
             }
 
-            // 작업의뢰서 수동 생성 (하위호환)
+            // 작업의뢰서 만들기 — 규격별로 묶고 품명을 적는 화면으로
             if (status === 'work_order_created') {
               return (
-                <Button key={status} onClick={handleWorkOrderCreate} disabled={loading}>
+                <Button key={status} onClick={() => router.push(`/orders/${orderId}/work-order-new`)} disabled={loading}>
                   <Factory className="mr-2 h-4 w-4" />
-                  작업의뢰서 생성
+                  작업의뢰서 만들기
                 </Button>
               );
             }

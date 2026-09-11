@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Factory, Scissors, FileSpreadsheet, Printer } from 'lucide-react';
+import { Factory, Scissors, FileSpreadsheet, Printer, Columns2 } from 'lucide-react';
 
 export default async function WorkOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -175,6 +175,10 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             <Button variant="outline"><FileSpreadsheet className="mr-2 h-4 w-4" />ERP 엑셀</Button>
           </Link>
         )}
+        {/* 원본 발주의뢰서와 나란히 대조 */}
+        <Link href={`/work-orders/${id}/compare`}>
+          <Button variant="outline"><Columns2 className="mr-2 h-4 w-4" />원본 대조</Button>
+        </Link>
       </div>
 
       {/* 생산 이력 + 재단 이력 */}
