@@ -9,7 +9,7 @@ import OrderActions from '@/components/order/OrderActions';
 import OrderAttachments from '@/components/order/OrderAttachments';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { FileText, FileSpreadsheet, Pencil, Trash2, Factory } from 'lucide-react';
+import { FileText, FileSpreadsheet, Pencil, Trash2, Factory, Columns2 } from 'lucide-react';
 import DeleteOrderButton from '@/components/order/DeleteOrderButton';
 
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -151,8 +151,21 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           </Link>
         )}
         {workOrder && (
-          <Link href={`/work-orders/${workOrder.id}`}>
-            <Button variant="outline"><Factory className="mr-2 h-4 w-4" />생산 현황 ({workOrder.work_order_number})</Button>
+          <>
+            <Link href={`/work-orders/${workOrder.id}`}>
+              <Button variant="outline"><Factory className="mr-2 h-4 w-4" />생산 현황 ({workOrder.work_order_number})</Button>
+            </Link>
+            {/* 원본 발주의뢰서와 작업의뢰서를 나란히 대조 */}
+            <Link href={`/work-orders/${workOrder.id}/compare`}>
+              <Button variant="outline"><Columns2 className="mr-2 h-4 w-4" />원본 대조</Button>
+            </Link>
+          </>
+        )}
+        {/* 작업의뢰서 만들기 — 검토를 시작한 뒤부터, 경영지원팀이 규격을 묶고 품명을 정한다 */}
+        {!workOrder && user && ['biz_support', 'system_admin'].includes(user.role) &&
+          ['under_review', 'review_completed', 'pending_approval', 'rejected_by_admin', 'final_approved', 'erp_completed'].includes(status) && (
+          <Link href={`/orders/${id}/work-order-new`}>
+            <Button><Factory className="mr-2 h-4 w-4" />작업의뢰서 만들기</Button>
           </Link>
         )}
         {user && <OrderActions orderId={order.id} currentStatus={status} userRole={user.role} />}

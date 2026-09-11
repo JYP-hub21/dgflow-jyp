@@ -33,9 +33,15 @@ export async function POST(request: NextRequest) {
     .eq('id', order_id)
     .single();
 
-  const allowedStatuses = ['final_approved', 'erp_completed'];
+  // 경영지원팀이 검토하면서 규격을 정리하고 품명을 정하므로, 검토 단계부터 만들 수 있다.
+  const allowedStatuses = [
+    'under_review', 'review_completed', 'pending_approval',
+    'rejected_by_admin', 'final_approved', 'erp_completed',
+  ];
   if (!order || !allowedStatuses.includes(order.status)) {
-    return NextResponse.json({ error: '최종승인 또는 ERP 입력 완료 상태에서만 작업의뢰서를 생성할 수 있습니다.' }, { status: 400 });
+    return NextResponse.json({
+      error: '검토 시작 이후의 주문만 작업의뢰서로 만들 수 있습니다.',
+    }, { status: 400 });
   }
 
   // 의뢰번호 채번: YY-NNNN
@@ -102,12 +108,21 @@ export async function POST(request: NextRequest) {
 
   await supabase.from('dgflow_work_order_items').insert(woItems);
 
-  // 주문 상태 변경
-  await supabase.from('dgflow_orders').update({ status: 'work_order_created' }).eq('id', order_id);
-  await supabase.from('dgflow_order_status_logs').insert({
-    order_id, from_status: order.status, to_status: 'work_order_created',
-    changed_by: user.id, comment: `작업의뢰서 ${workOrderNumber} 생성`,
-  });
+  // 주문 상태는 최종승인이 끝난 뒤에만 '작업의뢰서생성'으로 넘긴다.
+  // 검토 중에 미리 만들어 두는 경우까지 상태를 건너뛰면 승인 절차가 무너진다.
+  if (['final_approved', 'erp_completed'].includes(order.status)) {
+    await supabase.from('dgflow_orders').update({ status: 'work_order_created' }).eq('id', order_id);
+    await supabase.from('dgflow_order_status_logs').insert({
+      order_id, from_status: order.status, to_status: 'work_order_created',
+      changed_by: user.id, comment: `작업의뢰서 ${workOrderNumber} 생성`,
+    });
+  } else {
+    // 검토 중에 만든 경우는 상태를 바꾸지 않고 기록만 남긴다
+    await supabase.from('dgflow_order_status_logs').insert({
+      order_id, from_status: order.status, to_status: order.status,
+      changed_by: user.id, comment: `작업의뢰서 ${workOrderNumber} 생성 (검토 중)`,
+    });
+  }
 
   return NextResponse.json({ data: workOrder }, { status: 201 });
 }

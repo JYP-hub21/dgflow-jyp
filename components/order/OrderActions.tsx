@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { STATUS_TRANSITIONS, ORDER_STATUS, type OrderStatus } from '@/types/order-status';
 import type { UserRole } from '@/types/user';
-import { Send, CheckCircle, XCircle, FileDown, Copy, Check, Link as LinkIcon, Factory } from 'lucide-react';
+import { Send, CheckCircle, XCircle, FileDown, Copy, Check, Link as LinkIcon } from 'lucide-react';
 
 interface OrderActionsProps {
   orderId: string;
@@ -16,9 +16,9 @@ interface OrderActionsProps {
 
 const ROLE_ACTIONS: Record<string, OrderStatus[]> = {
   construction_mgr: ['completed', 'pending_customer'],
-  biz_support: ['under_review', 'review_completed', 'work_order_created'],
+  biz_support: ['under_review', 'review_completed'],
   admin: ['final_approved', 'rejected_by_admin', 'review_completed'],
-  system_admin: ['completed', 'pending_customer', 'under_review', 'review_completed', 'final_approved', 'rejected_by_admin', 'work_order_created'],
+  system_admin: ['completed', 'pending_customer', 'under_review', 'review_completed', 'final_approved', 'rejected_by_admin'],
 };
 
 const ACTION_LABELS: Partial<Record<OrderStatus, { label: string; icon: typeof Send; variant: 'default' | 'destructive' | 'outline' }>> = {
@@ -29,7 +29,6 @@ const ACTION_LABELS: Partial<Record<OrderStatus, { label: string; icon: typeof S
   final_approved: { label: '최종 승인', icon: CheckCircle, variant: 'default' },
   rejected_by_admin: { label: '반려', icon: XCircle, variant: 'destructive' },
   erp_completed: { label: 'ERP 입력 완료', icon: FileDown, variant: 'default' },
-  work_order_created: { label: '작업의뢰서 생성', icon: Factory, variant: 'default' },
 };
 
 export default function OrderActions({ orderId, currentStatus, userRole }: OrderActionsProps) {
@@ -168,16 +167,6 @@ export default function OrderActions({ orderId, currentStatus, userRole }: Order
                 <Button key="cancel_approve" variant="destructive" onClick={() => handleAction('review_completed' as OrderStatus)} disabled={loading}>
                   <XCircle className="mr-2 h-4 w-4" />
                   승인 취소
-                </Button>
-              );
-            }
-
-            // 작업의뢰서 만들기 — 규격별로 묶고 품명을 적는 화면으로
-            if (status === 'work_order_created') {
-              return (
-                <Button key={status} onClick={() => router.push(`/orders/${orderId}/work-order-new`)} disabled={loading}>
-                  <Factory className="mr-2 h-4 w-4" />
-                  작업의뢰서 만들기
                 </Button>
               );
             }

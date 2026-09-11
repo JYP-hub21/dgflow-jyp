@@ -38,13 +38,16 @@ export default async function WorkOrderNewPage({ params }: { params: Promise<{ i
 
   if (!order) notFound();
 
-  const allowed = ['final_approved', 'erp_completed'];
+  const allowed = [
+    'under_review', 'review_completed', 'pending_approval',
+    'rejected_by_admin', 'final_approved', 'erp_completed',
+  ];
   if (!allowed.includes(order.status)) {
     return (
       <div className="p-8">
         <h1 className="mb-2 text-xl font-bold text-gray-900">아직 작업의뢰서를 만들 수 없습니다</h1>
         <p className="mb-6 text-sm text-gray-600">
-          최종승인이 끝난 주문만 작업의뢰서로 넘길 수 있습니다. 지금 이 주문은 다른 단계에 있습니다.
+          경영지원팀이 검토를 시작한 뒤부터 작업의뢰서를 만들 수 있습니다. 지금 이 주문은 그 앞 단계에 있습니다.
         </p>
         <Link href={`/orders/${id}`}>
           <Button variant="outline"><ArrowLeft className="mr-2 h-4 w-4" />주문으로 돌아가기</Button>
