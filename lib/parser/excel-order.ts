@@ -37,33 +37,120 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   remark: ['비고', '비고1', '참고', 'REMARK', '메모'],
 };
 
+/** 파일 안의 시트 하나에 대한 요약 — 어느 시트를 가져올지 사람이 고르게 하려고 쓴다 */
+export interface SheetInfo {
+  name: string;
+  rows: number;        // 시트에 있는 데이터 행 수
+  items: number;       // 그중 품목으로 읽히는 줄 수
+  recommended: boolean; // 품목이 가장 많이 읽힌 시트
+}
+
+export interface ParseResult {
+  meta: ParsedOrderMeta;
+  items: ParsedOrderItem[];
+  sheetName: string;       // 여러 장이면 "1차, 3차" 처럼 이어 붙인다
+  sheetNames: string[];
+  totalRows: number;
+  warnings: string[];
+}
+
 /**
- * 엑셀 파일을 파싱하여 주문 품목 배열을 반환
+ * 파일에 어떤 시트가 들어 있는지 먼저 훑어본다.
+ * 발주서는 차수별·타입별로 시트가 여러 장인 경우가 많아서,
+ * 시스템이 말없이 한 장을 고르면 엉뚱한 시트가 들어간다.
  */
-export function parseOrderExcel(buffer: ArrayBuffer): {
+export function listOrderSheets(buffer: ArrayBuffer): SheetInfo[] {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const infos: SheetInfo[] = wb.SheetNames.map(name => {
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: '' }).length;
+    let items = 0;
+    try {
+      items = parseSheet(wb, name).items.length;
+    } catch {
+      items = 0;
+    }
+    return { name, rows, items, recommended: false };
+  });
+
+  const best = infos.reduce<SheetInfo | null>((a, b) => (!a || b.items > a.items ? b : a), null);
+  if (best && best.items > 0) best.recommended = true;
+  return infos;
+}
+
+/**
+ * 엑셀 파일을 파싱하여 주문 품목 배열을 반환한다.
+ *
+ * sheets 를 주면 그 시트들만 읽어 순서대로 이어 붙인다.
+ * 주지 않으면 예전처럼 품목이 가장 많이 읽히는 시트 한 장을 고른다.
+ */
+export function parseOrderExcel(
+  buffer: ArrayBuffer,
+  options?: { sheets?: string[] }
+): ParseResult {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+
+  // 읽을 시트 정하기
+  let targets: string[];
+  if (options?.sheets?.length) {
+    targets = options.sheets.filter(n => wb.SheetNames.includes(n));
+  } else {
+    let bestSheet = wb.SheetNames[0];
+    let bestRows = 0;
+    for (const name of wb.SheetNames) {
+      const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: '' });
+      if (data.length > bestRows) {
+        bestRows = data.length;
+        bestSheet = name;
+      }
+    }
+    targets = bestSheet ? [bestSheet] : [];
+  }
+
+  if (targets.length === 0) {
+    return {
+      meta: { customer_name: '', site_name: '', order_date: '', delivery_date: '', remark: '' },
+      items: [], sheetName: '', sheetNames: [], totalRows: 0,
+      warnings: ['읽을 시트가 없습니다.'],
+    };
+  }
+
+  const items: ParsedOrderItem[] = [];
+  const warnings: string[] = [];
+  let totalRows = 0;
+  let meta: ParsedOrderMeta | null = null;
+
+  for (const name of targets) {
+    const one = parseSheet(wb, name);
+    // 기본정보는 내용이 있는 첫 시트 것을 쓴다
+    if (!meta || (!meta.site_name && one.meta.site_name)) meta = one.meta;
+    items.push(...one.items);
+    totalRows += one.totalRows;
+    one.warnings.forEach(w => warnings.push(targets.length > 1 ? `[${name}] ${w}` : w));
+    if (targets.length > 1 && one.items.length === 0) {
+      warnings.push(`[${name}] 품목을 찾지 못했습니다.`);
+    }
+  }
+
+  return {
+    meta: meta ?? { customer_name: '', site_name: '', order_date: '', delivery_date: '', remark: '' },
+    items,
+    sheetName: targets.join(', '),
+    sheetNames: targets,
+    totalRows,
+    warnings,
+  };
+}
+
+/** 시트 한 장을 읽는다 */
+function parseSheet(wb: XLSX.WorkBook, sheetName: string): {
   meta: ParsedOrderMeta;
   items: ParsedOrderItem[];
   sheetName: string;
   totalRows: number;
   warnings: string[];
 } {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
   const warnings: string[] = [];
-
-  // 첫 번째 시트 또는 가장 데이터가 많은 시트 선택
-  let bestSheet = wb.SheetNames[0];
-  let bestRows = 0;
-
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
-    if (data.length > bestRows) {
-      bestRows = data.length;
-      bestSheet = name;
-    }
-  }
-
-  const ws = wb.Sheets[bestSheet];
+  const ws = wb.Sheets[sheetName];
   const rawData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
 
   // 엑셀 상단 영역에서 기본정보 추출
@@ -71,7 +158,7 @@ export function parseOrderExcel(buffer: ArrayBuffer): {
   const meta = extractMeta(allRows);
 
   if (rawData.length === 0) {
-    return { meta, items: [], sheetName: bestSheet, totalRows: 0, warnings: ['데이터가 없습니다.'] };
+    return { meta, items: [], sheetName, totalRows: 0, warnings: ['데이터가 없습니다.'] };
   }
 
   // 컬럼 매핑 탐색
@@ -79,7 +166,7 @@ export function parseOrderExcel(buffer: ArrayBuffer): {
   const columnMap = findColumnMapping(headers);
 
   if (!columnMap.product_name && !columnMap.width_mm) {
-    // 헤더가 1행이 아닐 수 있음 - 처음 10행에서 헤더 탐색
+    // 헤더가 1행이 아닐 수 있음 - 처음 20행에서 헤더 탐색
     for (let i = 0; i < Math.min(20, allRows.length); i++) {
       const row = allRows[i];
       if (!Array.isArray(row)) continue;
@@ -87,24 +174,24 @@ export function parseOrderExcel(buffer: ArrayBuffer): {
       const testMap = findColumnMapping(rowHeaders);
       if (testMap.product_name || testMap.width_mm) {
         const reParsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { range: i, defval: '' });
-        const result = parseRows(reParsed, bestSheet, warnings);
+        const result = parseRows(reParsed, sheetName, warnings);
         return { ...result, meta };
       }
 
       // "규격" 컬럼 안에 두께/가로/세로가 병합된 경우 (김길홍 양식)
-      const hasSpec = rowHeaders.some(h => /규\s*격/.test(h));
-      const hasProduct = rowHeaders.some(h => /제\s*품\s*명|위\s*치/.test(h));
+      const hasSpec = rowHeaders.some(h => /규s*격/.test(h));
+      const hasProduct = rowHeaders.some(h => /제s*품s*명|위s*치/.test(h));
       if (hasSpec || hasProduct) {
         const reParsed = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { range: i, defval: '' });
-        const result = parseRows(reParsed, bestSheet, warnings);
+        const result = parseRows(reParsed, sheetName, warnings);
         return { ...result, meta };
       }
     }
     warnings.push('품명/가로/세로 컬럼을 찾을 수 없습니다. 수동으로 확인해주세요.');
-    return { meta, items: [], sheetName: bestSheet, totalRows: rawData.length, warnings };
+    return { meta, items: [], sheetName, totalRows: rawData.length, warnings };
   }
 
-  const result = parseRows(rawData, bestSheet, warnings);
+  const result = parseRows(rawData, sheetName, warnings);
   return { ...result, meta };
 }
 
