@@ -128,7 +128,7 @@ export function readOrder(buffer: ArrayBuffer | Uint8Array, format: OrderFormat,
     if (!w || !h || !qty) continue;
     const loc = parseLocation(carry);
     lines.push({
-      row, sheet: parsed.sheetName, product: it.product_name || '(품명 없음)', w, h, qty, rawLoc: carry,
+      row: it.excel_row ?? row, sheet: parsed.sheetName, product: it.product_name || '(품명 없음)', w, h, qty, rawLoc: carry,
       dong: loc.dong, ho: loc.ho?.[0], line: loc.line?.[0], floor: loc.floor, type: loc.type, zone: loc.zone,
       room: loc.rest || undefined,
     });

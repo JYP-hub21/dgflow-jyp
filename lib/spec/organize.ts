@@ -33,11 +33,82 @@ export interface OrderLine {
 }
 
 /** 묶음을 자르는 단위 */
-export type UnitKind = 'dong-ho' | 'dong-line' | 'dong' | 'floor' | 'zone' | 'sheet' | 'all';
+export type UnitKind = 'rows' | 'dong-ho' | 'dong-line' | 'dong' | 'floor' | 'zone' | 'sheet' | 'all';
 
 export const UNIT_LABEL: Record<UnitKind, string> = {
-  'dong-ho': '동·호', 'dong-line': '동·라인', dong: '동', floor: '층', zone: '구역', sheet: '시트', all: '전체',
+  rows: '행 범위', 'dong-ho': '동·호', 'dong-line': '동·라인', dong: '동', floor: '층', zone: '구역', sheet: '시트', all: '전체',
 };
+
+/** 행 단위 열쇠 — "시트!행" */
+export const rowUnit = (line: OrderLine) => `${line.sheet ?? ''}!${line.row}`;
+
+/** 행 단위 목록을 사람이 읽는 범위 문자열로 — "15~135행" · "15~24, 50~75행" (시트가 여럿이면 "7차: 15~135행") */
+export function rowsToRanges(units: string[], lines?: OrderLine[]): string {
+  const bySheet = new Map<string, number[]>();
+  for (const u of units) {
+    const i = u.lastIndexOf('!');
+    const sheet = u.slice(0, i), row = parseInt(u.slice(i + 1), 10);
+    if (!Number.isFinite(row)) continue;
+    if (!bySheet.has(sheet)) bySheet.set(sheet, []);
+    bySheet.get(sheet)!.push(row);
+  }
+  // lines 를 주면 "품목이 있는 행" 기준으로 이어졌는지 본다 — 사이의 계·빈 줄은 끊김으로 치지 않는다
+  const existing = new Map<string, number[]>();
+  if (lines) for (const l of lines) {
+    const k = l.sheet ?? '';
+    if (!existing.has(k)) existing.set(k, []);
+    existing.get(k)!.push(l.row);
+  }
+  const parts: string[] = [];
+  for (const [sheet, rows] of bySheet) {
+    const s = [...new Set(rows)].sort((a, b) => a - b);
+    const all = [...new Set(existing.get(sheet) ?? [])].sort((a, b) => a - b);
+    const nextExisting = (r: number) => { const i = all.indexOf(r); return i >= 0 && i + 1 < all.length ? all[i + 1] : r + 1; };
+    const ranges: string[] = [];
+    let start = s[0], prev = s[0];
+    for (const r of s.slice(1)) {
+      if (r === (all.length ? nextExisting(prev) : prev + 1)) { prev = r; continue; }
+      ranges.push(start === prev ? `${start}` : `${start}~${prev}`);
+      start = prev = r;
+    }
+    if (s.length) ranges.push(start === prev ? `${start}` : `${start}~${prev}`);
+    parts.push((bySheet.size > 1 && sheet ? `${sheet}: ` : '') + ranges.join(', ') + '행');
+  }
+  return parts.join(' / ') || '(비어 있음)';
+}
+
+/**
+ * 사람이 적은 범위 문자열을 행 단위 목록으로.
+ *   "15~135" · "15-24, 50-75" · "1~24행, 50~75행" · 시트가 여럿이면 "7차: 15~135, 8차: 15~40"
+ * 실제로 품목이 있는 행만 담는다 (사이의 빈 줄·소계 줄은 어차피 품목이 아니다).
+ */
+export function rangesToUnits(text: string, lines: OrderLine[], defaultSheet?: string): string[] {
+  const out: string[] = [];
+  const bySheet = new Map<string, number[]>();
+  for (const l of lines) {
+    const k = l.sheet ?? '';
+    if (!bySheet.has(k)) bySheet.set(k, []);
+    bySheet.get(k)!.push(l.row);
+  }
+  const sheets = [...bySheet.keys()];
+  for (const chunk of text.split(/[/;]/)) {
+    let sheet = defaultSheet ?? sheets[0] ?? '';
+    let body = chunk;
+    const m = chunk.match(/^\s*([^:]+?)\s*:\s*(.+)$/);
+    if (m && sheets.includes(m[1].trim())) { sheet = m[1].trim(); body = m[2]; }
+    const rows = bySheet.get(sheet) ?? [];
+    for (const part of body.split(',')) {
+      const p = part.replace(/행/g, '').trim();
+      if (!p) continue;
+      const r = p.match(/^(\d+)\s*[~\-]\s*(\d+)$/);
+      const a = r ? +r[1] : parseInt(p, 10), b = r ? +r[2] : parseInt(p, 10);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      for (const row of rows) if (row >= lo && row <= hi) out.push(`${sheet}!${row}`);
+    }
+  }
+  return [...new Set(out)];
+}
 
 /** 묶음 하나 = 작업의뢰서 한 장. units 는 unitOf() 가 돌려주는 문자열 목록 */
 export interface Bundle {
@@ -115,6 +186,7 @@ export function mode<T>(values: T[]): T | undefined {
 /** 줄이 어느 단위에 속하는지 — 단위 종류에 따라 문자열 열쇠를 만든다 */
 export function unitOf(line: OrderLine, kind: UnitKind): string {
   switch (kind) {
+    case 'rows':      return rowUnit(line);
     case 'dong-ho':   return line.dong !== undefined ? `${line.dong}동 ${line.ho ?? '?'}호` : '미상';
     case 'dong-line': return line.dong !== undefined ? `${line.dong}동 ${line.line ?? '?'}라인` : '미상';
     case 'dong':      return line.dong !== undefined ? `${line.dong}동` : '미상';
@@ -128,7 +200,7 @@ export function unitOf(line: OrderLine, kind: UnitKind): string {
 /** 이 줄들에서 쓸 수 있는 단위 종류 — 값이 실제로 있는 것만 */
 export function availableKinds(lines: OrderLine[]): UnitKind[] {
   const has = (f: (l: OrderLine) => boolean) => lines.some(f);
-  const kinds: UnitKind[] = [];
+  const kinds: UnitKind[] = ['rows'];          // 행 범위는 어떤 양식에서든 쓸 수 있다
   if (has(l => l.dong !== undefined && l.ho !== undefined)) kinds.push('dong-ho');
   if (has(l => l.dong !== undefined && l.line !== undefined)) kinds.push('dong-line');
   if (has(l => l.dong !== undefined)) kinds.push('dong');
@@ -158,7 +230,9 @@ export function unitsOf(lines: OrderLine[], kind: UnitKind): string[] {
 export function suggestBundles(lines: OrderLine[], kind: UnitKind): Bundle[] {
   const units = unitsOf(lines, kind);
   let groups: string[][];
-  if (kind === 'dong-ho' || kind === 'dong-line') {
+  if (kind === 'rows') {
+    groups = [units];                          // 행 범위는 사람이 자르니 처음엔 전부 한 묶음
+  } else if (kind === 'dong-ho' || kind === 'dong-line') {
     const byDong = new Map<string, string[]>();
     for (const u of units) {
       const d = u.split(' ')[0];
@@ -191,6 +265,7 @@ export function parseBundleSpec(spec: string): Bundle[] {
 export function bundleName(bundle: Bundle, kind: UnitKind): string {
   const u = bundle.units;
   if (u.length === 0) return '(비어 있음)';
+  if (kind === 'rows') return rowsToRanges(u);
   if (kind === 'dong-ho' || kind === 'dong-line') {
     const byDong = new Map<string, number[]>();
     for (const x of u) {
@@ -260,7 +335,7 @@ export function organizeBundle(lines: OrderLine[], bundle: Bundle, kind: UnitKin
   });
 
   return {
-    bundle, name: bundleName(bundle, kind), lines: mine, blocks,
+    bundle, name: kind === 'rows' ? rowsToRanges(bundle.units, lines) : bundleName(bundle, kind), lines: mine, blocks,
     totalQty: mine.reduce((s, l) => s + l.qty, 0),
     warnings: checkPairs(mine),
   };

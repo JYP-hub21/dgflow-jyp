@@ -9,6 +9,7 @@ export interface ParsedOrderMeta {
 }
 
 export interface ParsedOrderItem {
+  excel_row?: number;   // 엑셀에서의 실제 행 번호 (1부터) — 사람이 "1~24행" 처럼 범위를 지정할 때 쓴다
   product_name: string;
   width_mm: string;
   height_mm: string;
@@ -332,7 +333,10 @@ function parseRows(
       productName = lastProductName;
     }
 
+    // SheetJS 가 각 객체에 붙여 주는 0부터 세는 행 번호 → 엑셀 행 번호(1부터)
+    const rowNum = (row as { __rowNum__?: number }).__rowNum__;
     items.push({
+      excel_row: typeof rowNum === 'number' ? rowNum + 1 : undefined,
       product_name: productName,
       width_mm: width > 0 ? String(width) : '',
       height_mm: height > 0 ? String(height) : '',

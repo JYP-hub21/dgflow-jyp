@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
   organizeBundle, organize, foldNums, foldTypes, foldRooms, parseBundleSpec, suggestBundles, unitsOf,
-  availableKinds, bundleName, checkPairs, type OrderLine,
+  availableKinds, bundleName, checkPairs, rangesToUnits, rowsToRanges, type OrderLine,
 } from '../lib/spec/organize';
 import { parseLocation, expandNums } from '../lib/spec/location';
 import { detectOrder, readOrder } from '../lib/parser/detect';
@@ -65,7 +65,7 @@ describe('위치 문장 파서', () => {
 
 describe('단위와 묶음', () => {
   it('쓸 수 있는 단위와 단위 목록', () => {
-    expect(availableKinds(L)).toEqual(['dong-ho', 'dong', 'floor', 'all']);   // 층 정보가 있으니 층으로도 나눌 수 있다
+    expect(availableKinds(L)).toEqual(['rows', 'dong-ho', 'dong', 'floor', 'all']);   // 행 범위는 항상, 층 정보가 있으니 층도
     expect(unitsOf(L, 'dong-ho')).toEqual(['1동 1호', '1동 2호', '1동 3호']);
   });
   it('기본 제안은 동마다 하나, 문자열 형식도 읽는다', () => {
@@ -119,6 +119,33 @@ describe('규격정리 — 1동 1~3호', () => {
   });
 });
 
+describe('행 범위로 묶기 (사용자 제안 방식)', () => {
+  const lines: OrderLine[] = [
+    { row: 15, sheet: '7차', product: 'A', w: 900, h: 1000, qty: 2, rawLoc: '1호' },
+    { row: 16, sheet: '7차', product: 'A', w: 900, h: 1000, qty: 3, rawLoc: '1호' },
+    { row: 18, sheet: '7차', product: 'A', w: 500, h: 700, qty: 1, rawLoc: '1호' },   // 17행은 빈 줄
+    { row: 30, sheet: '7차', product: 'A', w: 900, h: 1000, qty: 4, rawLoc: '2호' },
+    { row: 31, sheet: '7차', product: 'B', w: 900, h: 1000, qty: 1, rawLoc: '2호' },
+    { row: 15, sheet: '8차', product: 'A', w: 900, h: 1000, qty: 9, rawLoc: '3호' },
+  ];
+  it('범위 글자 ↔ 행 단위', () => {
+    expect(rangesToUnits('15~18', lines, '7차')).toEqual(['7차!15', '7차!16', '7차!18']);
+    expect(rangesToUnits('15-16, 30~31행', lines, '7차')).toEqual(['7차!15', '7차!16', '7차!30', '7차!31']);
+    expect(rangesToUnits('7차: 15~16 / 8차: 15', lines)).toEqual(['7차!15', '7차!16', '8차!15']);
+    expect(rowsToRanges(['7차!15', '7차!16', '7차!18'])).toBe('15~16, 18행');
+    expect(rowsToRanges(['7차!15', '7차!16', '7차!18'], lines)).toBe('15~18행');   // 17행은 품목이 없으니 이어진 것으로
+    expect(rowsToRanges(['7차!15', '8차!15'])).toBe('7차: 15행 / 8차: 15행');
+  });
+  it('범위 안에서만 같은 품명·규격을 합친다', () => {
+    const b = { id: 'G1', units: rangesToUnits('15~18', lines, '7차') };
+    const r = organizeBundle(lines, b, 'rows');
+    expect(r.name).toBe('15~18행');   // 17행은 품목이 없으니 사람 눈엔 15~18행
+    expect(r.blocks[0].right.map(x => `${x.w}x${x.h}:${x.qty}`)).toEqual(['900x1000:5', '500x700:1']);   // 30행의 4매는 안 섞임
+    expect(availableKinds(lines)[0]).toBe('rows');
+    expect(suggestBundles(lines, 'rows')).toEqual([{ id: 'G1', units: ['7차!15', '7차!16', '7차!18', '7차!30', '7차!31', '8차!15'] }]);
+  });
+});
+
 describe('구조가 없는 양식', () => {
   it('원문 위치를 이어 붙이고 시트 단위로 묶는다', () => {
     const lines: OrderLine[] = [
@@ -126,7 +153,7 @@ describe('구조가 없는 양식', () => {
       { row: 2, sheet: '1층', product: '5T 투명', w: 900, h: 1000, qty: 3, rawLoc: '1층 로비', floor: '1층', room: '로비' },
       { row: 3, sheet: '지하', product: '5T 투명', w: 900, h: 1000, qty: 1, rawLoc: '어린이집', room: '어린이집' },
     ];
-    expect(availableKinds(lines)).toEqual(['floor', 'sheet', 'all']);
+    expect(availableKinds(lines)).toEqual(['rows', 'floor', 'sheet', 'all']);
     const r = organizeBundle(lines, { id: 'G1', units: ['1층'] }, 'sheet');
     expect(r.blocks[0].right[0]).toMatchObject({ qty: 5, loc: '1층 피트니스,로비' });
   });
