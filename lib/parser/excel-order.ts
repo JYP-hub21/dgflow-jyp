@@ -59,8 +59,8 @@ export interface ParseResult {
  * 발주서는 차수별·타입별로 시트가 여러 장인 경우가 많아서,
  * 시스템이 말없이 한 장을 고르면 엉뚱한 시트가 들어간다.
  */
-export function listOrderSheets(buffer: ArrayBuffer): SheetInfo[] {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+export function listOrderSheets(buffer: ArrayBuffer | Uint8Array): SheetInfo[] {
+  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
   const infos: SheetInfo[] = wb.SheetNames.map(name => {
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[name], { defval: '' }).length;
     let items = 0;
@@ -84,10 +84,10 @@ export function listOrderSheets(buffer: ArrayBuffer): SheetInfo[] {
  * 주지 않으면 예전처럼 품목이 가장 많이 읽히는 시트 한 장을 고른다.
  */
 export function parseOrderExcel(
-  buffer: ArrayBuffer,
+  buffer: ArrayBuffer | Uint8Array,
   options?: { sheets?: string[] }
 ): ParseResult {
-  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array', cellDates: true });
 
   // 읽을 시트 정하기
   let targets: string[];

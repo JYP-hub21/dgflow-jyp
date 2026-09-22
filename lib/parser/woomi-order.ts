@@ -31,7 +31,9 @@ const num = (v: unknown) => parseFloat(String(v ?? '').replace(/,/g, '').trim())
 const str = (v: unknown) => String(v ?? '').trim();
 
 function readSheet(ws: XLSX.WorkSheet): { header: WoomiHeader; lines: OrderLine[] } {
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false });
+  // 고정 행 번호(2·4·6·7·11~15행)를 쓰므로 빈 행을 남기고 시작점을 A1에 못 박는다
+  const end = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']).e : { r: 0, c: 0 };
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: false, blankrows: true, range: { s: { r: 0, c: 0 }, e: end } });
   const cell = (r: number, c: number) => (rows[r - 1] ?? [])[c];
 
   const header: WoomiHeader = {
@@ -71,8 +73,8 @@ export function isWoomiSheet(ws: XLSX.WorkSheet): boolean {
   return hasHead && hasStruct;
 }
 
-export function listWoomiSheets(buffer: ArrayBuffer): WoomiSheetInfo[] {
-  const wb = XLSX.read(buffer, { type: 'array' });
+export function listWoomiSheets(buffer: ArrayBuffer | Uint8Array): WoomiSheetInfo[] {
+  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
   const infos = wb.SheetNames.map(name => {
     const ws = wb.Sheets[name];
     const lines = ws && ws['!ref'] && isWoomiSheet(ws) ? readSheet(ws).lines.length : 0;
@@ -83,8 +85,8 @@ export function listWoomiSheets(buffer: ArrayBuffer): WoomiSheetInfo[] {
   return infos;
 }
 
-export function parseWoomiOrder(buffer: ArrayBuffer, sheetName: string): { header: WoomiHeader; lines: OrderLine[] } {
-  const wb = XLSX.read(buffer, { type: 'array' });
+export function parseWoomiOrder(buffer: ArrayBuffer | Uint8Array, sheetName: string): { header: WoomiHeader; lines: OrderLine[] } {
+  const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
   const ws = wb.Sheets[sheetName];
   if (!ws) throw new Error(`시트 "${sheetName}" 가 없습니다.`);
   return readSheet(ws);
