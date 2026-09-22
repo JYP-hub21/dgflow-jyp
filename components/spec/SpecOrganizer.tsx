@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileSpreadsheet, Download, ChevronDown, ChevronRight, AlertTriangle, Check, Save, History, Plus, Trash2 } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, ChevronDown, ChevronRight, AlertTriangle, Check, Plus, Trash2 } from 'lucide-react';
 import { detectOrder, readOrder, FORMAT_LABEL, type DetectedOrder, type ReadOrder } from '@/lib/parser/detect';
 import {
-  organize, suggestBundles, unitsOf, availableKinds, bundleName, unitOf, rowsToRanges, rangesToUnits, UNIT_LABEL,
+  organize, suggestBundles, availableKinds, bundleName, unitOf, rowsToRanges, rangesToUnits, UNIT_LABEL,
   type Bundle, type UnitKind,
 } from '@/lib/spec/organize';
 import { buildSpecWorkbook } from '@/lib/spec/excel';
@@ -15,25 +15,15 @@ import { buildSpecWorkbook } from '@/lib/spec/excel';
 /**
  * 규격정리 — 어떤 발주서든: 올리기 → 시트 → 묶음 → 결과 → 엑셀.
  *
- * 묶음(작업의뢰서 한 장)은 사람이 정한다. 기본은 "행 범위" 다 — 발주서를 보고
+ * 묶음(작업의뢰서 한 장)은 매번 사람이 발주서를 보고 정한다. 기본은 "행 범위" 다 —
  * "15~135행, 200~240행" 처럼 자르면 그 안에서 같은 품명·같은 규격끼리 합쳐진다.
- * 위치 문장을 해석하지 않으니 어떤 양식이든 된다. 동·호나 층으로 나누는 방식도 남겨 뒀다.
+ * 시스템은 지난 패턴이나 추측으로 묶음을 미리 채우지 않는다. 사람이 자르고, 기계가 합친다.
+ * 동·호나 층으로 나누는 방식은 사람이 골랐을 때만 쓴다.
  */
 
-const MEMORY_KEY = 'dgflow.spec.patterns';
-type Pattern = { site: string; kind: UnitKind; bundles: Bundle[]; savedAt: string };
 const COLORS = ['border-l-blue-400', 'border-l-emerald-400', 'border-l-amber-400', 'border-l-violet-400', 'border-l-rose-400', 'border-l-cyan-400', 'border-l-lime-500', 'border-l-orange-400'];
 const DOTS = ['bg-blue-400', 'bg-emerald-400', 'bg-amber-400', 'bg-violet-400', 'bg-rose-400', 'bg-cyan-400', 'bg-lime-500', 'bg-orange-400'];
 
-function loadPatterns(): Pattern[] {
-  try { return JSON.parse(localStorage.getItem(MEMORY_KEY) || '[]'); } catch { return []; }
-}
-function savePattern(p: Pattern) {
-  try {
-    const rest = loadPatterns().filter(x => !(x.site === p.site && x.kind === p.kind));
-    localStorage.setItem(MEMORY_KEY, JSON.stringify([p, ...rest].slice(0, 50)));
-  } catch { /* 저장 못 해도 동작에는 지장 없음 */ }
-}
 const renumber = (list: Bundle[]) => list.map((b, i) => ({ ...b, id: `G${i + 1}` }));
 
 export default function SpecOrganizer() {
@@ -45,18 +35,16 @@ export default function SpecOrganizer() {
   const [read, setRead] = useState<ReadOrder | null>(null);
   const [kind, setKind] = useState<UnitKind>('rows');
   const [bundles, setBundles] = useState<Bundle[]>([]);
-  const [source, setSource] = useState<'form' | 'memory' | 'default' | ''>('');
   const [current, setCurrent] = useState('G1');          // 행 표에서 클릭하면 들어갈 묶음
   const [pendingStart, setPendingStart] = useState<{ sheet: string; row: number } | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState('');
-  const [saved, setSaved] = useState(false);
 
   // ── 1. 파일 ─────────────────────────────────────────────────────────
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    setError(''); setRead(null); setBundles([]); setDetected(null); setSource(''); setSaved(false); setPendingStart(null);
+    setError(''); setRead(null); setBundles([]); setDetected(null); setPendingStart(null);
     setFileName(f.name);
     try {
       const buf = await f.arrayBuffer();
@@ -74,10 +62,9 @@ export default function SpecOrganizer() {
     if (sheets.length === 0) { setRead(null); setBundles([]); return; }
     const r = readOrder(buf, d.format, sheets);
     setRead(r);
-    // 양식에 포장묶음 칸이 채워져 있으면 동·호로, 아니면 행 범위로 시작한다
-    const k: UnitKind = r.packingHint.length ? 'dong-ho' : 'rows';
-    setKind(k);
-    setBundles(initialBundles(r, k));
+    // 언제나 행 범위, 빈 묶음 하나로 시작한다 — 어디서 자를지는 사람이 발주서를 보고 정한다
+    setKind('rows');
+    setBundles(initialBundles(r, 'rows'));
     setCurrent('G1'); setPendingStart(null); setOpen(new Set());
   }
 
@@ -91,20 +78,9 @@ export default function SpecOrganizer() {
   }
 
   // ── 2. 묶음 ─────────────────────────────────────────────────────────
+  /** 행 범위는 빈 묶음 하나로 시작(사람이 자른다). 다른 단위는 사람이 골랐을 때만 단위별로 제안 */
   function initialBundles(r: ReadOrder, k: UnitKind): Bundle[] {
-    if (k === 'dong-ho' && r.packingHint.length) {
-      const list: Bundle[] = [];
-      for (const h of r.packingHint) for (const g of h.groups) list.push({ id: '', units: g.map(ho => `${h.dong}동 ${ho}호`) });
-      setSource('form');
-      return renumber(list);
-    }
-    const mem = loadPatterns().find(p => p.site && p.site === r.header.site && p.kind === k);
-    if (mem) {
-      const units = new Set(unitsOf(r.lines, k));
-      const list = mem.bundles.map(b => ({ ...b, units: b.units.filter(u => units.has(u)) })).filter(b => b.units.length);
-      if (list.length) { setSource('memory'); return renumber(list); }
-    }
-    setSource('default');
+    if (k === 'rows') return [{ id: 'G1', units: [] }];
     return suggestBundles(r.lines, k);
   }
 
@@ -131,13 +107,12 @@ export default function SpecOrganizer() {
       else if (bundleId) list = list.map(b => (b.id === bundleId ? { ...b, units: [...b.units, ...unitList] } : b));
       return renumber(list);
     });
-    setSource('');
   }
   const addBundle = () => { setBundles(prev => renumber([...prev, { id: '', units: [] }])); setCurrent(`G${bundles.length + 1}`); };
   const removeBundle = (id: string) => setBundles(prev => renumber(prev.filter(b => b.id !== id)));
-  const eachOwn = () => { setBundles(units.map((u, i) => ({ id: `G${i + 1}`, units: [u] }))); setSource(''); };
-  const allOne = () => { setBundles([{ id: 'G1', units: [...units] }]); setSource(''); };
-  const bySuggest = () => { if (read) { setBundles(suggestBundles(read.lines, kind)); setSource('default'); } };
+  const eachOwn = () => setBundles(units.map((u, i) => ({ id: `G${i + 1}`, units: [u] })));
+  const allOne = () => setBundles([{ id: 'G1', units: [...units] }]);
+  const bySuggest = () => { if (read) setBundles(suggestBundles(read.lines, kind)); };
 
   /** 행 범위 글자를 묶음에 적용 */
   function applyRangeText(id: string, text: string) {
@@ -149,7 +124,6 @@ export default function SpecOrganizer() {
       if (x.id === id) return { ...x, units: next };
       return { ...x, units: x.units.filter(u => !next.includes(u)) };   // 겹치면 다른 묶음에서 뺀다
     })));
-    setSource('');
   }
 
   /** 행 표 클릭: 첫 클릭 = 시작, 둘째 클릭 = 끝 → 그 사이 행을 현재 묶음으로 */
@@ -172,18 +146,10 @@ export default function SpecOrganizer() {
   const unassignedUnits = units.filter(u => !assignment.has(u));
   const multiSheet = read ? new Set(read.lines.map(l => l.sheet)).size > 1 : false;
 
-  useEffect(() => { setSaved(false); }, [bundles]);
-
-  function remember() {
-    if (!read?.header.site) return;
-    savePattern({ site: read.header.site, kind, bundles, savedAt: new Date().toISOString() });
-    setSaved(true);
-  }
   function download() {
     if (!read) return;
     const wb = buildSpecWorkbook(read.header, results.filter(r => r.lines.length), unassigned);
     XLSX.writeFile(wb, `규격정리-${fileName.replace(/\.xlsx?$/i, '')}.xlsx`);
-    if (read.header.site) remember();
   }
   const toggle = (id: string) => setOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -253,9 +219,6 @@ export default function SpecOrganizer() {
               <button type="button" onClick={allOne} className="rounded border bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">전부 하나로</button>
             </span>
           </div>
-
-          {source === 'form' && <p className="mb-3 flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><Check className="h-3.5 w-3.5" />양식의 <b>포장묶음</b> 칸을 읽어 채웠습니다. 확인만 하세요.</p>}
-          {source === 'memory' && <p className="mb-3 flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800"><History className="h-3.5 w-3.5" />같은 현장의 <b>지난 패턴</b>을 적용했습니다. 이번 차수와 다르면 고치세요.</p>}
 
           {kind === 'rows' ? (
             <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
@@ -367,12 +330,7 @@ export default function SpecOrganizer() {
         <section className="rounded-lg border bg-white p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <Step n={3} title="규격정리 결과" sub={`${read!.lines.length}줄 → ${totalRight}줄 · 묶음 ${results.filter(r => r.lines.length).length}개`} />
-            <div className="flex gap-2">
-              {read?.header.site && (
-                <Button type="button" variant="outline" onClick={remember} disabled={saved}><Save className="mr-2 h-4 w-4" />{saved ? '이 현장 패턴 기억됨' : '이 현장 패턴 기억'}</Button>
-              )}
-              <Button type="button" onClick={download} disabled={unassignedUnits.length > 0}><Download className="mr-2 h-4 w-4" />규격정리 엑셀 받기</Button>
-            </div>
+            <Button type="button" onClick={download} disabled={unassignedUnits.length > 0}><Download className="mr-2 h-4 w-4" />규격정리 엑셀 받기</Button>
           </div>
 
           {warnings.length > 0 ? (
