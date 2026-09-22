@@ -45,6 +45,7 @@ export interface MenuItem {
 export const MENU_ITEMS: MenuItem[] = [
   { label: '대시보드', href: '/dashboard', icon: 'LayoutDashboard', permission: 'dashboard:access' },
   { label: '주문 관리', href: '/orders', icon: 'ClipboardList', permission: 'orders:view' },
+  { label: '규격정리', href: '/spec', icon: 'FileCheck', permission: 'orders:view' },
   { label: '검토', href: '/review', icon: 'FileCheck', permission: 'review:access' },
   { label: '승인', href: '/approve', icon: 'CheckCircle', permission: 'approve:access' },
   { label: '작업의뢰서', href: '/work-orders', icon: 'FileCheck', permission: 'production:view' },
