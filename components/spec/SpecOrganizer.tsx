@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Upload, FileSpreadsheet, Download, ChevronDown, ChevronRight, AlertTriangle, Check, Plus, Trash2 } from 'lucide-react';
 import { detectOrder, readOrder, FORMAT_LABEL, type DetectedOrder, type ReadOrder } from '@/lib/parser/detect';
 import {
-  organize, suggestBundles, availableKinds, bundleName, unitOf, rowsToRanges, rangesToUnits, UNIT_LABEL,
+  organize, suggestBundles, unitsOf, availableKinds, bundleName, unitOf, rowsToRanges, rangesToUnits, UNIT_LABEL,
   type Bundle, type UnitKind,
 } from '@/lib/spec/organize';
 import { buildSpecWorkbook } from '@/lib/spec/excel';
