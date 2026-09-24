@@ -5,7 +5,7 @@ import {
   availableKinds, bundleName, checkPairs, rangesToUnits, rowsToRanges, type OrderLine,
 } from '../lib/spec/organize';
 import { parseLocation, expandNums } from '../lib/spec/location';
-import { detectOrder, readOrder } from '../lib/parser/detect';
+import { detectOrder, readOrder, genericToLines, isProductName } from '../lib/parser/detect';
 
 /** 우미 남원주 7차 1동 1~3호를 축소한 시험 데이터 — 규칙 5개가 전부 걸리게 구성 */
 function line(p: Partial<OrderLine> & Pick<OrderLine, 'dong' | 'ho' | 'type' | 'room' | 'w' | 'h' | 'qty'>): OrderLine {
@@ -156,6 +156,41 @@ describe('구조가 없는 양식', () => {
     expect(availableKinds(lines)).toEqual(['rows', 'floor', 'sheet', 'all']);
     const r = organizeBundle(lines, { id: 'G1', units: ['1층'] }, 'sheet');
     expect(r.blocks[0].right[0]).toMatchObject({ qty: 5, loc: '1층 피트니스,로비' });
+  });
+});
+
+describe('범용 양식 — 품명 두 줄·위치 여러 줄 블록 (이랜드 수원남문 배치)', () => {
+  it('블록 안의 설명 줄은 품명에 붙이고, 위치 머리는 이어 붙이고, 비고에서 동·호를 보충한다', () => {
+    // 교수님 범용 파서가 돌려주는 모양 그대로 (품명 상속은 파서가 이미 했고, product_raw 가 원본)
+    const item = (row: number, raw: string, inherited: string, loc: string, w: number, h: number, remark: string) => ({
+      excel_row: row, product_raw: raw, product_name: inherited, width_mm: String(w), height_mm: String(h), quantity: '12',
+      location_dong: '', location_line: '', location_floor: '', location_room: loc, location_type: '', location_window_type: '', remark,
+    });
+    const items = [
+      item(15, '5CL+12A+5DURAMAX', '5CL+12A+5DURAMAX', '1~라인', 1545, 1973, '1동 1~2호 5~10층 72B거실외창'),
+      item(16, '단열간봉, 치오콜마감', '단열간봉, 치오콜마감', '5~10층', 1545, 1973, '1동 1~2호 5~10층 72B침실1외창'),
+      item(17, '', '단열간봉, 치오콜마감', '(최상층10층)', 759, 1973, '1동 1~2호 5~10층 72B침실2외창'),
+      item(18, '', '단열간봉, 치오콜마감', '', 759, 1973, '1동 1~2호 5~10층 72B침실3외창'),
+      // 23행 계 · 24행 빈 줄 → 행이 건너뜀
+      item(25, '5CL+12A+5DURAMAX', '5CL+12A+5DURAMAX', '', 1545, 1973, '1동 1~2호 5~10층 72B거실내창'),
+      item(26, '단열간봉, 치오콜마감', '단열간봉, 치오콜마감', '', 759, 1973, '1동 1~2호 5~10층 72B침실1내창'),
+    ];
+    const lines = genericToLines(items, '2차 발주');
+    expect(lines.length).toBe(6);
+    expect(isProductName('5CL+12A+5DURAMAX')).toBe(true);
+    expect(isProductName('단열간봉, 치오콜마감')).toBe(false);
+    expect(isProductName('일반간봉/실리콘/양면반강화')).toBe(false);
+    expect(isProductName('그린로이 복층유리')).toBe(true);
+    // 블록 1 (15~18행): 품명은 두 줄을 합친 것, 위치는 머리 세 줄을 이은 것 — 빈 줄도 같은 값
+    expect(lines[0].product).toBe('5CL+12A+5DURAMAX / 단열간봉, 치오콜마감');
+    expect(lines[3].product).toBe('5CL+12A+5DURAMAX / 단열간봉, 치오콜마감');
+    expect(lines[0].rawLoc).toBe('1~라인 5~10층 (최상층10층)');
+    expect(lines[3].rawLoc).toBe('1~라인 5~10층 (최상층10층)');
+    // 비고에서 동·호·층·타입 보충
+    expect(lines[0]).toMatchObject({ dong: 1, ho: 1, floor: '5~10층', type: '72B', row: 15 });
+    // 블록 2 (25~26행): 계 행 뒤 새 사양 줄부터 새 블록
+    expect(lines[4].product).toBe('5CL+12A+5DURAMAX / 단열간봉, 치오콜마감');
+    expect(lines[4].row).toBe(25);
   });
 });
 

@@ -10,6 +10,7 @@ export interface ParsedOrderMeta {
 
 export interface ParsedOrderItem {
   excel_row?: number;   // 엑셀에서의 실제 행 번호 (1부터) — 사람이 "1~24행" 처럼 범위를 지정할 때 쓴다
+  product_raw?: string; // 품명 칸에 실제로 적힌 글자 (비어 있으면 '') — 상속 전 원본
   product_name: string;
   width_mm: string;
   height_mm: string;
@@ -326,6 +327,8 @@ function parseRows(
     if (productName && /합계|소계|TOTAL|SUM/i.test(productName)) continue;
     if (width <= 0 || height <= 0) continue;
 
+    const productRaw = productName;   // 상속 전 원본 — 빈 칸/설명 줄을 블록으로 묶을 때 필요
+
     // 품명 병합 셀: 품명이 비어있으면 이전 품명 상속
     if (productName) {
       lastProductName = productName;
@@ -337,6 +340,7 @@ function parseRows(
     const rowNum = (row as { __rowNum__?: number }).__rowNum__;
     items.push({
       excel_row: typeof rowNum === 'number' ? rowNum + 1 : undefined,
+      product_raw: productRaw,
       product_name: productName,
       width_mm: width > 0 ? String(width) : '',
       height_mm: height > 0 ? String(height) : '',

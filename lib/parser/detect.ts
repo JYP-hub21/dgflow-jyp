@@ -13,7 +13,7 @@ import type { OrderLine, UnitKind } from '@/lib/spec/organize';
 import { parseLocation } from '@/lib/spec/location';
 import { listWoomiSheets, parseWoomiOrder, type WoomiHeader } from './woomi-order';
 import { listDongilSheets, parseDongilOrder } from './dongil-order';
-import { listOrderSheets, parseOrderExcel } from './excel-order';
+import { listOrderSheets, parseOrderExcel, type ParsedOrderItem } from './excel-order';
 
 export type OrderFormat = 'woomi' | 'dongil' | 'generic';
 
@@ -114,30 +114,90 @@ export function readOrder(buffer: ArrayBuffer | Uint8Array, format: OrderFormat,
 
   // 범용
   const parsed = parseOrderExcel(buffer, { sheets });
-  const lines: OrderLine[] = [];
-  let carry = '';                                  // 구역 제목 줄의 위치를 아래 줄로 이어받기
-  let row = 0;
-  for (const it of parsed.items) {
-    row++;
-    const locText = [it.location_dong, it.location_line, it.location_floor, it.location_room, it.location_type, it.location_window_type]
-      .filter(Boolean).join(' ').trim();
-    if (locText) carry = locText;
-    const w = parseFloat(String(it.width_mm).replace(/,/g, '')) || 0;
-    const h = parseFloat(String(it.height_mm).replace(/,/g, '')) || 0;
-    const qty = parseFloat(String(it.quantity).replace(/,/g, '')) || 0;
-    if (!w || !h || !qty) continue;
-    const loc = parseLocation(carry);
-    lines.push({
-      row: it.excel_row ?? row, sheet: parsed.sheetName, product: it.product_name || '(품명 없음)', w, h, qty, rawLoc: carry,
-      dong: loc.dong, ho: loc.ho?.[0], line: loc.line?.[0], floor: loc.floor, type: loc.type, zone: loc.zone,
-      room: loc.rest || undefined,
-    });
-  }
+  const lines = genericToLines(parsed.items, parsed.sheetName);
   return {
     format, lines,
     header: { site: parsed.meta.site_name, orderNo: '', orderDate: parsed.meta.order_date, dueDate: parsed.meta.delivery_date, note: parsed.meta.remark },
     packingHint: [], shipOrder: '', suggestedKind: pickKind(lines, format),
   };
+}
+
+/** 품명 칸의 글자가 "유리 사양"인지, 그 아래 붙는 "설명 줄"(간봉·마감·실리콘…)인지 */
+const DESCRIPTOR = /간봉|실리콘|마감|치오콜|열처리|스티커|라벨|양면|반강화|접착|H\/S/;
+export function isProductName(text: string): boolean {
+  const t = (text || '').trim();
+  if (!t) return false;
+  if (/\+/.test(t)) return true;                    // 5CL+12A+5로이 — 사양엔 거의 항상 + 가 있다
+  return !DESCRIPTOR.test(t);
+}
+
+/**
+ * 범용 파서가 읽은 줄들을 블록으로 묶어 OrderLine 으로 만든다.
+ *
+ * 발주서에서는 흔히 "계" 행까지가 한 품목 블록이고, 품명 칸이 두 줄(사양 + 설명),
+ * 위치 칸이 여러 줄(1~라인 / 5~10층 / 최상층)로 블록 전체를 설명한다.
+ * 그래서 사양처럼 생긴 품명이 나오면 블록을 시작하고, 아래 설명 줄·빈 줄은 같은 블록으로 본다.
+ * 행 번호가 건너뛰면(계·빈 행) 그 다음 사양 줄부터 새 블록이다.
+ */
+export function genericToLines(items: ParsedOrderItem[], sheetName: string): OrderLine[] {
+  type Raw = { it: ParsedOrderItem; row: number; w: number; h: number; qty: number; rawName: string; locText: string };
+  const raws: Raw[] = [];
+  let seq = 0;
+  for (const it of items) {
+    seq++;
+    const w = parseFloat(String(it.width_mm).replace(/,/g, '')) || 0;
+    const h = parseFloat(String(it.height_mm).replace(/,/g, '')) || 0;
+    const qty = parseFloat(String(it.quantity).replace(/,/g, '')) || 0;
+    if (!w || !h || !qty) continue;
+    const locText = [it.location_dong, it.location_line, it.location_floor, it.location_room, it.location_type, it.location_window_type]
+      .filter(Boolean).join(' ').trim();
+    raws.push({ it, row: it.excel_row ?? seq, w, h, qty, rawName: (it.product_raw ?? it.product_name ?? '').trim(), locText });
+  }
+
+  // 블록 나누기
+  const blocks: Raw[][] = [];
+  for (let i = 0; i < raws.length; i++) {
+    const r = raws[i], prev = raws[i - 1];
+    const gap = prev ? r.row - prev.row > 1 : true;
+    const startsBlock = !prev || (isProductName(r.rawName) && (gap || !isProductName(prev.rawName) || prev.rawName === ''));
+    if (startsBlock) blocks.push([r]);
+    else blocks[blocks.length - 1].push(r);
+  }
+
+  const lines: OrderLine[] = [];
+  let carry = '';
+  for (const blk of blocks) {
+    // 품명: 블록 안의 서로 다른 글자를 순서대로 잇는다 (사양 / 설명)
+    const names: string[] = [];
+    for (const r of blk) if (r.rawName && !names.includes(r.rawName)) names.push(r.rawName);
+    const product = names.join(' / ') || blk[0].it.product_name || '(품명 없음)';
+
+    // 위치: 블록 머리에 몰려 있으면(앞줄들에만 있고 뒤는 비어 있으면) 이어 붙여 블록 전체에
+    const texts = blk.map(r => r.locText);
+    let lead = 0;
+    while (lead < texts.length && texts[lead]) lead++;
+    const restEmpty = texts.slice(lead).every(t => !t);
+    const blockLoc = lead >= 1 && restEmpty && blk.length > 1 ? texts.slice(0, lead).join(' ') : '';
+
+    for (const r of blk) {
+      const own = blockLoc || r.locText;
+      if (own) carry = own;
+      const rawLoc = own || carry;
+      let loc = parseLocation(rawLoc);
+      // 비고에 "1동 1~2호 5~10층 72B거실외창" 처럼 위치가 통째로 적힌 파일이 있다 — 동이 안 잡혔으면 거기서 보충
+      const remark = (r.it.remark || '').trim();
+      if (loc.dong === undefined && remark) {
+        const alt = parseLocation(remark);
+        if (alt.dong !== undefined || alt.floor) loc = { ...alt, rest: alt.rest || loc.rest };
+      }
+      lines.push({
+        row: r.row, sheet: sheetName, product, w: r.w, h: r.h, qty: r.qty, rawLoc,
+        dong: loc.dong, ho: loc.ho?.[0], line: loc.line?.[0], floor: loc.floor, type: loc.type, zone: loc.zone,
+        room: loc.rest || undefined,
+      });
+    }
+  }
+  return lines;
 }
 
 function toHeader(h: WoomiHeader) {
