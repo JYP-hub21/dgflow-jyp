@@ -1,12 +1,16 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { workOrderLabels } from '@/lib/work-order/labels';
+import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Factory, Scissors, FileSpreadsheet, Printer, Columns2 } from 'lucide-react';
+import Progress from '@/components/ui/progress';
+import PageHeader from '@/components/layout/PageHeader';
+import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
+import { Factory, Scissors, FileText, CheckCircle } from 'lucide-react';
 
 export default async function WorkOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -29,6 +33,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
 
   if (!workOrder) notFound();
 
+  // ERP 에서 받아 등록한 작업의뢰서는 주문이 없다 (마이그레이션 015). null 을 전제로 쓴다.
   const order = workOrder.order as {
     order_number: string; order_date: string; delivery_date: string; remark: string;
     customer: { name: string; short_name: string };
@@ -36,9 +41,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     creator: { name: string };
   } | null;
 
-  const isUpload = workOrder.source === 'upload';
-  const customerName = order?.customer?.short_name || workOrder.customer_name || '-';
-  const siteName = order?.site?.site_name || workOrder.site_name || '-';
+  const labels = workOrderLabels(workOrder);
 
   // 품목 목록 + 생산 진행률
   const { data: items } = await supabase
@@ -68,67 +71,94 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     .order('cutting_date', { ascending: false })
     .limit(20);
 
-  const WO_STATUS: Record<string, { label: string; color: string }> = {
-    pending: { label: '대기', color: 'bg-gray-100 text-gray-800' },
-    in_progress: { label: '진행중', color: 'bg-blue-100 text-blue-800' },
-    completed: { label: '완료', color: 'bg-green-100 text-green-800' },
-  };
+  // 이 작업의뢰서가 나온 발주 건 (ERP 업로드 엑셀의 포장)
+  const { data: source } = await supabase
+    .from('dgflow_purchase_order_packages')
+    .select('label, check_result, po:dgflow_purchase_orders(id, intake_number)')
+    .eq('work_order_id', id)
+    .maybeSingle();
+  const sourcePo = (Array.isArray(source?.po) ? source?.po[0] : source?.po) as { id: string; intake_number: string } | undefined;
 
-  const statusInfo = WO_STATUS[workOrder.status] || WO_STATUS.pending;
+  const meta = [
+    { label: '의뢰일', value: workOrder.request_date },
+    { label: '납품일', value: workOrder.delivery_date || order?.delivery_date || '-' },
+    { label: '작성', value: order?.creator?.name ?? 'ERP 작업의뢰서' },
+  ];
 
   return (
-    <div className="space-y-6 max-w-6xl">
-      {/* 헤더 */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">작업의뢰서 {workOrder.work_order_number}</h1>
-            <Badge className={statusInfo.color}>{statusInfo.label}</Badge>
-          </div>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-gray-500">
-              {customerName} / {siteName}
-            </p>
-            {isUpload && <Badge variant="outline" className="text-orange-600 border-orange-300 text-xs">바이투 업로드</Badge>}
-          </div>
-        </div>
-        <div className="text-right text-sm text-gray-500">
-          <p>의뢰일: {workOrder.request_date}</p>
-          <p>납품일: {workOrder.delivery_date || order?.delivery_date || '-'}</p>
-          {order?.creator?.name && <p>작성자: {order.creator.name}</p>}
-        </div>
-      </div>
+    <div className="mx-auto max-w-6xl space-y-5">
+      <PageHeader
+        back={{ href: '/work-orders', label: '작업의뢰서 목록' }}
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            작업의뢰서 {workOrder.work_order_number}
+            <WorkOrderStatusBadge status={workOrder.status} />
+          </span>
+        }
+        description={
+          <>
+            {labels.heading}
+            {sourcePo && (
+              <Link href={`/purchase-orders/${sourcePo.id}`} className="ml-2 inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-semibold text-brand-800 hover:underline">
+                발주 {sourcePo.intake_number} · {source!.label}
+                {(source!.check_result as { ok?: boolean } | null)?.ok === false && <span className="text-destructive">· ERP 엑셀과 다름</span>}
+              </Link>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <Link href={`/work-orders/${id}/preview`} className={buttonVariants({ variant: 'outline' })}>
+              <FileText />의뢰서 보기
+            </Link>
+            <Link href={`/cutting/${id}`} className={buttonVariants({ variant: 'outline' })}>
+              <Scissors />재단 입력
+            </Link>
+            <Link href={`/production/${id}`} className={buttonVariants({ size: 'lg' })}>
+              <Factory />생산 입력
+            </Link>
+          </>
+        }
+      />
 
-      {/* 전체 진행률 */}
+      {/* 요약 — 날짜 · 진행률 */}
       <Card>
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">전체 생산 진행률</span>
-            <span className="text-sm font-bold">{totalProduced} / {totalQty} ({overallProgress}%)</span>
-          </div>
-          <div className="w-full h-4 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${overallProgress === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
-              style={{ width: `${overallProgress}%` }}
-            />
+        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[repeat(3,auto)_1fr] md:items-center">
+          {meta.map(m => (
+            <div key={m.label}>
+              <p className="text-xs font-semibold text-muted-foreground">{m.label}</p>
+              <p className="tabular mt-1 font-semibold">{m.value}</p>
+            </div>
+          ))}
+          <div className="col-span-2 md:col-span-1 md:border-l md:pl-6">
+            <div className="mb-2 flex items-baseline justify-between">
+              <p className="text-xs font-semibold text-muted-foreground">전체 생산 진행률</p>
+              <p className="tabular text-sm">
+                <b className="text-base">{totalProduced}</b>
+                <span className="text-muted-foreground"> / {totalQty}장</span>
+              </p>
+            </div>
+            <Progress value={overallProgress} />
           </div>
         </CardContent>
       </Card>
 
       {/* 품목별 진행률 */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">품목별 생산 현황</CardTitle></CardHeader>
+      <Card className="gap-0 pb-0">
+        <CardHeader className="border-b">
+          <CardTitle className="text-lg">품목별 생산 현황 <span className="font-normal text-muted-foreground">{woItems.length}건</span></CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>No</TableHead>
+                <TableHead className="w-12 pl-5">No</TableHead>
                 <TableHead>품명</TableHead>
-                <TableHead className="text-right">규격</TableHead>
+                <TableHead className="text-right">규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
                 <TableHead className="text-right">완료</TableHead>
                 <TableHead className="text-right">잔여</TableHead>
-                <TableHead>진행률</TableHead>
+                <TableHead className="w-48 pr-5">진행률</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -137,23 +167,16 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 const progress = item.quantity > 0 ? Math.round(item.produced_quantity / item.quantity * 100) : 0;
                 const isComplete = remaining <= 0;
                 return (
-                  <TableRow key={item.id} className={isComplete ? 'bg-green-50' : ''}>
-                    <TableCell>{idx + 1}</TableCell>
-                    <TableCell className="font-medium">{item.product_name}</TableCell>
-                    <TableCell className="text-right text-sm">{item.width_mm}×{item.height_mm}</TableCell>
-                    <TableCell className="text-right">{item.quantity}</TableCell>
-                    <TableCell className="text-right font-medium">{item.produced_quantity}</TableCell>
-                    <TableCell className="text-right">
-                      {isComplete ? <Badge className="bg-green-100 text-green-800">완료</Badge> : remaining}
+                  <TableRow key={item.id} className={cn(isComplete && 'bg-success-50/60')}>
+                    <TableCell className="tabular pl-5 text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell className="font-semibold">{item.product_name}</TableCell>
+                    <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
+                    <TableCell className="tabular text-right">{item.quantity}</TableCell>
+                    <TableCell className="tabular text-right font-semibold">{item.produced_quantity}</TableCell>
+                    <TableCell className="tabular text-right font-bold">
+                      {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${isComplete ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-600">{progress}%</span>
-                      </div>
-                    </TableCell>
+                    <TableCell className="pr-5"><Progress value={progress} /></TableCell>
                   </TableRow>
                 );
               })}
@@ -162,45 +185,26 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
-      {/* 액션 버튼 */}
-      <div className="flex gap-3 flex-wrap">
-        <Link href={`/production/${id}`}>
-          <Button><Factory className="mr-2 h-4 w-4" />복층 생산 입력</Button>
-        </Link>
-        <Link href={`/cutting/${id}`}>
-          <Button variant="outline"><Scissors className="mr-2 h-4 w-4" />재단 입력</Button>
-        </Link>
-        {workOrder.order_id && (
-          <Link href={`/orders/${workOrder.order_id}/erp-preview`}>
-            <Button variant="outline"><FileSpreadsheet className="mr-2 h-4 w-4" />ERP 엑셀</Button>
-          </Link>
-        )}
-        {/* 원본 발주의뢰서와 나란히 대조 */}
-        <Link href={`/work-orders/${id}/compare`}>
-          <Button variant="outline"><Columns2 className="mr-2 h-4 w-4" />원본 대조</Button>
-        </Link>
-      </div>
-
       {/* 생산 이력 + 재단 이력 */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {/* 복층 생산 이력 */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-lg">복층 생산 이력 ({(productionLogs || []).length}건)</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-lg">복층 생산 이력 <span className="font-normal text-muted-foreground">{(productionLogs || []).length}건</span></CardTitle>
+          </CardHeader>
           <CardContent>
             {(!productionLogs || productionLogs.length === 0) ? (
-              <p className="text-sm text-gray-500 text-center py-4">생산 이력이 없습니다</p>
+              <EmptyBox text="생산 이력이 없습니다" />
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y rounded-lg border">
                 {productionLogs.map(log => (
-                  <div key={log.id} className="flex items-center justify-between py-2 px-3 rounded bg-gray-50 text-sm">
-                    <div>
-                      <span className="font-medium">{log.production_date}</span>
-                      <span className="text-gray-500 ml-2">{log.quantity_completed}건</span>
-                      {log.area_m2 && <span className="text-gray-400 ml-1">({Number(log.area_m2).toFixed(1)}m²)</span>}
+                  <div key={log.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+                    <div className="tabular">
+                      <span className="font-semibold">{log.production_date}</span>
+                      <span className="ml-2 font-semibold text-brand-800">{log.quantity_completed}장</span>
+                      {log.area_m2 && <span className="ml-1 text-muted-foreground">({Number(log.area_m2).toFixed(1)}m²)</span>}
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <span>{log.shift === 'night' ? '야간' : '주간'}</span>
-                      <span>{log.line_number}호기</span>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>{log.shift === 'night' ? '야간' : '주간'} · {log.line_number}호기</span>
                       <span>{(log.created_by_user as { name: string } | null)?.name}</span>
                     </div>
                   </div>
@@ -210,24 +214,25 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
           </CardContent>
         </Card>
 
-        {/* 재단 이력 */}
         <Card>
-          <CardHeader><CardTitle className="text-lg">재단 이력 ({(cuttingLogs || []).length}건)</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-lg">재단 이력 <span className="font-normal text-muted-foreground">{(cuttingLogs || []).length}건</span></CardTitle>
+          </CardHeader>
           <CardContent>
             {(!cuttingLogs || cuttingLogs.length === 0) ? (
-              <p className="text-sm text-gray-500 text-center py-4">재단 이력이 없습니다</p>
+              <EmptyBox text="재단 이력이 없습니다" />
             ) : (
-              <div className="space-y-2">
+              <div className="divide-y rounded-lg border">
                 {cuttingLogs.map(log => (
-                  <div key={log.id} className="flex items-center justify-between py-2 px-3 rounded bg-gray-50 text-sm">
-                    <div>
-                      <span className="font-medium">{log.cutting_date}</span>
-                      <span className="text-gray-500 ml-2">{log.product_name}</span>
-                      <span className="text-gray-500 ml-1">×{log.quantity}</span>
+                  <div key={log.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+                    <div className="min-w-0 truncate">
+                      <span className="tabular font-semibold">{log.cutting_date}</span>
+                      <span className="ml-2">{log.product_name}</span>
+                      <span className="ml-1 font-semibold text-brand-800">×{log.quantity}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      {log.raw_glass_type && <span>원판: {log.raw_glass_type} ×{log.raw_quantity}</span>}
-                      {log.is_manual && <Badge variant="secondary" className="text-[10px]">오도시</Badge>}
+                    <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      {log.raw_glass_type && <span>원판 {log.raw_glass_type} ×{log.raw_quantity}</span>}
+                      {log.is_manual && <Badge variant="warning">오도시</Badge>}
                       <span>{log.shift === 'night' ? '야간' : '주간'}</span>
                     </div>
                   </div>
@@ -237,10 +242,12 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
           </CardContent>
         </Card>
       </div>
-
-      <Link href="/work-orders">
-        <Button variant="outline">목록으로</Button>
-      </Link>
     </div>
+  );
+}
+
+function EmptyBox({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">{text}</div>
   );
 }

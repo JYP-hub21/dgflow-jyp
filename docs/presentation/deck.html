@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>DG-Flow 소개 및 시연</title>
+<style>
+  @page { size: 297mm 167mm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --navy-900:#1B3349; --navy-800:#22405C; --navy-700:#2C5378; --navy-600:#3A6C97;
+    --navy-100:#E3ECF4; --navy-50:#F2F6FA;
+    --ink:#1B2733; --muted:#69737E; --line:#DCE3EA;
+    --amber:#B77A0B; --amber-bg:#FDF6E7;
+    --red:#B3261E; --red-bg:#FCEDEC;
+    --green:#1B7A5A; --green-bg:#E9F5F1;
+  }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family:'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',sans-serif;
+    color: var(--ink); background:#fff;
+    font-size: 11pt; line-height: 1.5;
+  }
+
+  .slide {
+    width: 297mm; height: 167mm;
+    padding: 15mm 18mm 12mm;
+    page-break-after: always; break-after: page;
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  /* ── 슬라이드 머리/꼬리 ── */
+  .kicker {
+    font-size: 8.5pt; font-weight: 700; letter-spacing:.14em;
+    color: var(--navy-600); text-transform: uppercase; margin-bottom: 3mm;
+  }
+  h2 {
+    font-size: 21pt; font-weight: 800; letter-spacing:-.02em;
+    color: var(--navy-900); line-height:1.25;
+  }
+  h2 .sub { font-weight:500; color: var(--muted); font-size: 13pt; }
+  .rule { height:3px; width:22mm; background:var(--navy-800); margin:4mm 0 6mm; border-radius:2px; }
+  .foot {
+    position:absolute; left:18mm; right:18mm; bottom:7mm;
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:8pt; color:#9AA4AE; border-top:1px solid var(--line); padding-top:2.5mm;
+  }
+  .body { flex:1; min-height:0; }
+
+  /* ── 표지 ── */
+  .cover { background: linear-gradient(135deg,#1B3349 0%, #2C5378 58%, #3A6C97 100%); color:#fff; justify-content:center; }
+  .cover .logo-chip { background:#fff; border-radius:6px; padding:5mm 7mm; display:inline-block; margin-bottom:9mm; }
+  .cover .logo-chip img { height:13mm; display:block; }
+  .cover h1 { font-size:40pt; font-weight:800; letter-spacing:-.03em; line-height:1.1; }
+  .cover .tag { font-size:15pt; color:#C6D8E8; margin-top:4mm; font-weight:500; }
+  .cover .meta { margin-top:12mm; font-size:10.5pt; color:#AEC4D8; line-height:1.9; }
+  .cover .meta b { color:#fff; font-weight:700; }
+
+  /* ── 공용 조각 ── */
+  .grid { display:grid; gap:5mm; }
+  .g2 { grid-template-columns:1fr 1fr; }
+  .g3 { grid-template-columns:repeat(3,1fr); }
+  .g4 { grid-template-columns:repeat(4,1fr); }
+
+  .card { border:1px solid var(--line); border-radius:4mm; padding:5mm 5.5mm; background:#fff; }
+  .card.fill { background:var(--navy-50); border-color:var(--navy-100); }
+  .card h3 { font-size:11.5pt; font-weight:800; color:var(--navy-800); margin-bottom:2mm; }
+  .card p { font-size:9.5pt; color:var(--muted); line-height:1.6; }
+
+  .num { font-size:8.5pt; font-weight:800; color:#fff; background:var(--navy-800);
+         width:6mm; height:6mm; border-radius:50%; display:inline-flex;
+         align-items:center; justify-content:center; margin-right:2.5mm; }
+
+  table { width:100%; border-collapse:collapse; font-size:9.5pt; }
+  th { background:var(--navy-800); color:#fff; font-weight:700; text-align:left;
+       padding:2.3mm 3mm; font-size:9pt; letter-spacing:.02em; }
+  th:first-child { border-radius:2mm 0 0 0; }
+  th:last-child { border-radius:0 2mm 0 0; }
+  td { padding:2.1mm 3mm; border-bottom:1px solid var(--line); vertical-align:top; }
+  tbody tr:nth-child(even) { background:#FAFCFD; }
+  td.b { font-weight:700; color:var(--navy-900); }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  .pill { display:inline-block; padding:.9mm 2.4mm; border-radius:2mm;
+          font-size:8pt; font-weight:700; border:1px solid; }
+  .p-red   { background:var(--red-bg);   color:var(--red);   border-color:#F2C9C6; }
+  .p-green { background:var(--green-bg); color:var(--green); border-color:#BFE0D5; }
+  .p-amber { background:var(--amber-bg); color:var(--amber); border-color:#EFD9A6; }
+  .p-navy  { background:var(--navy-50);  color:var(--navy-800); border-color:var(--navy-100); }
+
+  .stat { text-align:center; border:1px solid var(--line); border-radius:4mm; padding:5mm 3mm; }
+  .stat .v { font-size:26pt; font-weight:800; color:var(--navy-800); line-height:1; font-variant-numeric:tabular-nums; }
+  .stat .l { font-size:9pt; color:var(--muted); margin-top:2.5mm; }
+
+  .flow { display:flex; align-items:stretch; gap:0; }
+  .flow .step { flex:1; text-align:center; padding:4mm 2mm; position:relative; }
+  .flow .step .who { font-size:8pt; color:var(--navy-600); font-weight:700; letter-spacing:.06em; }
+  .flow .step .what { font-size:10pt; font-weight:700; color:var(--ink); margin-top:1.5mm; }
+  .flow .step .det { font-size:8pt; color:var(--muted); margin-top:1.2mm; line-height:1.45; }
+  .flow .arrow { align-self:center; color:var(--navy-100); font-size:16pt; font-weight:800; }
+
+  .lead { font-size:13pt; line-height:1.7; color:var(--ink); }
+  .lead b { color:var(--navy-800); }
+  .quote { border-left:4px solid var(--navy-600); padding:3mm 0 3mm 6mm;
+           font-size:12pt; color:var(--navy-900); font-weight:600; line-height:1.6; }
+
+  ul.clean { list-style:none; }
+  ul.clean li { position:relative; padding-left:6mm; margin-bottom:2.6mm; font-size:10pt; line-height:1.55; }
+  ul.clean li::before { content:''; position:absolute; left:0; top:1.9mm;
+                        width:2.2mm; height:2.2mm; border-radius:50%; background:var(--navy-600); }
+  ul.clean li b { color:var(--navy-800); }
+
+  .band { background:var(--navy-50); border:1px solid var(--navy-100);
+          border-radius:4mm; padding:4.5mm 5mm; }
+  .band .t { font-size:9pt; font-weight:800; color:var(--navy-800); letter-spacing:.06em; margin-bottom:2mm; }
+
+  .arrowbox { display:flex; align-items:center; gap:4mm; }
+  .arrowbox .side { flex:1; border-radius:4mm; padding:4.5mm 5mm; }
+  .asis { background:var(--red-bg); border:1px solid #F2C9C6; }
+  .tobe { background:var(--green-bg); border:1px solid #BFE0D5; }
+  .arrowbox .mid { font-size:20pt; color:var(--navy-600); font-weight:800; }
+  .sidettl { font-size:9pt; font-weight:800; letter-spacing:.08em; margin-bottom:2.5mm; }
+  .asis .sidettl { color:var(--red); }
+  .tobe .sidettl { color:var(--green); }
+</style>
+</head>
+<body>
+
+<!-- 1. 표지 -->
+<section class="slide cover">
+  <div class="logo-chip"><img src="LOGO_SRC" alt="동일유리"></div>
+  <h1>DG-Flow</h1>
+  <div class="tag">주문에서 생산까지, 하나의 흐름으로</div>
+  <div class="meta">
+    동일유리(주) 주문관리 시스템 &nbsp;·&nbsp; 소개 및 시연<br>
+    <b>동일유리(주) × 충북대학교 RISE AX기업혁신 공동연구과제</b><br>
+    2026년 9월
+  </div>
+</section>
+
+<!-- 2. 오늘 순서 -->
+<section class="slide">
+  <div class="kicker">Agenda</div>
+  <h2>오늘 순서 <span class="sub">— 60분</span></h2>
+  <div class="rule"></div>
+  <div class="body">
+    <table>
+      <thead>
+        <tr><th style="width:16%">시간</th><th style="width:26%">내용</th><th>다루는 것</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="b tnum">00 – 05</td><td class="b">여는 말</td><td>오늘 자리의 목적과 진행 방식</td></tr>
+        <tr><td class="b tnum">05 – 20</td><td class="b">왜 만들었나</td><td>현재 업무의 병목 다섯 가지, 그리고 무엇을 바꾸려 하는가</td></tr>
+        <tr><td class="b tnum">20 – 45</td><td class="b">시연 <span class="pill p-navy">실제 화면</span></td><td>주문 한 건이 접수부터 생산 지시까지 흘러가는 전 과정</td></tr>
+        <tr><td class="b tnum">45 – 55</td><td class="b">질의응답</td><td>궁금한 점, 실제로 쓸 때 걱정되는 점</td></tr>
+        <tr><td class="b tnum">55 – 60</td><td class="b">다음 단계</td><td>함께 정해야 할 것과 일정</td></tr>
+      </tbody>
+    </table>
+    <div class="band" style="margin-top:6mm">
+      <div class="t">이 자리에서 얻고 싶은 것</div>
+      <div style="font-size:10pt;line-height:1.65">
+        완성된 물건을 확인받는 자리가 아닙니다. <b>실제로 쓰실 분들이 보시고 &ldquo;이건 우리 방식과 다르다&rdquo;고 짚어주시는 것</b>이
+        오늘의 목적입니다. 시연 도중 언제든 끊고 말씀해 주십시오.
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>DG-Flow 소개 및 시연</span><span>2</span></div>
+</section>
+
+<!-- 3. 문제 정의 -->
+<section class="slide">
+  <div class="kicker">Why</div>
+  <h2>지금, 같은 데이터를 세 번 옮겨 적고 있습니다</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="quote" style="margin-bottom:6mm">
+      고객 → 공사관리부(담당자별 엑셀) → 경영지원팀(표준 양식으로 재작성) → ERP 입력
+    </div>
+    <div class="grid g3">
+      <div class="card"><h3><span class="num">1</span>양식이 제각각</h3>
+        <p>담당자마다 다른 엑셀을 씁니다. 시트 수가 1개인 것부터 32개인 것까지 있습니다.</p></div>
+      <div class="card"><h3><span class="num">2</span>이중 변환</h3>
+        <p>공사관리부가 만든 것을 경영지원팀이 표준 양식으로 다시 만듭니다. 같은 숫자를 두 번 칩니다.</p></div>
+      <div class="card"><h3><span class="num">3</span>표기 불일치</h3>
+        <p>발주서의 <span class="tnum">5CL/0.76PVB/5CL+10ALC+6EMT178</span>를 ERP 표기로 사람이 매번 바꿉니다.</p></div>
+      <div class="card"><h3><span class="num">4</span>진행 상황 불투명</h3>
+        <p>이 주문이 승인됐는지, 생산이 얼마나 됐는지 전화하거나 물어봐야 압니다.</p></div>
+      <div class="card"><h3><span class="num">5</span>생산실적 수기</h3>
+        <p>작업의뢰서에 손으로 적고, 그것을 다시 엑셀에 칩니다.</p></div>
+      <div class="card fill"><h3>공통점</h3>
+        <p>다섯 가지 모두 <b>사람이 옮겨 적는 과정</b>에서 생깁니다. 옮겨 적는 횟수를 줄이면 함께 사라집니다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>왜 만들었나</span><span>3</span></div>
+</section>
+
+<!-- 4. 양식 6종 -->
+<section class="slide">
+  <div class="kicker">Why</div>
+  <h2>실제로 받아본 발주서 <span class="sub">— 6종을 모두 읽도록 만들었습니다</span></h2>
+  <div class="rule"></div>
+  <div class="body">
+    <table>
+      <thead><tr><th style="width:20%">담당</th><th style="width:44%">양식 특징</th><th style="width:12%">시트 수</th><th>대응</th></tr></thead>
+      <tbody>
+        <tr><td class="b">안광식 상무</td><td>골조도 기반 + 물량산출서 + 차수별 발주</td><td class="tnum">17</td><td><span class="pill p-green">자동 인식</span></td></tr>
+        <tr><td class="b">이충언 이사</td><td>타입별 주문내역 (EA 단위)</td><td class="tnum">3</td><td><span class="pill p-green">자동 인식</span></td></tr>
+        <tr><td class="b">김길홍 과장</td><td>발주번호 체계, 규격 병합 셀</td><td class="tnum">1</td><td><span class="pill p-green">자동 인식</span></td></tr>
+        <tr><td class="b">오동석 부장</td><td>날짜 + 내용별 세분화</td><td class="tnum">32</td><td><span class="pill p-green">자동 인식</span></td></tr>
+        <tr><td class="b">대진글라스</td><td>골조도 + 동호수 배치도</td><td class="tnum">6</td><td><span class="pill p-amber">일부 수동</span></td></tr>
+        <tr><td class="b">정석개발</td><td>생산의뢰서 대량 데이터 (484행)</td><td class="tnum">1</td><td><span class="pill p-green">자동 인식</span></td></tr>
+      </tbody>
+    </table>
+    <div class="band" style="margin-top:4mm;padding:3.5mm 5mm">
+      <div class="t">설계 원칙</div>
+      <div style="font-size:9.5pt;line-height:1.55">
+        <b>양식을 통일해 달라고 요구하지 않습니다.</b> 쓰시던 엑셀을 그대로 올리면 시스템이 읽습니다.
+        병합된 품명 셀은 위 행에서 이어받고, 날짜가 글자로 적혀 있어도 인식합니다.
+        사람의 습관을 바꾸는 대신 프로그램이 맞추는 쪽을 택했습니다.
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>왜 만들었나</span><span>4</span></div>
+</section>
+
+<!-- 5. AS-IS / TO-BE -->
+<section class="slide">
+  <div class="kicker">What changes</div>
+  <h2>무엇이 달라지는가</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <table>
+      <thead><tr><th style="width:16%">구분</th><th style="width:42%">지금</th><th>DG-Flow</th></tr></thead>
+      <tbody>
+        <tr><td class="b">양식</td><td>담당자별 6종 이상의 엑셀</td><td>쓰던 엑셀 그대로 업로드 → 자동 인식</td></tr>
+        <tr><td class="b">데이터 변환</td><td>경영지원팀이 표준 양식으로 재작성</td><td>입력 시점에 표준화, ERP 엑셀 자동 생성</td></tr>
+        <tr><td class="b">승인</td><td>유선·메신저로 비공식 확인</td><td>4단계 디지털 승인 + 누가 언제 했는지 기록</td></tr>
+        <tr><td class="b">고객 승인</td><td>메일 왕복, 회신 대기</td><td>링크 클릭 한 번 — 로그인 불필요</td></tr>
+        <tr><td class="b">진행 확인</td><td>담당자에게 물어봐야 함</td><td>대시보드에서 실시간 확인 + 자동 알림</td></tr>
+        <tr><td class="b">생산실적</td><td>수기 작성 후 엑셀 재입력</td><td>웹에서 일괄 입력, 일별 자동 집계</td></tr>
+        <tr><td class="b">ERP 입력</td><td>수작업 가공 후 import</td><td>16열 양식 자동 생성 후 다운로드</td></tr>
+      </tbody>
+    </table>
+    <div class="arrowbox" style="margin-top:6mm">
+      <div class="side asis">
+        <div class="sidettl">지금</div>
+        <div style="font-size:10pt">같은 데이터를 <b>3번</b> 옮겨 적음</div>
+      </div>
+      <div class="mid">→</div>
+      <div class="side tobe">
+        <div class="sidettl">DG-Flow</div>
+        <div style="font-size:10pt">한 번 입력하면 <b>끝까지</b> 흘러감</div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>무엇이 달라지는가</span><span>5</span></div>
+</section>
+
+<!-- 6. 흐름 -->
+<section class="slide">
+  <div class="kicker">How it works</div>
+  <h2>주문 한 건이 흘러가는 길</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="flow" style="margin-bottom:7mm">
+      <div class="step"><div class="who">공사관리부</div><div class="what">주문 작성</div>
+        <div class="det">엑셀 업로드<br>또는 직접 입력</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="who">고객</div><div class="what">승인</div>
+        <div class="det">링크 클릭<br>로그인 없이</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="who">경영지원팀</div><div class="what">검토</div>
+        <div class="det">품명·규격<br>확인</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="who">관리자</div><div class="what">최종 승인</div>
+        <div class="det">작업의뢰서<br>자동 생성</div></div>
+      <div class="arrow">›</div>
+      <div class="step"><div class="who">생산관리팀</div><div class="what">생산 실적</div>
+        <div class="det">복층·재단<br>일괄 입력</div></div>
+    </div>
+    <div class="grid g3">
+      <div class="card fill"><h3>반려도 흐름의 일부</h3>
+        <p>고객이 반려하면 &lsquo;수정중&rsquo;으로 돌아가고, 관리자가 반려하면 &lsquo;재검토&rsquo;로 갑니다. 되돌아가는 길까지 설계돼 있습니다.</p></div>
+      <div class="card fill"><h3>모든 단계가 기록됩니다</h3>
+        <p>누가 언제 어떤 상태로 바꿨는지 남습니다. 나중에 &ldquo;그때 누가 승인했지?&rdquo;를 찾을 수 있습니다.</p></div>
+      <div class="card fill"><h3>단계마다 알림</h3>
+        <p>상태가 바뀌면 관련된 역할에게 자동으로 알림이 갑니다. 기다리는 사람이 먼저 압니다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>동작 방식</span><span>6</span></div>
+</section>
+
+<!-- 7. 역할별 -->
+<section class="slide">
+  <div class="kicker">For you</div>
+  <h2>역할별로, 무엇이 달라집니까</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="grid g2" style="row-gap:5mm">
+      <div class="card">
+        <h3>공사관리부 <span style="font-weight:500;color:#69737E;font-size:9.5pt">— 안광식 · 이충언 · 김길홍 · 오동석</span></h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li><b>쓰시던 엑셀을 그대로 올리시면 됩니다.</b> 양식을 바꾸실 필요 없습니다</li>
+          <li>고객 승인은 링크를 보내고 결과를 기다리면 됩니다</li>
+          <li>본인이 만든 주문만 수정·삭제할 수 있습니다</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>경영지원팀 <span style="font-weight:500;color:#69737E;font-size:9.5pt">— 이지원</span></h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li><b>표준 양식으로 재작성하는 일이 없어집니다</b></li>
+          <li>검토 화면에서 품명·규격만 확인하시면 됩니다</li>
+          <li>ERP 엑셀은 버튼 한 번으로 나옵니다</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>관리자·경영진 <span style="font-weight:500;color:#69737E;font-size:9.5pt">— 김경영</span></h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li>대시보드에서 <b>전체 현황을 한 화면에</b> 봅니다</li>
+          <li>최종 승인 시 작업의뢰서가 자동으로 만들어집니다</li>
+          <li>납기 임박 주문과 거래처별 실적을 바로 확인합니다</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>생산관리팀 <span style="font-weight:500;color:#69737E;font-size:9.5pt">— 최생산</span></h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li>작업의뢰서를 화면에서 보고 <b>실적을 바로 입력</b>합니다</li>
+          <li>전량 완료는 버튼 하나로 처리됩니다</li>
+          <li>복층·재단 이력이 한 화면에 모입니다</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>역할별 변화</span><span>7</span></div>
+</section>
+
+<!-- 8. 시연 안내 -->
+<section class="slide" style="background:var(--navy-50)">
+  <div class="kicker">Demo</div>
+  <h2>이제 실제 화면으로 보시겠습니다</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="lead" style="margin-bottom:4.5mm;font-size:11.5pt;line-height:1.6">
+      주문 <b>한 건</b>을 접수부터 생산 지시까지 끝까지 따라가겠습니다.
+      역할이 바뀔 때마다 계정을 바꿔 로그인하므로, <b>본인 화면이 나올 때 유심히 봐 주십시오.</b>
+    </div>
+    <table>
+      <thead><tr><th style="width:8%">순서</th><th style="width:22%">누구의 화면</th><th>보실 것</th></tr></thead>
+      <tbody>
+        <tr><td class="b tnum">1</td><td class="b">공사관리부</td><td>실제 발주서 엑셀을 올려 품목이 자동으로 채워지는 장면</td></tr>
+        <tr><td class="b tnum">2</td><td class="b">공사관리부</td><td>주문의뢰서 미리보기 — 인쇄하면 나오는 실제 양식</td></tr>
+        <tr><td class="b tnum">3</td><td class="b">고객 <span class="pill p-amber">외부</span></td><td>승인 링크를 열어 로그인 없이 승인하는 화면</td></tr>
+        <tr><td class="b tnum">4</td><td class="b">경영지원팀</td><td>검토 처리와 ERP 엑셀 자동 생성</td></tr>
+        <tr><td class="b tnum">5</td><td class="b">관리자</td><td>최종 승인 → 작업의뢰서가 저절로 만들어지는 순간</td></tr>
+        <tr><td class="b tnum">6</td><td class="b">생산관리팀</td><td>생산실적 입력과 진행률 반영</td></tr>
+        <tr><td class="b tnum">7</td><td class="b">관리자</td><td>대시보드에 방금 그 주문이 반영된 모습</td></tr>
+      </tbody>
+    </table>
+    <div class="band" style="margin-top:4mm;padding:3.5mm 5mm">
+      <div style="font-size:9.5pt;line-height:1.55">
+        <b>중간에 멈추셔도 됩니다.</b> &ldquo;우리는 이렇게 안 하는데&rdquo; 싶은 장면이 나오면 그때 바로 말씀해 주시는 편이
+        나중에 문서로 받는 것보다 훨씬 정확합니다.
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>시연</span><span>8</span></div>
+</section>
+
+<!-- 9. 구축 현황 -->
+<section class="slide">
+  <div class="kicker">Status</div>
+  <h2>지금까지 만든 것</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="grid g4" style="margin-bottom:6mm">
+      <div class="stat"><div class="v">20</div><div class="l">화면</div></div>
+      <div class="stat"><div class="v">17</div><div class="l">데이터 항목(테이블)</div></div>
+      <div class="stat"><div class="v">14</div><div class="l">주문 상태 단계</div></div>
+      <div class="stat"><div class="v">6</div><div class="l">읽어내는 발주서 양식</div></div>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <h3>완성된 기능</h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li>주문 등록·수정·삭제, 엑셀 발주서 자동 인식</li>
+          <li>고객 승인(비로그인), 검토·최종승인, 승인 취소</li>
+          <li>ERP 엑셀 자동 생성, 주문번호 자동 채번</li>
+          <li>작업의뢰서 자동 생성, 생산·재단 실적 입력</li>
+          <li>대시보드, 알림, 마스터·사용자 관리</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>운영 준비 상태</h3>
+        <ul class="clean" style="margin-top:2mm">
+          <li>인터넷으로 접속 가능 — <b>설치 필요 없음</b></li>
+          <li>거래처 <b>121</b>곳, 현장 <b>134</b>곳, 품명 <b>414</b>건 등록 완료</li>
+          <li>사용자 <b>9</b>명 계정 생성 완료</li>
+          <li>PC·태블릿·휴대폰 모두 사용 가능</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>구축 현황</span><span>9</span></div>
+</section>
+
+<!-- 10. 보안 -->
+<section class="slide">
+  <div class="kicker">Security</div>
+  <h2>누가 무엇을 볼 수 있는가</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <table>
+      <thead><tr><th style="width:24%">역할</th><th>주문</th><th>검토</th><th>승인</th><th>생산</th><th>기준정보 관리</th></tr></thead>
+      <tbody>
+        <tr><td class="b">공사관리부</td><td>생성 · 본인 것만 수정</td><td>—</td><td>—</td><td>조회</td><td>—</td></tr>
+        <tr><td class="b">경영지원팀</td><td>수정 · 조회</td><td class="b">검토</td><td>—</td><td>조회</td><td class="b">등록·수정</td></tr>
+        <tr><td class="b">관리자</td><td>조회</td><td>—</td><td class="b">승인 · 반려 · 취소</td><td>조회</td><td>—</td></tr>
+        <tr><td class="b">생산관리팀</td><td>조회</td><td>—</td><td>—</td><td class="b">입력 · 조회</td><td>—</td></tr>
+        <tr><td class="b">시스템관리자</td><td colspan="5" style="text-align:center">전체 권한</td></tr>
+      </tbody>
+    </table>
+    <div class="grid g3" style="margin-top:6mm">
+      <div class="card"><h3>본인 주문만 수정</h3>
+        <p>공사관리부는 다른 담당자의 주문을 볼 수는 있어도 고칠 수는 없습니다.</p></div>
+      <div class="card"><h3>고객 승인 링크</h3>
+        <p>주문 한 건에만 연결된 1회용 링크입니다. 다른 주문은 볼 수 없고 기한이 지나면 만료됩니다.</p></div>
+      <div class="card"><h3>모든 변경이 기록</h3>
+        <p>누가 언제 무엇을 바꿨는지 남습니다. 지울 수 없습니다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>보안 및 권한</span><span>10</span></div>
+</section>
+
+<!-- 11. 앞으로 -->
+<section class="slide">
+  <div class="kicker">Next</div>
+  <h2>앞으로 할 일</h2>
+  <div class="rule"></div>
+  <div class="body">
+    <div class="grid g3">
+      <div class="card">
+        <h3><span class="pill p-red">1순위</span> &nbsp;현장 검증</h3>
+        <ul class="clean" style="margin-top:2.5mm">
+          <li>실제 발주서로 <b>병행 운영</b> — 기존 방식과 동시에</li>
+          <li>미인식 양식 보완</li>
+          <li>실사용 피드백 반영</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="pill p-amber">2순위</span> &nbsp;기능 보강</h3>
+        <ul class="clean" style="margin-top:2.5mm">
+          <li>주간생산일지 자동 집계</li>
+          <li>대시보드 기간·지역 필터</li>
+          <li>승인 요청 메일 발송</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="pill p-navy">3순위</span> &nbsp;확장</h3>
+        <ul class="clean" style="margin-top:2.5mm">
+          <li>미매칭 품명 자동 추천</li>
+          <li>모바일 화면 최적화</li>
+          <li>ERP 직접 연동 검토</li>
+        </ul>
+      </div>
+    </div>
+    <div class="band" style="margin-top:7mm">
+      <div class="t">오늘 정하고 싶은 것</div>
+      <div style="font-size:10.5pt;line-height:1.75">
+        <b>①</b> 병행 운영을 시작할 시점과 대상 현장 &nbsp;&nbsp;
+        <b>②</b> 각 팀에서 실제로 써보실 담당자 &nbsp;&nbsp;
+        <b>③</b> 다음 점검 자리의 일정
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>향후 계획</span><span>11</span></div>
+</section>
+
+<!-- 12. 마무리 -->
+<section class="slide cover" style="justify-content:center">
+  <div class="logo-chip"><img src="LOGO_SRC" alt="동일유리"></div>
+  <h1 style="font-size:30pt">감사합니다</h1>
+  <div class="tag" style="margin-top:5mm">직접 써 보시고 불편한 점을 알려주십시오</div>
+  <div class="meta" style="margin-top:10mm">
+    <b>접속 주소</b> &nbsp; https://dg-flow-snowy.vercel.app<br>
+    <b>테스트 계정</b> &nbsp; 각 팀 담당자 이메일 / 비밀번호는 현장에서 안내<br>
+    <span style="color:#8FAAC4">설치할 것 없이 인터넷 주소만 입력하면 바로 쓰실 수 있습니다</span>
+  </div>
+</section>
+
+</body>
+</html>

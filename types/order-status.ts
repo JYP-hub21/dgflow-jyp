@@ -18,21 +18,31 @@ export const ORDER_STATUS = {
 export type OrderStatus = keyof typeof ORDER_STATUS;
 
 // 상태별 색상 (뱃지용)
+/**
+ * 상태 배지 색.
+ * 14단계를 의미 단위로 묶어 색 수를 줄였다 —
+ * 회색=작성 전, 네이비=진행, 앰버=대기, 적색=반려, 녹색=승인/완료, 청록=생산.
+ */
 export const STATUS_COLORS: Record<OrderStatus, string> = {
-  draft: 'bg-gray-100 text-gray-800',
-  completed: 'bg-blue-50 text-blue-800',
-  pending_customer: 'bg-yellow-100 text-yellow-800',
-  rejected_by_customer: 'bg-red-100 text-red-800',
-  customer_approved: 'bg-blue-100 text-blue-800',
-  under_review: 'bg-purple-100 text-purple-800',
-  review_completed: 'bg-indigo-100 text-indigo-800',
-  pending_approval: 'bg-orange-100 text-orange-800',
-  rejected_by_admin: 'bg-red-100 text-red-800',
-  final_approved: 'bg-green-100 text-green-800',
-  erp_completed: 'bg-emerald-100 text-emerald-800',
-  work_order_created: 'bg-teal-100 text-teal-800',
-  in_production: 'bg-cyan-100 text-cyan-800',
-  production_completed: 'bg-green-200 text-green-900',
+  draft: 'bg-slate-100 text-slate-600 border-slate-200',
+  completed: 'bg-slate-100 text-slate-700 border-slate-300',
+
+  pending_customer: 'bg-amber-50 text-amber-700 border-amber-200',
+  pending_approval: 'bg-amber-50 text-amber-700 border-amber-200',
+
+  rejected_by_customer: 'bg-red-50 text-red-700 border-red-200',
+  rejected_by_admin: 'bg-red-50 text-red-700 border-red-200',
+
+  customer_approved: 'bg-brand-50 text-brand-800 border-brand-100',
+  under_review: 'bg-brand-50 text-brand-800 border-brand-100',
+  review_completed: 'bg-brand-100 text-brand-900 border-brand-100',
+
+  final_approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  erp_completed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+
+  work_order_created: 'bg-teal-50 text-teal-700 border-teal-200',
+  in_production: 'bg-teal-50 text-teal-700 border-teal-200',
+  production_completed: 'bg-emerald-600 text-white border-emerald-600',
 };
 
 // 수정/삭제 가능한 상태

@@ -8,38 +8,50 @@
     --font-sans: var(--font-sans)
   }
   :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    /* 브랜드 — 동일유리 로고에서 추출한 네이비 계열 */
+    --brand-900: oklch(0.3126 0.0499 247.70);
+    --brand-800: oklch(0.3619 0.0607 248.29);
+    --brand-700: oklch(0.4312 0.0761 248.84);
+    --brand-600: oklch(0.5157 0.0874 246.47);
+    --brand-100: oklch(0.9386 0.0145 244.72);
+    --brand-50:  oklch(0.9713 0.0068 247.90);
+
+    --background: oklch(0.9720 0.0040 247.9);
+    --foreground: oklch(0.2280 0.0180 250);
     --card: oklch(1 0 0);
-    --card-foreground: oklch(0.145 0 0);
+    --card-foreground: oklch(0.2280 0.0180 250);
     --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.2280 0.0180 250);
+    --primary: oklch(0.3619 0.0607 248.29);
     --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.97 0 0);
-    --secondary-foreground: oklch(0.205 0 0);
-    --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
-    --accent-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.9500 0.0110 248);
+    --secondary-foreground: oklch(0.3619 0.0607 248.29);
+    --muted: oklch(0.9640 0.0050 248);
+    --muted-foreground: oklch(0.4750 0.0200 250);
+    --accent: oklch(0.9386 0.0145 244.72);
+    --accent-foreground: oklch(0.3126 0.0499 247.70);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.87 0 0);
-    --chart-2: oklch(0.556 0 0);
-    --chart-3: oklch(0.439 0 0);
-    --chart-4: oklch(0.371 0 0);
-    --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.985 0 0);
-    --sidebar-foreground: oklch(0.145 0 0);
-    --sidebar-primary: oklch(0.205 0 0);
+    --success: oklch(0.5600 0.1300 158);
+    --success-50: oklch(0.9700 0.0300 160);
+    --warning-50: oklch(0.9750 0.0400 85);
+    --warning: oklch(0.7200 0.1500 75);
+    --border: oklch(0.8950 0.0090 248);
+    --input: oklch(0.8000 0.0140 250);
+    --ring: oklch(0.5157 0.0874 246.47);
+    --chart-1: oklch(0.5157 0.0874 246.47);
+    --chart-2: oklch(0.6400 0.1000 210);
+    --chart-3: oklch(0.4312 0.0761 248.84);
+    --chart-4: oklch(0.7200 0.0700 235);
+    --chart-5: oklch(0.3126 0.0499 247.70);
+    --radius: 0.75rem;
+    --sidebar: oklch(1 0 0);
+    --sidebar-foreground: oklch(0.2280 0.0180 250);
+    --sidebar-primary: oklch(0.3619 0.0607 248.29);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.97 0 0);
-    --sidebar-accent-foreground: oklch(0.205 0 0);
-    --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0)
+    --sidebar-accent: oklch(0.9386 0.0145 244.72);
+    --sidebar-accent-foreground: oklch(0.3126 0.0499 247.70);
+    --sidebar-border: oklch(0.8950 0.0090 248);
+    --sidebar-ring: oklch(0.5157 0.0874 246.47)
   }
   .dark {
     --background: oklch(0.145 0 0);
@@ -81,5 +93,88 @@
   body {
     background-color: var(--background);
     color: var(--foreground);
+  }
+  /* 숫자 입력칸의 위아래 화살표 — 생산량을 칠 때 실수로 눌려 값이 바뀐다 */
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
+}
+/*
+  색 토큰을 Tailwind 유틸리티로 노출한다.
+  shadcn 컴포넌트가 쓰는 bg-primary · text-muted-foreground · border-input 등이
+  등록돼 있지 않아 기본 버튼이 배경 없이 글자만 떠 있었다 — 버튼이 안 보이던 원인.
+*/
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-brand-900: var(--brand-900);
+  --color-brand-800: var(--brand-800);
+  --color-brand-700: var(--brand-700);
+  --color-brand-600: var(--brand-600);
+  --color-brand-100: var(--brand-100);
+  --color-brand-50: var(--brand-50);
+  --color-success: var(--success);
+  --color-success-50: var(--success-50);
+  --color-warning: var(--warning);
+  --color-warning-50: var(--warning-50);
+}
+
+@layer utilities {
+  /* 표 헤더·카드에 쓰는 미세한 브랜드 그라데이션 */
+  .bg-brand-gradient {
+    background-image: linear-gradient(135deg, var(--brand-800) 0%, var(--brand-600) 100%);
+  }
+  /* 숫자 정렬이 맞도록 (대시보드 지표, 수량/면적 셀) */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* 인쇄: 배경색·로고가 빠지지 않도록 */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .no-print { display: none !important; }
+}
+
+/* 작업의뢰서 A4 인쇄 — 양식만 남기고 여백을 종이에 맞춘다 */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+@media print {
+  #work-order-sheet {
+    box-shadow: none !important;
+    page-break-after: avoid;
   }
 }

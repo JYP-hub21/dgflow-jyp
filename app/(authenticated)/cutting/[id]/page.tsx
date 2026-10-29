@@ -1,21 +1,25 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Save } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import NativeSelect from '@/components/ui/native-select';
+import Segmented from '@/components/ui/segmented';
+import PageHeader from '@/components/layout/PageHeader';
+import { cn } from '@/lib/utils';
+import { Plus, Sun, Moon } from 'lucide-react';
 
 interface RawGlass { id: string; glass_type: string; width_mm: number; height_mm: number; area_m2: number; }
 interface CuttingLog { id: string; product_name: string; quantity: number; raw_glass_type: string; raw_width_mm: number; raw_height_mm: number; raw_quantity: number; raw_area_m2: number; shift: string; is_manual: boolean; remark: string; cutting_date: string; }
 
 export default function CuttingInputPage() {
   const params = useParams();
-  const router = useRouter();
   const supabase = createClient();
   const workOrderId = params.id as string;
 
@@ -78,100 +82,118 @@ export default function CuttingInputPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-2xl font-bold">재단실적 입력</h1>
-        <p className="text-gray-500">의뢰번호: {workOrder?.work_order_number}</p>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-5">
+      <PageHeader
+        back={{ href: `/work-orders/${workOrderId}`, label: '작업의뢰서로' }}
+        title="재단실적 입력"
+        description={workOrder?.work_order_number}
+      />
 
       {/* 입력 폼 */}
       <Card>
-        <CardHeader><CardTitle className="text-lg">재단 기록 추가</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-4 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs">품명 *</Label>
-            <Input className="h-9 text-sm" value={productName} onChange={e => setProductName(e.target.value)} placeholder="5CL+5로이" />
+        <CardHeader>
+          <CardTitle className="text-lg">재단 기록 추가</CardTitle>
+          <p className="text-sm text-muted-foreground"><span className="text-destructive">*</span> 표시는 꼭 적어야 합니다.</p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <FormField label="품명" required>
+              <Input value={productName} onChange={e => setProductName(e.target.value)} placeholder="예) 5CL+5로이" />
+            </FormField>
+            <FormField label="절단 수량" required>
+              <Input inputMode="numeric" className="tabular" value={quantity}
+                onChange={e => setQuantity(e.target.value.replace(/[^0-9]/g, ''))} placeholder="장" />
+            </FormField>
+            <FormField label="원판 종류">
+              <NativeSelect value={selectedGlass} onChange={e => setSelectedGlass(e.target.value)}>
+                <option value="">선택 안 함</option>
+                {rawGlasses.map(g => (
+                  <option key={g.id} value={g.id}>{g.glass_type} ({g.width_mm}×{g.height_mm})</option>
+                ))}
+              </NativeSelect>
+            </FormField>
+            <FormField label="원판 사용량">
+              <Input inputMode="numeric" className="tabular" value={rawQuantity}
+                onChange={e => setRawQuantity(e.target.value.replace(/[^0-9]/g, ''))} placeholder="장" />
+            </FormField>
+            <FormField label="주 / 야간">
+              <Segmented value={shift as 'day' | 'night'} onChange={setShift} className="w-full"
+                options={[{ value: 'day', label: '주간', icon: Sun }, { value: 'night', label: '야간', icon: Moon }]} />
+            </FormField>
+            <FormField label="비고" className="sm:col-span-2 lg:col-span-3">
+              <Input value={remark} onChange={e => setRemark(e.target.value)} placeholder="같이재단 등" />
+            </FormField>
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">절단 수량 *</Label>
-            <Input className="h-9 text-sm" type="number" value={quantity} onChange={e => setQuantity(e.target.value)} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">원판 종류</Label>
-            <select className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-              value={selectedGlass} onChange={e => setSelectedGlass(e.target.value)}>
-              <option value="">선택</option>
-              {rawGlasses.map(g => (
-                <option key={g.id} value={g.id}>{g.glass_type} ({g.width_mm}×{g.height_mm})</option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">원판 사용량</Label>
-            <Input className="h-9 text-sm" type="number" value={rawQuantity} onChange={e => setRawQuantity(e.target.value)} placeholder="장" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">주/야간</Label>
-            <select className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-              value={shift} onChange={e => setShift(e.target.value)}>
-              <option value="day">주간</option>
-              <option value="night">야간</option>
-            </select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">비고</Label>
-            <Input className="h-9 text-sm" value={remark} onChange={e => setRemark(e.target.value)} placeholder="같이재단, 오도시 등" />
-          </div>
-          <div className="flex items-end gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={isManual} onChange={e => setIsManual(e.target.checked)} />
-              오도시
+
+          <div className="flex flex-col-reverse gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm font-medium">
+              <input type="checkbox" checked={isManual} onChange={e => setIsManual(e.target.checked)}
+                className="h-5 w-5 rounded accent-brand-800" />
+              오도시 (수작업 재단)
             </label>
-            <Button onClick={handleSave} disabled={saving || !productName || !quantity}>
-              <Plus className="mr-1 h-4 w-4" />{saving ? '저장 중...' : '추가'}
+            <Button size="lg" onClick={handleSave} disabled={saving || !productName || !quantity} className="sm:min-w-40">
+              <Plus />{saving ? '저장 중…' : '기록 추가'}
             </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* 기록 목록 */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">재단 기록 ({logs.length}건)</CardTitle></CardHeader>
+      <Card className="gap-0 pb-0">
+        <CardHeader className="border-b">
+          <CardTitle className="text-lg">재단 기록 <span className="font-normal text-muted-foreground">{logs.length}건</span></CardTitle>
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>날짜</TableHead>
+                <TableHead className="pl-5">날짜</TableHead>
                 <TableHead>품명</TableHead>
                 <TableHead className="text-right">수량</TableHead>
                 <TableHead>원판</TableHead>
                 <TableHead className="text-right">원판 수량</TableHead>
                 <TableHead className="text-right">원판 면적(m²)</TableHead>
                 <TableHead>구분</TableHead>
-                <TableHead>비고</TableHead>
+                <TableHead className="pr-5">비고</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {logs.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-6 text-gray-500">재단 기록이 없습니다</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="py-10 text-center text-muted-foreground">재단 기록이 없습니다</TableCell></TableRow>
               ) : logs.map(log => (
                 <TableRow key={log.id}>
-                  <TableCell className="text-sm">{log.cutting_date}</TableCell>
-                  <TableCell className="font-medium">{log.product_name}</TableCell>
-                  <TableCell className="text-right">{log.quantity}</TableCell>
-                  <TableCell className="text-sm">{log.raw_glass_type || '-'}</TableCell>
-                  <TableCell className="text-right">{log.raw_quantity || '-'}</TableCell>
-                  <TableCell className="text-right">{log.raw_area_m2 ? Number(log.raw_area_m2).toFixed(2) : '-'}</TableCell>
-                  <TableCell className="text-xs">{log.shift === 'night' ? '야간' : '주간'}{log.is_manual ? ' / 오도시' : ''}</TableCell>
-                  <TableCell className="text-xs">{log.remark || ''}</TableCell>
+                  <TableCell className="tabular pl-5">{log.cutting_date}</TableCell>
+                  <TableCell className="font-semibold">{log.product_name}</TableCell>
+                  <TableCell className="tabular text-right font-semibold">{log.quantity}</TableCell>
+                  <TableCell>{log.raw_glass_type || '-'}</TableCell>
+                  <TableCell className="tabular text-right">{log.raw_quantity || '-'}</TableCell>
+                  <TableCell className="tabular text-right">{log.raw_area_m2 ? Number(log.raw_area_m2).toFixed(2) : '-'}</TableCell>
+                  <TableCell>
+                    <span className="flex items-center gap-1.5 text-xs">
+                      {log.shift === 'night' ? '야간' : '주간'}
+                      {log.is_manual && <Badge variant="warning">오도시</Badge>}
+                    </span>
+                  </TableCell>
+                  <TableCell className="pr-5 text-xs text-muted-foreground">{log.remark || ''}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+    </div>
+  );
+}
 
-      <Button variant="outline" onClick={() => router.push('/work-orders')}>돌아가기</Button>
+function FormField({ label, required, className, children }: {
+  label: string; required?: boolean; className?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <Label className="text-[13px] font-semibold">
+        {label}{required && <span className="text-destructive">*</span>}
+      </Label>
+      {children}
     </div>
   );
 }

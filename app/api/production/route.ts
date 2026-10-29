@@ -1,11 +1,16 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
+import { hasPermission } from '@/lib/auth/role-guard';
+import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST: 생산실적 입력
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!hasPermission(user, 'production:input')) {
+    return NextResponse.json({ error: '생산 실적을 입력할 권한이 없습니다.' }, { status: 403 });
+  }
 
   const { work_order_id, work_order_item_id, quantity_completed, production_date, log_type, shift, line_number, remark } = await request.json();
 
@@ -33,32 +38,8 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // 작업의뢰서 품목의 생산완료 수량 업데이트
-  if (work_order_item_id) {
-    const { data: item } = await supabase
-      .from('dgflow_work_order_items')
-      .select('produced_quantity')
-      .eq('id', work_order_item_id)
-      .single();
-
-    if (item) {
-      await supabase
-        .from('dgflow_work_order_items')
-        .update({ produced_quantity: item.produced_quantity + quantity_completed })
-        .eq('id', work_order_item_id);
-    }
-  }
+  // 작업의뢰서 품목의 생산완료 수량 = 생산 기록의 합
+  if (work_order_item_id) await syncProducedQuantity(supabase, work_order_item_id);
 
   return NextResponse.json({ data }, { status: 201 });
-}
-
-async function calculateItemArea(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>, itemId: string, quantity: number): Promise<number> {
-  if (!itemId) return 0;
-  const { data } = await supabase
-    .from('dgflow_work_order_items')
-    .select('width_mm, height_mm')
-    .eq('id', itemId)
-    .single();
-  if (!data) return 0;
-  return Math.round(data.width_mm * data.height_mm * quantity / 1_000_000 * 100) / 100;
 }

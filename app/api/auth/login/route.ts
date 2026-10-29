@@ -1,57 +1,44 @@
-import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { normalizeLoginId, toAuthPassword } from '@/lib/auth/account';
 import { NextRequest, NextResponse } from 'next/server';
 
+const WRONG = '아이디 또는 비밀번호가 올바르지 않습니다.';
+
+/**
+ * 아이디 + 비밀번호 로그인.
+ *
+ * 아이디로 Auth 이메일을 찾아 서버에서 로그인하고 세션 쿠키를 심는다.
+ * 승인 대기 · 사용 중지 계정은 비밀번호가 맞아도 세션을 지우고 이유를 알려 준다.
+ * (비밀번호를 확인한 뒤에만 알려 줘서, 남의 아이디가 승인 대기인지 떠볼 수 없다)
+ */
 export async function POST(request: NextRequest) {
-  const { email, password } = await request.json();
+  const { loginId, password } = await request.json().catch(() => ({}));
+  if (!loginId || !password) return NextResponse.json({ error: WRONG }, { status: 401 });
 
-  // service_role이 아닌 anon key로 로그인 (일반 사용자 인증)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
+  const id = normalizeLoginId(String(loginId));
+  const admin = createServiceRoleClient();
+  // 예전처럼 이메일로 쳐도 들어오게 한다
+  const { data: user } = await admin
+    .from('dgflow_users')
+    .select('email, status, is_active')
+    .eq(id.includes('@') ? 'email' : 'login_id', id)
+    .maybeSingle();
+  if (!user) return NextResponse.json({ error: WRONG }, { status: 401 });
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: toAuthPassword(String(password)),
   });
+  if (error) return NextResponse.json({ error: WRONG }, { status: 401 });
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 401 });
+  if (user.status !== 'active' || !user.is_active) {
+    await supabase.auth.signOut();
+    const message = user.status === 'pending'
+      ? '가입 승인을 기다리는 중입니다. 관리자가 승인하면 로그인할 수 있습니다.'
+      : '사용이 중지된 계정입니다. 관리자에게 문의하세요.';
+    return NextResponse.json({ error: message }, { status: 403 });
   }
 
-  // 세션 토큰을 쿠키에 직접 설정
-  const response = NextResponse.json({ user: data.user });
-
-  const cookieOptions = {
-    path: '/',
-    httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
-    maxAge: 60 * 60 * 24 * 7, // 7일
-  };
-
-  // Supabase SSR이 기대하는 쿠키 형식
-  const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL!.match(/\/\/(.*?)\.supabase/)?.[1] || '';
-  const cookieBase = `sb-${projectRef}-auth-token`;
-
-  // base64 인코딩된 세션을 chunked cookie로 저장
-  const sessionStr = JSON.stringify(data.session);
-  const encoded = Buffer.from(sessionStr).toString('base64');
-
-  // 쿠키 크기 제한 (4KB) 때문에 청크로 분할
-  const chunkSize = 3500;
-  const chunks = [];
-  for (let i = 0; i < encoded.length; i += chunkSize) {
-    chunks.push(encoded.slice(i, i + chunkSize));
-  }
-
-  if (chunks.length === 1) {
-    response.cookies.set(cookieBase, encoded, cookieOptions);
-  } else {
-    chunks.forEach((chunk, i) => {
-      response.cookies.set(`${cookieBase}.${i}`, chunk, cookieOptions);
-    });
-  }
-
-  return response;
+  return NextResponse.json({ success: true });
 }

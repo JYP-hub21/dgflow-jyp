@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import PageHeader from '@/components/layout/PageHeader';
 import { Plus, Pencil, Trash2, Save, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 15;
@@ -37,11 +38,11 @@ function ClientPagination({ page, totalPages, totalCount, onPageChange }: {
   if (totalPages <= 1) return null;
   return (
     <div className="flex items-center justify-between pt-3 px-1">
-      <span className="text-xs text-gray-500">{totalCount}건 중 {(page-1)*PAGE_SIZE+1}~{Math.min(page*PAGE_SIZE, totalCount)}</span>
+      <span className="text-sm text-muted-foreground">{totalCount}건 중 {(page-1)*PAGE_SIZE+1}~{Math.min(page*PAGE_SIZE, totalCount)}</span>
       <div className="flex items-center gap-1">
-        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft className="h-3 w-3" /></Button>
-        <span className="text-xs px-2">{page}/{totalPages}</span>
-        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}><ChevronRight className="h-3 w-3" /></Button>
+        <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft /></Button>
+        <span className="tabular px-2 text-sm font-semibold">{page}/{totalPages}</span>
+        <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}><ChevronRight /></Button>
       </div>
     </div>
   );
@@ -58,8 +59,8 @@ interface RawGlass { id: string; glass_type: string; width_mm: number; height_mm
 
 export default function MasterPage() {
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">마스터 관리</h1>
+    <div className="mx-auto max-w-6xl space-y-5">
+      <PageHeader title="마스터 관리" description="품명 · 거래처 · 현장 · 원판 기준 정보를 관리합니다." />
       <Tabs defaultValue="products">
         <TabsList>
           <TabsTrigger value="products">품명</TabsTrigger>
@@ -114,28 +115,28 @@ function ProductsTab() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">품명 마스터 ({items.length}건)</CardTitle>
           <Button size="sm" onClick={() => setEditing({ product_code: '', display_name: '', erp_name: '', thickness_mm: 0, outer_glass: '', spacer: '', gas: '', inner_glass: '', is_active: true })}>
-            <Plus className="mr-1 h-4 w-4" />추가
+            <Plus />추가
           </Button>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input className="pl-9 h-9" placeholder="품명, 제품코드, ERP명 검색..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input className="pl-9" placeholder="품명, 제품코드, ERP명 검색..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </CardHeader>
       <CardContent>
         {editing && (
-          <div className="grid grid-cols-4 gap-3 mb-4 p-4 border rounded-lg bg-gray-50">
-            <div><Label className="text-xs">제품코드</Label><Input className="h-8 text-sm" value={editing.product_code || ''} onChange={e => setEditing({ ...editing, product_code: e.target.value })} /></div>
-            <div><Label className="text-xs">표시명</Label><Input className="h-8 text-sm" value={editing.display_name || ''} onChange={e => setEditing({ ...editing, display_name: e.target.value })} /></div>
-            <div><Label className="text-xs">ERP명</Label><Input className="h-8 text-sm" value={editing.erp_name || ''} onChange={e => setEditing({ ...editing, erp_name: e.target.value })} /></div>
-            <div><Label className="text-xs">두께(mm)</Label><Input className="h-8 text-sm" type="number" value={editing.thickness_mm || ''} onChange={e => setEditing({ ...editing, thickness_mm: Number(e.target.value) })} /></div>
-            <div><Label className="text-xs">외판유리</Label><Input className="h-8 text-sm" value={editing.outer_glass || ''} onChange={e => setEditing({ ...editing, outer_glass: e.target.value })} /></div>
-            <div><Label className="text-xs">간봉</Label><Input className="h-8 text-sm" value={editing.spacer || ''} onChange={e => setEditing({ ...editing, spacer: e.target.value })} /></div>
-            <div><Label className="text-xs">가스</Label><Input className="h-8 text-sm" value={editing.gas || ''} onChange={e => setEditing({ ...editing, gas: e.target.value })} /></div>
-            <div><Label className="text-xs">내판유리</Label><Input className="h-8 text-sm" value={editing.inner_glass || ''} onChange={e => setEditing({ ...editing, inner_glass: e.target.value })} /></div>
-            <div className="col-span-4 flex gap-2">
-              <Button size="sm" onClick={handleSave}><Save className="mr-1 h-3 w-3" />{editing.id ? '수정' : '저장'}</Button>
-              <Button size="sm" variant="outline" onClick={() => setEditing(null)}><X className="mr-1 h-3 w-3" />취소</Button>
+          <div className="mb-5 grid grid-cols-1 gap-4 rounded-xl border border-brand-600/30 bg-brand-50/60 p-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div><Label className="mb-1.5 text-[13px] font-semibold">제품코드</Label><Input value={editing.product_code || ''} onChange={e => setEditing({ ...editing, product_code: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">표시명</Label><Input value={editing.display_name || ''} onChange={e => setEditing({ ...editing, display_name: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">ERP명</Label><Input value={editing.erp_name || ''} onChange={e => setEditing({ ...editing, erp_name: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">두께(mm)</Label><Input type="number" value={editing.thickness_mm || ''} onChange={e => setEditing({ ...editing, thickness_mm: Number(e.target.value) })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">외판유리</Label><Input value={editing.outer_glass || ''} onChange={e => setEditing({ ...editing, outer_glass: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">간봉</Label><Input value={editing.spacer || ''} onChange={e => setEditing({ ...editing, spacer: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">가스</Label><Input value={editing.gas || ''} onChange={e => setEditing({ ...editing, gas: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">내판유리</Label><Input value={editing.inner_glass || ''} onChange={e => setEditing({ ...editing, inner_glass: e.target.value })} /></div>
+            <div className="flex gap-2 sm:col-span-2 lg:col-span-4">
+              <Button onClick={handleSave}><Save />{editing.id ? '수정' : '저장'}</Button>
+              <Button variant="outline" onClick={() => setEditing(null)}><X />취소</Button>
             </div>
           </div>
         )}
@@ -157,17 +158,17 @@ function ProductsTab() {
             {paged.map(p => (
               <TableRow key={p.id}>
                 <TableCell className="text-xs font-mono">{p.product_code}</TableCell>
-                <TableCell className="font-medium">{p.display_name}</TableCell>
-                <TableCell className="text-sm">{p.erp_name}</TableCell>
+                <TableCell className="min-w-48 whitespace-normal font-medium">{p.display_name}</TableCell>
+                <TableCell className="min-w-48 whitespace-normal text-sm">{p.erp_name}</TableCell>
                 <TableCell className="text-right">{p.thickness_mm}</TableCell>
                 <TableCell className="text-xs">{p.outer_glass}</TableCell>
                 <TableCell className="text-xs">{p.spacer}</TableCell>
                 <TableCell className="text-xs">{p.gas || '-'}</TableCell>
                 <TableCell className="text-xs">{p.inner_glass}</TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(p)}><Pencil className="h-3 w-3" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(p)}><Pencil /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(p.id)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -218,23 +219,23 @@ function CustomersTab() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">거래처 ({items.length}건)</CardTitle>
           <Button size="sm" onClick={() => setEditing({ name: '', short_name: '', contact_info: '', is_active: true })}>
-            <Plus className="mr-1 h-4 w-4" />추가
+            <Plus />추가
           </Button>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input className="pl-9 h-9" placeholder="거래처명, 약칭 검색..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input className="pl-9" placeholder="거래처명, 약칭 검색..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </CardHeader>
       <CardContent>
         {editing && (
-          <div className="grid grid-cols-3 gap-3 mb-4 p-4 border rounded-lg bg-gray-50">
-            <div><Label className="text-xs">거래처명</Label><Input className="h-8 text-sm" value={editing.name || ''} onChange={e => setEditing({ ...editing, name: e.target.value })} /></div>
-            <div><Label className="text-xs">약칭</Label><Input className="h-8 text-sm" value={editing.short_name || ''} onChange={e => setEditing({ ...editing, short_name: e.target.value })} /></div>
-            <div><Label className="text-xs">연락처</Label><Input className="h-8 text-sm" value={editing.contact_info || ''} onChange={e => setEditing({ ...editing, contact_info: e.target.value })} /></div>
-            <div className="col-span-3 flex gap-2">
-              <Button size="sm" onClick={handleSave}><Save className="mr-1 h-3 w-3" />{editing.id ? '수정' : '저장'}</Button>
-              <Button size="sm" variant="outline" onClick={() => setEditing(null)}><X className="mr-1 h-3 w-3" />취소</Button>
+          <div className="mb-5 grid grid-cols-1 gap-4 rounded-xl border border-brand-600/30 bg-brand-50/60 p-5 sm:grid-cols-3">
+            <div><Label className="mb-1.5 text-[13px] font-semibold">거래처명</Label><Input value={editing.name || ''} onChange={e => setEditing({ ...editing, name: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">약칭</Label><Input value={editing.short_name || ''} onChange={e => setEditing({ ...editing, short_name: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">연락처</Label><Input value={editing.contact_info || ''} onChange={e => setEditing({ ...editing, contact_info: e.target.value })} /></div>
+            <div className="flex gap-2 sm:col-span-3">
+              <Button onClick={handleSave}><Save />{editing.id ? '수정' : '저장'}</Button>
+              <Button variant="outline" onClick={() => setEditing(null)}><X />취소</Button>
             </div>
           </div>
         )}
@@ -254,9 +255,9 @@ function CustomersTab() {
                 <TableCell>{c.short_name}</TableCell>
                 <TableCell className="text-sm">{c.contact_info || '-'}</TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(c)}><Pencil className="h-3 w-3" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(c.id)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(c)}><Pencil /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(c.id)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -310,31 +311,31 @@ function SitesTab() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">현장 ({items.length}건)</CardTitle>
           <Button size="sm" onClick={() => setEditing({ customer_id: '', site_name: '', address: '', region_sido: '', region_sigungu: '', is_active: true })}>
-            <Plus className="mr-1 h-4 w-4" />추가
+            <Plus />추가
           </Button>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input className="pl-9 h-9" placeholder="현장명, 거래처, 지역 검색..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input className="pl-9" placeholder="현장명, 거래처, 지역 검색..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </CardHeader>
       <CardContent>
         {editing && (
-          <div className="grid grid-cols-3 gap-3 mb-4 p-4 border rounded-lg bg-gray-50">
+          <div className="mb-5 grid grid-cols-1 gap-4 rounded-xl border border-brand-600/30 bg-brand-50/60 p-5 sm:grid-cols-3">
             <div>
-              <Label className="text-xs">거래처</Label>
-              <select className="h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm" value={editing.customer_id || ''} onChange={e => setEditing({ ...editing, customer_id: e.target.value })}>
+              <Label className="mb-1.5 text-[13px] font-semibold">거래처</Label>
+              <select className="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm shadow-xs" value={editing.customer_id || ''} onChange={e => setEditing({ ...editing, customer_id: e.target.value })}>
                 <option value="">선택</option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.short_name || c.name}</option>)}
               </select>
             </div>
-            <div><Label className="text-xs">현장명</Label><Input className="h-8 text-sm" value={editing.site_name || ''} onChange={e => setEditing({ ...editing, site_name: e.target.value })} /></div>
-            <div><Label className="text-xs">주소</Label><Input className="h-8 text-sm" value={editing.address || ''} onChange={e => setEditing({ ...editing, address: e.target.value })} /></div>
-            <div><Label className="text-xs">시/도</Label><Input className="h-8 text-sm" value={editing.region_sido || ''} onChange={e => setEditing({ ...editing, region_sido: e.target.value })} /></div>
-            <div><Label className="text-xs">시/군/구</Label><Input className="h-8 text-sm" value={editing.region_sigungu || ''} onChange={e => setEditing({ ...editing, region_sigungu: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">현장명</Label><Input value={editing.site_name || ''} onChange={e => setEditing({ ...editing, site_name: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">주소</Label><Input value={editing.address || ''} onChange={e => setEditing({ ...editing, address: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">시/도</Label><Input value={editing.region_sido || ''} onChange={e => setEditing({ ...editing, region_sido: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">시/군/구</Label><Input value={editing.region_sigungu || ''} onChange={e => setEditing({ ...editing, region_sigungu: e.target.value })} /></div>
             <div className="flex items-end gap-2">
-              <Button size="sm" onClick={handleSave}><Save className="mr-1 h-3 w-3" />{editing.id ? '수정' : '저장'}</Button>
-              <Button size="sm" variant="outline" onClick={() => setEditing(null)}><X className="mr-1 h-3 w-3" />취소</Button>
+              <Button onClick={handleSave}><Save />{editing.id ? '수정' : '저장'}</Button>
+              <Button variant="outline" onClick={() => setEditing(null)}><X />취소</Button>
             </div>
           </div>
         )}
@@ -356,9 +357,9 @@ function SitesTab() {
                 <TableCell className="text-sm max-w-[200px] truncate">{s.address || '-'}</TableCell>
                 <TableCell className="text-sm">{s.region_sido || '-'}</TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(s)}><Pencil className="h-3 w-3" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(s.id)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(s)}><Pencil /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(s.id)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -410,23 +411,23 @@ function RawGlassTab() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">원판 ({items.length}건)</CardTitle>
           <Button size="sm" onClick={() => setEditing({ glass_type: '', width_mm: 0, height_mm: 0, is_active: true })}>
-            <Plus className="mr-1 h-4 w-4" />추가
+            <Plus />추가
           </Button>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input className="pl-9 h-9" placeholder="원판 유형 검색..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input className="pl-9" placeholder="원판 유형 검색..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
       </CardHeader>
       <CardContent>
         {editing && (
-          <div className="grid grid-cols-4 gap-3 mb-4 p-4 border rounded-lg bg-gray-50">
-            <div><Label className="text-xs">원판 유형</Label><Input className="h-8 text-sm" value={editing.glass_type || ''} onChange={e => setEditing({ ...editing, glass_type: e.target.value })} /></div>
-            <div><Label className="text-xs">가로(mm)</Label><Input className="h-8 text-sm" type="number" value={editing.width_mm || ''} onChange={e => setEditing({ ...editing, width_mm: Number(e.target.value) })} /></div>
-            <div><Label className="text-xs">세로(mm)</Label><Input className="h-8 text-sm" type="number" value={editing.height_mm || ''} onChange={e => setEditing({ ...editing, height_mm: Number(e.target.value) })} /></div>
+          <div className="mb-5 grid grid-cols-1 gap-4 rounded-xl border border-brand-600/30 bg-brand-50/60 p-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div><Label className="mb-1.5 text-[13px] font-semibold">원판 유형</Label><Input value={editing.glass_type || ''} onChange={e => setEditing({ ...editing, glass_type: e.target.value })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">가로(mm)</Label><Input type="number" value={editing.width_mm || ''} onChange={e => setEditing({ ...editing, width_mm: Number(e.target.value) })} /></div>
+            <div><Label className="mb-1.5 text-[13px] font-semibold">세로(mm)</Label><Input type="number" value={editing.height_mm || ''} onChange={e => setEditing({ ...editing, height_mm: Number(e.target.value) })} /></div>
             <div className="flex items-end gap-2">
-              <Button size="sm" onClick={handleSave}><Save className="mr-1 h-3 w-3" />{editing.id ? '수정' : '저장'}</Button>
-              <Button size="sm" variant="outline" onClick={() => setEditing(null)}><X className="mr-1 h-3 w-3" />취소</Button>
+              <Button onClick={handleSave}><Save />{editing.id ? '수정' : '저장'}</Button>
+              <Button variant="outline" onClick={() => setEditing(null)}><X />취소</Button>
             </div>
           </div>
         )}
@@ -448,9 +449,9 @@ function RawGlassTab() {
                 <TableCell className="text-right">{g.height_mm}</TableCell>
                 <TableCell className="text-right">{Number(g.area_m2).toFixed(4)}</TableCell>
                 <TableCell>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(g)}><Pencil className="h-3 w-3" /></Button>
-                    <Button variant="ghost" size="sm" onClick={() => handleDelete(g.id)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                  <div className="flex justify-end gap-1.5">
+                    <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(g)}><Pencil /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(g.id)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>

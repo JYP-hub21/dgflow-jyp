@@ -1,220 +1,232 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { USER_ROLES } from '@/types/user';
-import { ORDER_STATUS, type OrderStatus } from '@/types/order-status';
+import { workOrderLabels } from '@/lib/work-order/labels';
+import { hasAnyPermission, ORDER_ANY } from '@/lib/auth/role-guard';
+import PipelinePanel from '@/components/purchase-order/PipelinePanel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import OrderTrendChart from '@/components/dashboard/OrderTrendChart';
-import { format, subDays } from 'date-fns';
+import { format, addDays } from 'date-fns';
+import {
+  ArrowRight, Clock, Factory, FileCheck, FileSpreadsheet, Inbox, Layers, Ruler, ScanLine,
+} from 'lucide-react';
+
+interface ItemQty { quantity: number; produced_quantity: number }
+
+function progressOf(items: ItemQty[]) {
+  const total = items.reduce((s, i) => s + i.quantity, 0);
+  const done = items.reduce((s, i) => s + i.produced_quantity, 0);
+  return { total, done, percent: total > 0 ? Math.round(done / total * 100) : 0 };
+}
+
+/*
+  실제 업무 흐름 — 발주서를 접수하고, ERP 업로드 엑셀을 만들고, ERP 가 뽑아 준
+  작업의뢰서를 받아 생산을 기록한다. 대시보드도 주문이 아니라 이 흐름을 보여 준다.
+*/
+const FLOW = [
+  { step: 1, label: '발주서 접수', hint: '올리고 담당자 지목 · 확인 여부', href: '/purchase-orders', icon: Inbox },
+  { step: 2, label: 'ERP 업로드 엑셀 만들기', hint: '발주 건에서 바로 변환 · 저장', href: '/erp-upload', icon: FileSpreadsheet },
+  { step: 3, label: '작업의뢰서 등록', hint: 'ERP 에서 받은 엑셀·PDF 업로드', href: '/work-orders/receive', icon: ScanLine },
+  { step: 4, label: '생산 현황', hint: '생산 수량 입력 · 진행률 확인', href: '/production', icon: Factory },
+];
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   const supabase = await createServerSupabaseClient();
 
-  // 모든 쿼리를 병렬 실행 (순차 → 병렬로 로딩 속도 개선)
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const weekLater = new Date();
-  weekLater.setDate(weekLater.getDate() + 7);
-  const thirtyDaysAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const monthStart = format(new Date(), 'yyyy-MM-01');
+  const weekLater = format(addDays(new Date(), 7), 'yyyy-MM-dd');
 
-  const [
-    { count: totalOrders },
-    { data: statusCounts },
-    { data: monthOrders },
-    { data: urgentOrders },
-    { data: recentOrders },
-    { data: trendOrders },
-  ] = await Promise.all([
-    supabase.from('dgflow_orders').select('*', { count: 'exact', head: true }),
-    supabase.from('dgflow_orders').select('status'),
-    supabase.from('dgflow_orders').select('total_quantity, total_area_m2')
-      .gte('order_date', monthStart.toISOString().split('T')[0]),
-    supabase.from('dgflow_orders')
-      .select(`*, customer:dgflow_customers(short_name), site:dgflow_sites(site_name)`)
-      .lte('delivery_date', weekLater.toISOString().split('T')[0])
-      .not('status', 'in', '("production_completed","erp_completed")')
-      .order('delivery_date').limit(10),
-    supabase.from('dgflow_orders')
-      .select(`*, customer:dgflow_customers(short_name), site:dgflow_sites(site_name), creator:dgflow_users!created_by(name)`)
-      .order('created_at', { ascending: false }).limit(5),
-    supabase.from('dgflow_orders')
-      .select('order_date, total_quantity, total_area_m2')
-      .gte('order_date', thirtyDaysAgo),
+  const [{ data: activeOrders }, { data: todayLogs }, { data: monthLogs }] = await Promise.all([
+    supabase.from('dgflow_work_orders')
+      .select(`
+        *,
+        order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name)),
+        items:dgflow_work_order_items(quantity, produced_quantity)
+      `)
+      .in('status', ['pending', 'in_progress'])
+      .order('created_at', { ascending: false }),
+    supabase.from('dgflow_production_logs').select('quantity_completed').eq('production_date', today),
+    supabase.from('dgflow_production_logs').select('area_m2').gte('production_date', monthStart),
   ]);
 
-  const statusMap = new Map<string, number>();
-  (statusCounts || []).forEach(o => {
-    statusMap.set(o.status, (statusMap.get(o.status) || 0) + 1);
-  });
+  const active = (activeOrders || []).map(wo => ({
+    ...wo,
+    labels: workOrderLabels(wo),
+    progress: progressOf(wo.items as ItemQty[]),
+  }));
 
-  const monthQuantity = (monthOrders || []).reduce((s, o) => s + o.total_quantity, 0);
-  const monthArea = (monthOrders || []).reduce((s, o) => s + Number(o.total_area_m2), 0);
+  const remaining = active.reduce((s, wo) => s + (wo.progress.total - wo.progress.done), 0);
+  const todayQty = (todayLogs || []).reduce((s, l) => s + l.quantity_completed, 0);
+  const monthArea = (monthLogs || []).reduce((s, l) => s + Number(l.area_m2 || 0), 0);
 
-  const trendMap = new Map<string, { count: number; quantity: number; area: number }>();
-  (trendOrders || []).forEach(o => {
-    const date = o.order_date;
-    const prev = trendMap.get(date) || { count: 0, quantity: 0, area: 0 };
-    trendMap.set(date, {
-      count: prev.count + 1,
-      quantity: prev.quantity + o.total_quantity,
-      area: prev.area + Number(o.total_area_m2),
-    });
-  });
-  const trendData = [...trendMap.entries()]
-    .map(([date, v]) => ({ date: date.slice(5), ...v }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+  const urgent = active
+    .filter(wo => wo.delivery_date && wo.delivery_date <= weekLater)
+    .sort((a, b) => a.delivery_date!.localeCompare(b.delivery_date!));
 
-  // 거래처별 집계
-  const { data: customerStats } = await supabase
-    .from('dgflow_orders')
-    .select('customer:dgflow_customers(short_name), total_quantity, total_area_m2');
-
-  const customerMap = new Map<string, { count: number; quantity: number; area: number }>();
-  (customerStats || []).forEach(o => {
-    const cust = o.customer as { short_name: string } | { short_name: string }[] | null;
-    const name = (Array.isArray(cust) ? cust[0]?.short_name : cust?.short_name) || '기타';
-    const prev = customerMap.get(name) || { count: 0, quantity: 0, area: 0 };
-    customerMap.set(name, {
-      count: prev.count + 1,
-      quantity: prev.quantity + o.total_quantity,
-      area: prev.area + Number(o.total_area_m2),
-    });
-  });
-  const topCustomers = [...customerMap.entries()]
-    .sort((a, b) => b[1].count - a[1].count)
-    .slice(0, 5);
-
-  const pendingCount = (statusMap.get('pending_customer') || 0)
-    + (statusMap.get('under_review') || 0)
-    + (statusMap.get('pending_approval') || 0);
+  const stats = [
+    { label: '진행 중 작업의뢰서', value: active.length, unit: '건', icon: FileCheck },
+    { label: '남은 생산 수량', value: remaining, unit: '장', icon: Layers },
+    { label: '오늘 생산', value: todayQty, unit: '장', icon: Clock },
+    { label: '이번 달 생산 면적', value: monthArea.toFixed(1), unit: 'm²', icon: Ruler },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">대시보드</h1>
-        <p className="text-sm text-gray-500">환영합니다, {user?.name}님 ({user ? USER_ROLES[user.role] : ''})</p>
+    <div className="mx-auto max-w-[1400px] space-y-6">
+      {/* 헤더 */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[26px] font-bold tracking-tight text-foreground">대시보드</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{user?.name}</span>
+            <span className="mx-1.5 text-border">·</span>
+            {user ? USER_ROLES[user.role] : ''}
+          </p>
+        </div>
+        <p className="tabular text-xs text-muted-foreground">
+          {format(new Date(), 'yyyy년 M월 d일')} 기준
+        </p>
       </div>
+
+      {/* 업무 흐름 — 바로 가기 */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {FLOW.map((f) => {
+          const Icon = f.icon;
+          return (
+            <Link
+              key={f.href}
+              href={f.href}
+              className="group flex items-center gap-4 rounded-xl border border-border/70 bg-card px-4 py-4 shadow-sm transition-all hover:border-brand-600/40 hover:shadow-md"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800">
+                <Icon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-muted-foreground">STEP {f.step}</p>
+                <p className="truncate text-sm font-semibold text-foreground">{f.label}</p>
+                <p className="truncate text-xs text-muted-foreground">{f.hint}</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+            </Link>
+          );
+        })}
+      </div>
+      <p className="-mt-3 text-xs text-muted-foreground">
+        2 와 3 사이에서 만든 엑셀을 회사 ERP 에 올리고, ERP 가 뽑아 준 작업의뢰서를 받아 옵니다. 받아 온 의뢰서는 발주 건의 포장과 자동으로 대조됩니다.
+      </p>
+
+      {user && hasAnyPermission(user, ORDER_ANY) && <PipelinePanel meId={user.id} />}
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">전체 주문</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-bold">{totalOrders || 0}</p><p className="text-xs text-gray-500">건</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">처리 대기</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-bold text-orange-600">{pendingCount}</p><p className="text-xs text-gray-500">승인/검토 대기</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">이번 달 수량</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-bold">{monthQuantity}</p><p className="text-xs text-gray-500">개</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-gray-500">이번 달 면적</CardTitle></CardHeader>
-          <CardContent><p className="text-3xl font-bold">{monthArea.toFixed(1)}</p><p className="text-xs text-gray-500">m²</p></CardContent>
-        </Card>
-      </div>
-
-      {/* 상태 파이프라인 */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">주문 상태 현황</CardTitle></CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-3">
-            {Object.entries(ORDER_STATUS).map(([key, label]) => {
-              const count = statusMap.get(key) || 0;
-              return (
-                <div key={key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 min-w-[120px]">
-                  <span className="text-sm text-gray-600">{label}</span>
-                  <Badge variant={count > 0 ? 'default' : 'secondary'}>{count}</Badge>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((s) => {
+          const Icon = s.icon;
+          return (
+            <Card
+              key={s.label}
+              className="relative overflow-hidden border-border/70 shadow-sm"
+            >
+              <span className="absolute inset-x-0 top-0 h-[3px] bg-brand-gradient" />
+              <CardContent className="pt-6">
+                <div className="flex items-start justify-between">
+                  <p className="text-[12px] font-semibold tracking-wide text-muted-foreground">
+                    {s.label}
+                  </p>
+                  <Icon className="h-4 w-4 shrink-0 text-brand-600/70" />
                 </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
+                <p className="tabular mt-3 text-[32px] font-bold leading-none tracking-tight text-foreground">
+                  {s.value}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">{s.unit}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-      {/* 주문 추이 차트 */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">최근 30일 주문 추이</CardTitle></CardHeader>
-        <CardContent>
-          <OrderTrendChart data={trendData} />
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* 납기 임박 */}
-        <Card>
-          <CardHeader><CardTitle className="text-lg">납기 임박 (7일 이내)</CardTitle></CardHeader>
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-[15px] font-semibold">
+              납기 임박 <span className="font-normal text-muted-foreground">7일 이내 · 미완료</span>
+            </CardTitle>
+          </CardHeader>
           <CardContent>
-            {(!urgentOrders || urgentOrders.length === 0) ? (
-              <p className="text-sm text-gray-500 py-4 text-center">임박한 납기가 없습니다.</p>
+            {urgent.length === 0 ? (
+              <EmptyRow text="임박한 납기가 없습니다." />
             ) : (
-              <div className="space-y-2">
-                {urgentOrders.map(o => (
-                  <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center justify-between py-2 px-3 rounded hover:bg-gray-50">
-                    <div>
-                      <span className="font-medium text-sm">{(o.customer as { short_name: string }).short_name}</span>
-                      <span className="text-xs text-gray-500 ml-2">{(o.site as { site_name: string }).site_name}</span>
-                    </div>
-                    <Badge variant="destructive" className="text-xs">{o.delivery_date}</Badge>
-                  </Link>
+              <div className="-mx-2 space-y-0.5">
+                {urgent.map(wo => (
+                  <WorkOrderRow key={wo.id} wo={wo}>
+                    <span className="tabular shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-2 py-1 text-[11px] font-semibold text-destructive">
+                      {wo.delivery_date}
+                    </span>
+                  </WorkOrderRow>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* 거래처별 현황 */}
-        <Card>
-          <CardHeader><CardTitle className="text-lg">거래처별 주문 현황 (Top 5)</CardTitle></CardHeader>
+        {/* 진행 중 */}
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardTitle className="text-[15px] font-semibold">진행 중 작업의뢰서</CardTitle>
+            <Link href="/production" className="text-xs font-medium text-muted-foreground hover:text-foreground">
+              전체 보기
+            </Link>
+          </CardHeader>
           <CardContent>
-            {topCustomers.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">데이터가 없습니다.</p>
+            {active.length === 0 ? (
+              <EmptyRow text="진행 중인 작업의뢰서가 없습니다." />
             ) : (
-              <div className="space-y-2">
-                {topCustomers.map(([name, stats]) => (
-                  <div key={name} className="flex items-center justify-between py-2 px-3 rounded bg-gray-50">
-                    <span className="font-medium text-sm">{name}</span>
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span>{stats.count}건</span>
-                      <span>{stats.quantity}개</span>
-                      <span>{stats.area.toFixed(1)}m²</span>
+              <div className="-mx-2 space-y-0.5">
+                {active.slice(0, 8).map(wo => (
+                  <WorkOrderRow key={wo.id} wo={wo}>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="h-2 w-20 overflow-hidden rounded-full bg-border/60">
+                        <div className="h-full rounded-full bg-brand-600" style={{ width: `${wo.progress.percent}%` }} />
+                      </div>
+                      <span className="tabular w-9 text-right text-xs text-muted-foreground">{wo.progress.percent}%</span>
                     </div>
-                  </div>
+                  </WorkOrderRow>
                 ))}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
 
-      {/* 최근 주문 */}
-      <Card>
-        <CardHeader><CardTitle className="text-lg">최근 주문</CardTitle></CardHeader>
-        <CardContent>
-          {(!recentOrders || recentOrders.length === 0) ? (
-            <p className="text-sm text-gray-500 py-4 text-center">주문이 없습니다.</p>
-          ) : (
-            <div className="space-y-2">
-              {recentOrders.map(o => (
-                <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center justify-between py-2 px-3 rounded hover:bg-gray-50">
-                  <div>
-                    <span className="font-medium text-sm">{(o.customer as { short_name: string })?.short_name}</span>
-                    <span className="text-xs text-gray-500 ml-2">{(o.site as { site_name: string })?.site_name}</span>
-                    <span className="text-xs text-gray-400 ml-2">by {(o.creator as { name: string })?.name}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500">{o.total_quantity}개 / {o.total_area_m2}m²</span>
-                    <Badge variant="secondary">{ORDER_STATUS[o.status as OrderStatus]}</Badge>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+function WorkOrderRow({ wo, children }: {
+  wo: { id: string; work_order_number: string; labels: { customer: string | null; site: string | null } };
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={`/work-orders/${wo.id}`}
+      className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-foreground">
+          {wo.work_order_number}
+          <span className="ml-2 font-normal text-muted-foreground">{wo.labels.customer ?? ''}</span>
+        </p>
+        <p className="truncate text-xs text-muted-foreground">{wo.labels.site ?? '-'}</p>
+      </div>
+      {children}
+    </Link>
+  );
+}
+
+function EmptyRow({ text }: { text: string }) {
+  return (
+    <div className="flex items-center justify-center rounded-xl border border-dashed border-border py-8">
+      <p className="text-sm text-muted-foreground">{text}</p>
     </div>
   );
 }

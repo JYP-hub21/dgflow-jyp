@@ -15,5 +15,8 @@ export async function getCurrentUser(): Promise<DgflowUser | null> {
     .eq('auth_id', user.id)
     .single();
 
-  return data as DgflowUser | null;
+  // 승인 전이거나 사용을 멈춘 계정은 로그인 세션이 남아 있어도 없는 사람으로 본다
+  const u = data as DgflowUser | null;
+  if (!u || !u.is_active || u.status !== 'active') return null;
+  return u;
 }

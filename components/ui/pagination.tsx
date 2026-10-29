@@ -31,9 +31,9 @@ export default function Pagination({ totalCount, pageSize = 20 }: PaginationProp
   for (let i = start; i <= end; i++) pages.push(i);
 
   return (
-    <div className="flex items-center justify-between pt-4">
-      <p className="text-sm text-gray-500">
-        총 {totalCount}건 (페이지 {currentPage}/{totalPages})
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+      <p className="tabular text-sm text-muted-foreground">
+        총 <b className="text-foreground">{totalCount}</b>건 · {currentPage}/{totalPages} 페이지
       </p>
       <div className="flex items-center gap-1">
         <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => goToPage(currentPage - 1)}>
@@ -44,7 +44,7 @@ export default function Pagination({ totalCount, pageSize = 20 }: PaginationProp
             key={p}
             variant={p === currentPage ? 'default' : 'outline'}
             size="sm"
-            className="w-9"
+            className="w-9 tabular"
             onClick={() => goToPage(p)}
           >
             {p}

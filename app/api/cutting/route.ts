@@ -1,10 +1,14 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
+import { hasPermission } from '@/lib/auth/role-guard';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!hasPermission(user, 'production:input')) {
+    return NextResponse.json({ error: '생산 실적을 입력할 권한이 없습니다.' }, { status: 403 });
+  }
 
   const { work_order_id, cutting_date, product_name, quantity, raw_glass_type, raw_width_mm, raw_height_mm, raw_quantity, shift, is_manual, remark } = await request.json();
 

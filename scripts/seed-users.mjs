@@ -1,6 +1,9 @@
 /**
- * DG-Flow 사용자 9명 생성 (역할별 5명 + 공사관리부 담당자 4명)
- * 역할별 1명씩: admin, construction_mgr, biz_support, production_mgr, system_admin
+ * DG-Flow 마스터 계정 시딩
+ *
+ * 역할 5종(관리자/공사관리부/경영지원팀/생산관리팀/시스템관리자)과 그에 딸린
+ * 테스트 계정 8개는 모두 정리했다. 이제 전권을 가진 마스터 계정 하나만 시딩하고,
+ * 사원 계정은 마스터가 "사용자 관리" 화면에서 추가한 뒤 기능 권한을 지정한다.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -18,16 +21,7 @@ const supabase = createClient(
 );
 
 const TEST_USERS = [
-  { email: 'admin@dgflow.kr', password: 'dgflow2026!', name: '김경영', role: 'admin', department: '경영진' },
-  { email: 'construction@dgflow.kr', password: 'dgflow2026!', name: '박공사', role: 'construction_mgr', department: '공사관리부' },
-  { email: 'support@dgflow.kr', password: 'dgflow2026!', name: '이지원', role: 'biz_support', department: '경영지원팀' },
-  { email: 'production@dgflow.kr', password: 'dgflow2026!', name: '최생산', role: 'production_mgr', department: '생산관리팀' },
-  { email: 'sysadmin@dgflow.kr', password: 'dgflow2026!', name: '정시스', role: 'system_admin', department: '시스템관리' },
-  // 공사관리부 실무 담당자 — 실제 발주서를 쓰는 사람들
-  { email: 'ahn@dgflow.kr', password: 'dgflow2026!', name: '안광식', role: 'construction_mgr', department: '공사관리부' },
-  { email: 'lee@dgflow.kr', password: 'dgflow2026!', name: '이충언', role: 'construction_mgr', department: '공사관리부' },
-  { email: 'kim@dgflow.kr', password: 'dgflow2026!', name: '김길홍', role: 'construction_mgr', department: '공사관리부' },
-  { email: 'oh@dgflow.kr',  password: 'dgflow2026!', name: '오동석', role: 'construction_mgr', department: '공사관리부' },
+  { email: 'admin@dgflow.kr', password: 'dgflow2026!', name: '김경영', role: 'master', department: '경영진' },
 ];
 
 async function seedUsers() {
@@ -59,7 +53,7 @@ async function seedUsers() {
     await upsertDgflowUser(authData.user.id, user);
   }
 
-  console.log('\nDone! Test accounts:');
+  console.log('\nDone! Master account:');
   TEST_USERS.forEach(u => console.log(`  ${u.email} / ${u.password} (${u.role})`));
 }
 
