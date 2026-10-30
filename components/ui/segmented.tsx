@@ -20,7 +20,7 @@ export default function Segmented<T extends string>({ value, onChange, options, 
         return (
           <button key={o.value} type="button" onClick={() => onChange(o.value)} aria-pressed={on}
             className={cn(
-              'flex h-9 min-w-16 flex-1 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-all',
+              'flex h-9 min-w-16 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-semibold transition-all',
               on ? 'bg-brand-800 text-white shadow-sm' : 'text-foreground/70 hover:bg-card hover:text-foreground'
             )}>
             {Icon && <Icon className="h-4 w-4" />}{o.label}

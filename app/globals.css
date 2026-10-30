@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* 어두운 테마는 .dark 를 붙였을 때만 — 앱은 밝은 화면 하나라, 브라우저가 다크 모드여도 입력칸 · 버튼만 회색이 되지 않게 */
+@custom-variant dark (&:is(.dark *));
+
 @layer base {
   .theme {
     --font-heading: var(--font-sans);
@@ -15,6 +18,21 @@
     --brand-600: oklch(0.5157 0.0874 246.47);
     --brand-100: oklch(0.9386 0.0145 244.72);
     --brand-50:  oklch(0.9713 0.0068 247.90);
+
+    /*
+      부서 색 — 발주서가 공사개발부(파랑) → 업무지원부(초록) → 생산관리부(주황) 순서로 흐른다.
+      사이드바 구역 · 대시보드 흐름 · 화면 머리글 이름표가 같은 색을 쓴다 (lib/departments.ts).
+      진한 색 위 흰 글자, 옅은 바탕 위 진한 글자 모두 대비 4.5 이상으로 골랐다.
+    */
+    --dept-construction:      oklch(0.500 0.170 258);   /* #145EC1 */
+    --dept-construction-soft: oklch(0.972 0.016 255);   /* #EFF7FF */
+    --dept-construction-line: oklch(0.900 0.045 255);   /* #CBE0FC */
+    --dept-support:           oklch(0.500 0.110 162);   /* #00764F */
+    --dept-support-soft:      oklch(0.972 0.018 165);   /* #EBFAF3 */
+    --dept-support-line:      oklch(0.900 0.050 165);   /* #C0E9D6 */
+    --dept-production:        oklch(0.555 0.170 45);    /* #BF4700 */
+    --dept-production-soft:   oklch(0.975 0.018 65);    /* #FFF5EB */
+    --dept-production-line:   oklch(0.910 0.055 60);    /* #FEDABD */
 
     --background: oklch(0.9720 0.0040 247.9);
     --foreground: oklch(0.2280 0.0180 250);
@@ -147,6 +165,16 @@
   --color-success-50: var(--success-50);
   --color-warning: var(--warning);
   --color-warning-50: var(--warning-50);
+
+  --color-dept-construction: var(--dept-construction);
+  --color-dept-construction-soft: var(--dept-construction-soft);
+  --color-dept-construction-line: var(--dept-construction-line);
+  --color-dept-support: var(--dept-support);
+  --color-dept-support-soft: var(--dept-support-soft);
+  --color-dept-support-line: var(--dept-support-line);
+  --color-dept-production: var(--dept-production);
+  --color-dept-production-soft: var(--dept-production-soft);
+  --color-dept-production-line: var(--dept-production-line);
 }
 
 @layer utilities {

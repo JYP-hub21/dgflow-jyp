@@ -40,9 +40,10 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
     all,
   };
   const shown = lists[view];
+  // 앞의 둘은 사이드바 메뉴 이름과 같다 — 받은 발주서(업무지원부) · 올린 발주서(공사개발부)
   const tabs: { key: View; label: string; hidden?: boolean }[] = [
-    { key: 'todo', label: '나에게 온 것', hidden: !processor },
-    { key: 'mine', label: '내가 올린 것' },
+    { key: 'todo', label: '받은 발주서', hidden: !processor },
+    { key: 'mine', label: '올린 발주서' },
     { key: 'open', label: '진행 중' },
     { key: 'all', label: '전체' },
   ];
@@ -144,7 +145,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
 }
 
 function Empty({ view }: { view: View }) {
-  const text = view === 'todo' ? '나에게 온 발주서가 없습니다.'
+  const text = view === 'todo' ? '받은 발주서가 없습니다.'
     : view === 'mine' ? '올린 발주서가 없습니다.' : '발주서가 없습니다.';
   return (
     <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">

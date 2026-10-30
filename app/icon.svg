@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#22405C"/>
-  <text x="32" y="43" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="30"
-        font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="-1">DG</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- 탭 아이콘 — components/layout/Logo.tsx 의 LogoMark 와 같은 마크 (남색 네모 안에 회사 로고의 D) -->
+  <rect width="32" height="32" rx="9" fill="#22405C"/>
+  <path d="M7.21 6.4L13.81 6.4L18.53 6.6L19.54 6.87L19.94 7.14L20.55 7.21L21.63 7.75L23.85 9.43L25.13 11.25L25.33 12.13L25.74 12.73L26.14 15.56L26.14 16.84L25.87 17.92L25.8 19.14L25.06 20.95L24.19 22.23L22.43 23.85L21.02 24.66L19 25.4L17.65 25.6L10.98 25.6L9.9 25.13L9.43 24.66L6.13 22.43L5.86 21.96L5.86 9.23L6.07 8.96L6.47 9.03L7.88 10.17L10.24 11.65L10.65 12.19L10.71 23.04L11.05 23.78L15.02 23.85L16.84 23.45L18.19 22.84L19.74 21.49L20.35 20.62L20.48 20.08L20.95 19.33L21.43 16.98L21.43 15.23L20.89 12.53L20.55 12.13L20.28 11.39L18.8 9.63L17.72 8.96L15.9 8.36L8.63 8.22L7.95 7.88L6.8 6.94L6.8 6.6Z" fill="#FFFFFF" fill-rule="evenodd"/>
 </svg>

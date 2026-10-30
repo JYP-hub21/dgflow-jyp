@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
 import { Factory, CheckCircle } from 'lucide-react';
+import { daysBetweenDates, itemNo } from '@/lib/production/item-view';
 
 /**
  * 아직 다 만들지 않은 품목만 모아 본다.
@@ -19,6 +20,9 @@ export interface RemainingItem {
   height_mm: number;
   quantity: number;
   produced_quantity: number;
+  /** 작업의뢰서 품목 번호 = sort_order + 1 — 남은 것만 보여도 종이와 번호로 맞춘다 */
+  sort_order?: number;
+  remark?: string | null;
 }
 
 export interface RemainingGroup {
@@ -28,7 +32,14 @@ export interface RemainingGroup {
   customer: string | null;
   site: string | null;
   items: RemainingItem[];
+  /** 이 의뢰서를 마지막으로 생산한 날 (없으면 아직 안 함) */
+  last_produced?: string | null;
+  /** 현장 담당자 — 발주 건을 올린 공사개발부 담당 */
+  contact?: string | null;
 }
+
+/** 이 날 수가 지나도록 손대지 않은 의뢰서는 눈에 띄게 (회의: "못 만들면 한 달까지 밀린다") */
+const STALE_DAYS = 14;
 
 export default function RemainingItems({ groups, today }: { groups: RemainingGroup[]; today: string }) {
   if (groups.length === 0) {
@@ -65,16 +76,24 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
       {groups.map(g => {
         const groupQty = g.items.reduce((s, i) => s + i.quantity - i.produced_quantity, 0);
         const overdue = g.delivery_date && g.delivery_date < today;
+        const idle = g.last_produced ? daysBetweenDates(g.last_produced, today) : null;
         return (
           <Card key={g.id} className="gap-0 py-0">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b bg-muted/50 px-5 py-3">
-              <div className="min-w-0 flex-1">
+              <div className="w-full min-w-0 sm:w-auto sm:flex-1">
                 <Link href={`/work-orders/${g.id}`} className="font-bold text-brand-800 hover:underline">
                   {g.work_order_number}
                 </Link>
                 <span className="ml-2 font-medium">{g.customer ?? ''}</span>
-                <p className="truncate text-sm text-muted-foreground">{g.site ?? '-'}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {g.site ?? '-'}{g.contact && <span> · 공사 담당 {g.contact}</span>}
+                </p>
               </div>
+              <span className={cn('tabular text-sm', idle != null && idle >= STALE_DAYS ? 'font-semibold text-warning' : 'text-muted-foreground')}>
+                {g.last_produced
+                  ? `마지막 생산 ${g.last_produced.slice(5).replace('-', '/')}${idle === 0 ? ' · 오늘' : idle != null && idle > 0 ? ` · ${idle}일 전` : ''}`
+                  : '아직 생산 안 함'}
+              </span>
               {g.delivery_date && (
                 <span className={cn('tabular text-sm', overdue ? 'font-semibold text-destructive' : 'text-muted-foreground')}>
                   납기 {g.delivery_date}{overdue && ' (지남)'}
@@ -90,12 +109,14 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                 const remaining = item.quantity - item.produced_quantity;
                 return (
                   <li key={item.id} className="flex items-center gap-3 px-5 py-2.5">
+                    <span className="tabular w-9 shrink-0 text-center text-sm font-bold text-muted-foreground">{itemNo(item)}</span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{item.product_name}</p>
                       <p className="tabular text-sm text-muted-foreground">
                         {item.width_mm} × {item.height_mm}
                         <span className="ml-2">의뢰 {item.quantity} · 완료 {item.produced_quantity}</span>
                       </p>
+                      {item.remark && <p className="truncate text-xs text-muted-foreground">{item.remark}</p>}
                     </div>
                     {item.produced_quantity === 0 && (
                       <span className="shrink-0 rounded-md bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">미착수</span>

@@ -2,6 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { FileSpreadsheet } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -15,6 +17,9 @@ import { verifyScan, expectedArea } from '@/lib/work-order/verify';
 import type { ScanCheck, WorkOrderInput } from '@/lib/work-order/verify';
 import { parseWorkOrderSheet } from '@/lib/work-order/excel';
 import type { ParsedPdf } from '@/lib/work-order/pdf';
+import { hasPermission } from '@/lib/auth/role-guard';
+import { useCurrentUser } from '@/components/layout/CurrentUser';
+import { readWorkbookFile } from '@/lib/excel/read-file';
 
 /**
  * ERP 작업의뢰서를 옮겨 적어 생산현황의 출발점으로 삼는다.
@@ -75,8 +80,18 @@ interface Target {
   pkg: { id: string; label: string; sheet_name: string; total_quantity: number } | null;
 }
 
+/**
+ * 등록을 마치면 폼을 통째로 새로 만든다(key) — 생산 화면 권한이 없는 업무지원부 담당자는
+ * 이 화면에 남아 다음 의뢰서를 올린다. 생산 권한이 있으면 생산 화면으로 넘어간다.
+ */
 export default function WorkOrderReceivePage() {
+  const [formKey, setFormKey] = useState(0);
+  return <ReceiveForm key={formKey} onRegistered={() => setFormKey(k => k + 1)} />;
+}
+
+function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   const router = useRouter();
+  const me = useCurrentUser();
   const [target, setTarget] = useState<Target | null>(null);
   const [saving, setSaving] = useState(false);
   const [reading, setReading] = useState(false);
@@ -203,7 +218,8 @@ export default function WorkOrderReceivePage() {
   /** ERP 엑셀을 읽어 표를 채운다. 머리글은 엑셀에 없어서 PDF 나 사람이 채운다 */
   async function handleExcel(file: File): Promise<boolean> {
       try {
-        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        // xlsx · xls · csv (csv 는 한글 인코딩을 가려 읽는다)
+        const wb = await readWorkbookFile(file);
         const ws = wb.Sheets[wb.SheetNames[0]];
         const sheet = XLSX.utils.sheet_to_json<unknown[]>(ws, {
           header: 1, defval: null, raw: true,
@@ -406,7 +422,11 @@ export default function WorkOrderReceivePage() {
 
       // 그냥 올렸으면 규격이 맞는 포장을 찾아 권한다 — 누르면 잇는다 (자동으로 잇지는 않는다)
       suggestLink(workOrderId, head.work_order_number);
-      router.push(`/production/${workOrderId}`);
+      // 갈 수 있는 화면으로 — 생산 입력 > 작업의뢰서 보기 > 이 화면에 남아 다음 의뢰서 올리기.
+      // 예전에는 늘 생산 입력으로 보내서, 생산 권한이 없는 업무지원부는 '권한 없음' 화면을 봤다.
+      if (me && hasPermission(me, 'production:input')) router.push(`/production/${workOrderId}`);
+      else if (me && hasPermission(me, 'production:view')) router.push(`/work-orders/${workOrderId}`);
+      else onRegistered();
     } catch {
       toast.error('저장하지 못했습니다.');
     } finally {
@@ -419,6 +439,13 @@ export default function WorkOrderReceivePage() {
       <PageHeader
         title="작업의뢰서 등록"
         description="ERP 에서 내려받은 작업의뢰서를 올리면 채워집니다. 엑셀과 PDF 를 같이 올리면 손댈 것이 없습니다."
+        actions={
+          // 지난 것은 한 장씩 올리지 않고 ERP 목록 엑셀 하나로 한꺼번에
+          <Link href="/work-orders/receive/import"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-input bg-card px-4 text-sm font-semibold hover:bg-muted">
+            <FileSpreadsheet className="h-4 w-4" />지난 작업의뢰서 한꺼번에 가져오기
+          </Link>
+        }
       />
 
       {target && (
@@ -449,7 +476,7 @@ export default function WorkOrderReceivePage() {
                 둘 다 올리면 전부 채워집니다.
               </div>
             </div>
-            <input type="file" accept=".xlsx,.xls,.pdf" multiple className="hidden"
+            <input type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden"
               disabled={reading}
               onChange={(e) => {
                 // 엑셀과 PDF 를 한 번에 올려도 되게 한다

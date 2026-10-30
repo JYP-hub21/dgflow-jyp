@@ -11,10 +11,13 @@ import PageHeader from '@/components/layout/PageHeader';
 import { chipClass } from '@/components/ui/chip';
 import { Plus, Pencil, Save, X, UserCheck, UserX, KeyRound } from 'lucide-react';
 import { USER_ROLES, type UserRole, type UserStatus } from '@/types/user';
+import { DEPARTMENTS, DEPT_BY_KEY, type DeptKey } from '@/lib/departments';
 import {
-  PERMISSION_GROUPS, PERMISSION_PRESETS, PERMISSION_LABELS, ALL_PERMISSIONS,
-  hasPermission, normalizePermissions, type PermissionSubject,
+  PERMISSION_GROUPS, PERMISSION_LABELS, DEPT_PERMISSIONS, MENU_ITEMS,
+  deptBlocksOf, hasPermission, normalizePermissions, type PermissionSubject,
 } from '@/lib/auth/role-guard';
+import { DEPT_STYLE } from '@/components/layout/dept-style';
+import { cn } from '@/lib/utils';
 
 interface UserRow {
   id: string;
@@ -100,6 +103,10 @@ export default function UsersPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader title="사용자 관리" description="가입 신청을 승인하고, 사람마다 쓸 수 있는 기능을 정합니다." />
+      {/* 부서 칸 추천 — 세 부서 이름이 맞아야 사이드바에 '내 부서' 가 표시된다 */}
+      <datalist id="department-options">
+        {DEPARTMENTS.map(d => <option key={d.key} value={d.name} />)}
+      </datalist>
 
       {notice && <p className="rounded-lg bg-success-50 px-4 py-2.5 text-sm font-medium text-success">{notice}</p>}
       {error && !creating && !editing && !approving && (
@@ -187,7 +194,7 @@ export default function UsersPage() {
                   onChange={v => setCreating({ ...creating, name: v })} />
                 <TextField label="전화번호" placeholder="010-1234-5678" value={creating.phone}
                   onChange={v => setCreating({ ...creating, phone: v })} />
-                <TextField label="부서" placeholder="공사관리부" value={creating.department}
+                <TextField label="부서" placeholder="예: 업무지원부" list="department-options" value={creating.department}
                   onChange={v => setCreating({ ...creating, department: v })} />
                 <TextField label="직책" placeholder="대리" value={creating.position}
                   onChange={v => setCreating({ ...creating, position: v })} />
@@ -225,7 +232,8 @@ export default function UsersPage() {
                   <Input type="date" value={editing.birth_date ?? ''}
                     onChange={e => setEditing({ ...editing, birth_date: e.target.value })} />
                 </div>
-                <TextField label="부서" value={editing.department ?? ''} onChange={v => setEditing({ ...editing, department: v })} />
+                <TextField label="부서" list="department-options" value={editing.department ?? ''}
+                  onChange={v => setEditing({ ...editing, department: v })} />
                 <TextField label="직책" value={editing.position ?? ''} onChange={v => setEditing({ ...editing, position: v })} />
                 <div>
                   <Label className="mb-1.5 text-[13px] font-semibold"><KeyRound className="mr-1 inline h-3.5 w-3.5" />비밀번호 초기화</Label>
@@ -322,22 +330,38 @@ export default function UsersPage() {
   );
 }
 
-function TextField({ label, value, onChange, placeholder }: {
+function TextField({ label, value, onChange, placeholder, list }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  /** 추천 목록(datalist) id */
+  list?: string;
 }) {
   return (
     <div>
       <Label className="mb-1.5 text-[13px] font-semibold">{label}</Label>
-      <Input placeholder={placeholder} value={value} onChange={e => onChange(e.target.value)} />
+      <Input placeholder={placeholder} list={list} value={value} onChange={e => onChange(e.target.value)} />
     </div>
   );
 }
 
+/** 권한 요약 — 통째로 가진 부서는 부서 이름표로, 나머지는 낱개 이름으로 */
 function PermissionSummary({ user }: { user: UserRow }) {
   if (user.role === 'master') return <span className="font-semibold text-brand-800">전체 기능</span>;
-  const keys = ALL_PERMISSIONS.filter(k => (user.permissions ?? []).includes(k));
-  if (keys.length === 0) return <span className="font-medium text-warning">권한 없음 — 메뉴가 비어 보입니다</span>;
-  return <span className="text-muted-foreground">{keys.map(k => PERMISSION_LABELS[k]).join(' · ')}</span>;
+  const { blocks, extras } = deptBlocksOf(user.permissions);
+  if (blocks.length === 0 && extras.length === 0) {
+    return <span className="font-medium text-warning">부서 권한 없음 — 대시보드만 보입니다</span>;
+  }
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {blocks.map(k => (
+        <span key={k} className={cn('rounded-full px-2 py-0.5 text-xs font-bold', DEPT_STYLE[k].chip)}>
+          {DEPT_BY_KEY[k].name}
+        </span>
+      ))}
+      {extras.length > 0 && (
+        <span className="text-xs text-muted-foreground">{extras.map(k => PERMISSION_LABELS[k]).join(' · ')}</span>
+      )}
+    </span>
+  );
 }
 
 function RolePicker({ value, onChange }: { value: UserRole; onChange: (r: UserRole) => void }) {
@@ -356,8 +380,12 @@ function RolePicker({ value, onChange }: { value: UserRole; onChange: (r: UserRo
 }
 
 /**
- * 기능 권한 체크박스. 마스터는 전부 쓰므로 고를 것이 없다.
+ * 기능 권한 고르기. 마스터는 전부 쓰므로 고를 것이 없다.
  * 사원 관리자는 자기에게 없는 권한을 건드릴 수 없다 (API 도 같은 규칙으로 막는다).
+ *
+ * 2026-10-30 피드백 "권한은 덩어리째로" — 부서 덩어리 셋을 눌러 주고 뺀다(DEPT_PERMISSIONS).
+ * 덩어리를 주면 사이드바에 그 부서 구역만 열리고, 전체 현황은 누구나 대시보드에서 본다.
+ * 관리 권한 둘은 따로, 낱개 권한은 '세부 권한' 에 접어 둔다.
  */
 function PermissionPicker({ me, role, value, onChange }: {
   me: PermissionSubject;
@@ -365,6 +393,8 @@ function PermissionPicker({ me, role, value, onChange }: {
   value: string[];
   onChange: (v: string[]) => void;
 }) {
+  const [detail, setDetail] = useState(false);
+
   if (role === 'master') {
     return (
       <p className="rounded-lg bg-card px-4 py-3 text-sm text-muted-foreground">
@@ -379,25 +409,78 @@ function PermissionPicker({ me, role, value, onChange }: {
     onChange(on ? normalizePermissions(next) : next);
   };
 
+  const has = new Set(value);
+  const stateOf = (k: DeptKey): 'on' | 'some' | 'off' => {
+    const n = DEPT_PERMISSIONS[k].filter(p => has.has(p)).length;
+    return n === 0 ? 'off' : n === DEPT_PERMISSIONS[k].length ? 'on' : 'some';
+  };
+  const toggleBlock = (k: DeptKey) => {
+    if (stateOf(k) === 'on') {
+      // 뺄 때 다른 켜진 덩어리가 같이 쓰는 권한은 남긴다
+      const keep = new Set(DEPARTMENTS.filter(d => d.key !== k && stateOf(d.key) === 'on').flatMap(d => DEPT_PERMISSIONS[d.key]));
+      onChange(value.filter(p => !DEPT_PERMISSIONS[k].includes(p) || keep.has(p)));
+    } else {
+      onChange(normalizePermissions([...value, ...DEPT_PERMISSIONS[k]]));
+    }
+  };
+  const adminKeys = ['admin:master', 'admin:users'];
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Label className="mr-1 text-[13px] font-semibold">기능 권한</Label>
-        {PERMISSION_PRESETS.map(p => {
-          const usable = p.permissions.every(k => hasPermission(me, k));
+      <div>
+        <Label className="mb-1.5 text-[13px] font-semibold">부서 권한 <span className="font-normal text-muted-foreground">— 누르면 그 부서 메뉴가 통째로 열리고 닫힙니다</span></Label>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {DEPARTMENTS.map(d => {
+            const s = DEPT_STYLE[d.key];
+            const state = stateOf(d.key);
+            const usable = DEPT_PERMISSIONS[d.key].every(p => hasPermission(me, p));
+            const tabs = MENU_ITEMS.filter(m => m.group === d.key).map(m => m.label);
+            return (
+              <button key={d.key} type="button" disabled={!usable} aria-pressed={state === 'on'}
+                onClick={() => toggleBlock(d.key)}
+                className={cn('rounded-xl p-3 text-left transition-all',
+                  state === 'on' ? cn(s.solid, 'shadow-sm') : s.panel,
+                  usable ? 'cursor-pointer' : 'cursor-not-allowed opacity-50')}>
+                <span className="flex items-center gap-2">
+                  <span className={cn('flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold',
+                    state === 'on' ? cn('bg-white', s.text) : s.solid)}>
+                    {state === 'on' ? '✓' : d.order}
+                  </span>
+                  <span className={cn('text-[14px] font-bold', state !== 'on' && s.text)}>{d.name}</span>
+                  {state === 'some' && <span className={cn('ml-auto text-[11px] font-semibold', s.text)}>일부만</span>}
+                </span>
+                <span className={cn('mt-1.5 block break-keep text-xs leading-relaxed', state === 'on' ? 'text-white/85' : 'text-muted-foreground')}>
+                  {tabs.join(' · ')}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <Label className="text-[13px] font-semibold">관리 권한</Label>
+        {adminKeys.map(key => {
+          const mine = hasPermission(me, key);
           return (
-            <button key={p.label} type="button" disabled={!usable}
-              className={chipClass(false, 'h-8 text-[13px]')}
-              onClick={() => onChange(normalizePermissions([...value, ...p.permissions]))}>
-              + {p.label} 묶음
-            </button>
+            <label key={key} className={`flex min-h-9 items-center gap-2 text-sm ${mine ? 'cursor-pointer' : 'opacity-50'}`}>
+              <input type="checkbox" className="h-5 w-5 accent-brand-800" disabled={!mine}
+                checked={value.includes(key)} onChange={e => toggle(key, e.target.checked)} />
+              {PERMISSION_LABELS[key]}
+            </label>
           );
         })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={chipClass(detail, 'h-8 text-[13px]')} onClick={() => setDetail(v => !v)}>
+          세부 권한 {detail ? '접기' : '펼치기'}
+        </button>
         <button type="button" className={chipClass(false, 'h-8 text-[13px]')} onClick={() => onChange([])}>
           모두 해제
         </button>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      {detail && <div className="grid gap-3 sm:grid-cols-2">
         {PERMISSION_GROUPS.map(g => (
           <div key={g.group} className="rounded-lg border border-border bg-card p-3">
             <p className="mb-2 text-xs font-bold tracking-wider text-muted-foreground">{g.group}</p>
@@ -418,7 +501,7 @@ function PermissionPicker({ me, role, value, onChange }: {
             </div>
           </div>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

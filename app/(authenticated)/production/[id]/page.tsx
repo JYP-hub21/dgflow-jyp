@@ -13,9 +13,17 @@ import { Badge } from '@/components/ui/badge';
 import Progress from '@/components/ui/progress';
 import Segmented from '@/components/ui/segmented';
 import PageHeader from '@/components/layout/PageHeader';
-import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp } from 'lucide-react';
+import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus } from 'lucide-react';
 import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
+import QtyStepper from '@/components/production/QtyStepper';
+import LinesEditor from '@/components/production/LinesEditor';
+import { useProductionLines } from '@/components/production/useProductionLines';
+import { useCurrentUser } from '@/components/layout/CurrentUser';
+import { hasAnyPermission } from '@/lib/auth/role-guard';
+import { activeLines, lineName } from '@/lib/production/lines';
+import { blockTotals, formatDays, itemNo, productionDaysByItem } from '@/lib/production/item-view';
+import type { SiteContact } from '@/lib/production/contacts';
 
 interface WorkOrderItem {
   id: string;
@@ -25,6 +33,16 @@ interface WorkOrderItem {
   quantity: number;
   produced_quantity: number;
   area_m2: number;
+  /** 작업의뢰서 비고 — 동 · 호 · 위치. 현장 시공자가 이걸 보고 유리를 붙인다 */
+  remark: string | null;
+  sort_order: number;
+}
+
+/** 이 PC(한국 시간) 기준 오늘 — toISOString 은 UTC 라 새벽 0~9시에 전날로 잡혔다 */
+function localToday() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 type WorkOrderHead = WorkOrderLabelSource & { work_order_number: string };
@@ -37,9 +55,15 @@ export default function ProductionInputPage() {
   const [items, setItems] = useState<WorkOrderItem[]>([]);
   const [workOrder, setWorkOrder] = useState<WorkOrderHead | null>(null);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
+  const [productionDate, setProductionDate] = useState(localToday);
   const [shift, setShift] = useState<'day' | 'night'>('day');
-  const [lineNumber, setLineNumber] = useState<'1' | '2'>('1');
+  const [lineNumber, setLineNumber] = useState('1');
+  // 호기 — 이름을 바꾸고 더할 수 있다 (표가 생기기 전에는 1호기 · 2호기)
+  const { lines, storage: linesStorage, reload: reloadLines } = useProductionLines();
+  const [editingLines, setEditingLines] = useState(false);
+  const me = useCurrentUser();
+  const canEditLines = !!me && hasAnyPermission(me, ['production:input', 'admin:master']);
+  const [contact, setContact] = useState<SiteContact | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   /** 폰에서는 생산일자·주야간·호기를 접어 둔다. 교대마다 한 번 정하는 값이다 */
@@ -55,6 +79,9 @@ export default function ProductionInputPage() {
       .then(({ data }) => setWorkOrder(data as unknown as WorkOrderHead));
     loadItems();
     loadLogs();
+    // 현장 담당자 — 이 의뢰서가 이어진 발주 건을 올린 공사개발부 담당
+    fetch(`/api/work-orders/${workOrderId}/contact`).then(r => (r.ok ? r.json() : null))
+      .then(b => setContact(b?.contact ?? null)).catch(() => {});
   }, [workOrderId]);
 
   async function loadItems() {
@@ -127,6 +154,20 @@ export default function ProductionInputPage() {
     });
   }
 
+  // 1장씩 채우기 — 남은 품목마다 칸에 1장을 더한다(잔여를 넘지 않게). 누를 때마다 1장씩 는다
+  // (2026-10-31 피드백 "전량 채우기 말고 전체 다 1장씩 채우기도"). 이것도 칸에만 채우고 저장은 따로 한다
+  function handleAllPlusOne() {
+    setQuantities(prev => {
+      const next = { ...prev };
+      for (const item of items) {
+        const remaining = item.quantity - item.produced_quantity;
+        if (remaining <= 0) continue;
+        next[item.id] = String(Math.min(remaining, (parseInt(prev[item.id]) || 0) + 1));
+      }
+      return next;
+    });
+  }
+
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
   const totalProduced = items.reduce((s, i) => s + i.produced_quantity, 0);
   const totalInput = Object.values(quantities).reduce((s, v) => s + (parseInt(v) || 0), 0);
@@ -134,6 +175,12 @@ export default function ProductionInputPage() {
   const progress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
   const incompleteCount = items.filter(i => i.quantity - i.produced_quantity > 0).length;
   const labels = workOrder ? workOrderLabels(workOrder) : null;
+  // 품목별 생산 날짜 · 품명 덩어리별 소계 (워드 8번 · 회의)
+  const daysByItem = productionDaysByItem(logs);
+  const blocks = blockTotals(items);
+  const blockEnds = new Map(blocks.map(b => [b.endIndex, b]));
+  const lineOptions = activeLines(lines).map(l => ({ value: String(l.line_number), label: l.name }));
+  const contactText = contact ? `공사 담당 ${contact.name}${contact.phone ? ` ${contact.phone}` : ''}` : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -141,7 +188,7 @@ export default function ProductionInputPage() {
         폰에서는 머리글이 따라다녀야 한다 — 13행을 내려가며 치다 보면
         진행률도 저장 버튼도 화면 밖으로 나가기 때문이다.
       */}
-      <div className="sticky -top-0.5 z-20 -mx-4 -mt-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+      <div className="sticky -top-4 z-20 -mx-4 -mt-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-lg font-bold">생산실적 입력</h1>
@@ -166,7 +213,7 @@ export default function ProductionInputPage() {
         <PageHeader
           back={{ href: `/work-orders/${workOrderId}`, label: '작업의뢰서로' }}
           title="생산실적 입력"
-          description={[workOrder?.work_order_number, labels?.customer, labels?.site].filter(Boolean).join(' · ')}
+          description={[workOrder?.work_order_number, labels?.customer, labels?.site, contactText].filter(Boolean).join(' · ')}
         />
       </div>
 
@@ -188,7 +235,7 @@ export default function ProductionInputPage() {
         className="flex w-full items-center gap-2 rounded-lg border border-input bg-card px-4 py-3 text-sm shadow-xs md:hidden">
         <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
         <span className="tabular font-medium">
-          {productionDate} · {shift === 'night' ? '야간' : '주간'} · {lineNumber}호기
+          {productionDate} · {shift === 'night' ? '야간' : '주간'} · {lineName(lines, Number(lineNumber))}
         </span>
         <span className="ml-auto font-semibold text-brand-700">{showOptions ? '닫기' : '바꾸기'}</span>
       </button>
@@ -203,11 +250,23 @@ export default function ProductionInputPage() {
               options={[{ value: 'day', label: '주간', icon: Sun }, { value: 'night', label: '야간', icon: Moon }]} />
           </Field>
           <Field label="호기">
-            <Segmented value={lineNumber} onChange={setLineNumber}
-              options={[{ value: '1', label: '1호기' }, { value: '2', label: '2호기' }]} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Segmented value={lineNumber} onChange={setLineNumber} options={lineOptions} />
+              {canEditLines && (
+                <Button variant="ghost" size="sm" onClick={() => setEditingLines(v => !v)} className="text-muted-foreground">
+                  <Settings2 />호기 편집
+                </Button>
+              )}
+            </div>
           </Field>
+          {editingLines && (
+            <LinesEditor lines={lines} storage={linesStorage} onSaved={reloadLines} onClose={() => setEditingLines(false)} />
+          )}
         </CardContent>
       </Card>
+      {contactText && (
+        <p className="text-sm text-muted-foreground md:hidden">{contactText}</p>
+      )}
 
       {/* 품목별 입력 */}
       <Card className="gap-0 pb-0">
@@ -215,19 +274,25 @@ export default function ProductionInputPage() {
           <div>
             <CardTitle className="text-lg">품목별 생산량</CardTitle>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              만든 수량을 적고 저장하세요. <b className="text-foreground">전량</b>은 남은 수량을 칸에 채우기만 합니다 — 확인한 뒤 저장하세요.
+              만든 수량을 적고 저장하세요. <b className="text-foreground">1장씩</b>은 누를 때마다 남은 품목마다 1장을 더하고,{' '}
+              <b className="text-foreground">전량</b>은 남은 수량을 채웁니다 — 칸에 채우기만 하니 확인한 뒤 저장하세요.
             </p>
           </div>
           {incompleteCount > 0 && (
-            <Button variant="outline" onClick={handleAllComplete} disabled={saving} className="w-full sm:w-auto">
-              <CheckCheck />남은 {incompleteCount}건 전량 채우기
-            </Button>
+            <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button variant="outline" onClick={handleAllPlusOne} disabled={saving} className="w-full sm:w-auto">
+                <Plus />남은 {incompleteCount}건 1장씩 채우기
+              </Button>
+              <Button variant="outline" onClick={handleAllComplete} disabled={saving} className="w-full sm:w-auto">
+                <CheckCheck />남은 {incompleteCount}건 전량 채우기
+              </Button>
+            </div>
           )}
         </CardHeader>
 
         {/* 폰 — 품목당 카드 한 장 */}
         <CardContent className="p-3 md:hidden">
-          <ProductionCards items={items} quantities={quantities} onChange={setQty}
+          <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem}
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
 
@@ -236,16 +301,19 @@ export default function ProductionInputPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-5">품명</TableHead>
+                <TableHead className="w-12 pl-5 text-center">No.</TableHead>
+                <TableHead>품명 · 비고</TableHead>
                 <TableHead className="text-right">규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
-                <TableHead className="text-right">완료</TableHead>
+                <TableHead className="text-right">완료 · 생산일</TableHead>
                 <TableHead className="text-right">잔여</TableHead>
-                <TableHead className="w-[320px] pr-5">이번 생산량</TableHead>
+                <TableHead className="w-[300px] pr-5">이번 생산량</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map(item => {
+              {items.map((item, index) => {
+                const days = daysByItem.get(item.id) ?? [];
+                const blockEnd = blocks.length > 1 ? blockEnds.get(index) : undefined;
                 const remaining = item.quantity - item.produced_quantity;
                 const isComplete = remaining <= 0;
                 const value = quantities[item.id] || '';
@@ -265,10 +333,17 @@ export default function ProductionInputPage() {
                       isComplete && 'bg-success-50/60 text-muted-foreground',
                       entered > 0 && !over && 'bg-brand-50/80'
                     )}>
-                    <TableCell className="pl-5 font-semibold text-foreground">{item.product_name}</TableCell>
+                    <TableCell className="tabular pl-5 text-center text-sm font-bold text-muted-foreground">{itemNo(item, index)}</TableCell>
+                    <TableCell className="max-w-[260px] whitespace-normal">
+                      <p className="font-semibold text-foreground">{item.product_name}</p>
+                      {item.remark && <p className="mt-0.5 break-all text-xs text-muted-foreground">{item.remark}</p>}
+                    </TableCell>
                     <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
-                    <TableCell className="tabular text-right">{item.produced_quantity}</TableCell>
+                    <TableCell className="tabular text-right">
+                      {item.produced_quantity}
+                      {days.length > 0 && <p className="mt-0.5 text-[11px] text-muted-foreground" title={days.map(d => `${d.date} ${d.quantity}장`).join('\n')}>{formatDays(days)}</p>}
+                    </TableCell>
                     <TableCell className="tabular text-right text-base font-bold text-foreground">
                       {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
                     </TableCell>
@@ -276,15 +351,8 @@ export default function ProductionInputPage() {
                       {isComplete && editButton}
                       {!isComplete && (
                         <div className="flex items-center gap-2">
-                          <Input
-                            inputMode="numeric"
-                            placeholder="0"
-                            value={value}
-                            aria-invalid={over || undefined}
-                            onChange={e => setQty(item.id, e.target.value)}
-                            className={cn('h-11 w-28 text-right text-base font-semibold tabular',
-                              entered > 0 && !over && 'border-brand-600')}
-                          />
+                          {/* 옆의 작은 + · − 로 한 장씩 (2026-10-30 피드백) */}
+                          <QtyStepper value={value} onChange={v => setQty(item.id, v)} invalid={over} highlight={entered > 0} />
                           <Button variant="outline" className="h-11" onClick={() => setQty(item.id, String(remaining))}>
                             전량
                           </Button>
@@ -296,14 +364,35 @@ export default function ProductionInputPage() {
                   </TableRow>
                   {editing && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={6} className="border-l-4 border-l-brand-600 bg-brand-50/40 p-0 whitespace-normal">
+                      <TableCell colSpan={7} className="border-l-4 border-l-brand-600 bg-brand-50/40 p-0 whitespace-normal">
                         <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === item.id)} onChanged={reload} />
                       </TableCell>
+                    </TableRow>
+                  )}
+                  {/* 품명 덩어리가 끝나면 소계 — 품명이 하나뿐이면 총계와 같아 생략 */}
+                  {blockEnd && (
+                    <TableRow className="bg-muted/50 text-sm hover:bg-muted/50">
+                      <TableCell />
+                      <TableCell className="font-semibold text-muted-foreground" colSpan={2}>소계 · {blockEnd.count}품목</TableCell>
+                      <TableCell className="tabular text-right font-semibold">{blockEnd.quantity}</TableCell>
+                      <TableCell className="tabular text-right font-semibold">{blockEnd.produced}</TableCell>
+                      <TableCell className="tabular text-right font-bold">{blockEnd.quantity - blockEnd.produced}</TableCell>
+                      <TableCell className="pr-5" />
                     </TableRow>
                   )}
                   </Fragment>
                 );
               })}
+              {items.length > 0 && (
+                <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70">
+                  <TableCell />
+                  <TableCell colSpan={2}>총계 · {items.length}품목</TableCell>
+                  <TableCell className="tabular text-right">{totalQty}</TableCell>
+                  <TableCell className="tabular text-right">{totalProduced}</TableCell>
+                  <TableCell className="tabular text-right">{totalQty - totalProduced}</TableCell>
+                  <TableCell className="pr-5" />
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

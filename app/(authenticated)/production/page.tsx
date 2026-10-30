@@ -1,4 +1,5 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { contactsForWorkOrders } from '@/lib/production/contacts';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -27,18 +28,33 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
     .select(`
       id, work_order_number, delivery_date, created_at, customer_label, site_label,
       order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name)),
-      items:dgflow_work_order_items(id, product_name, width_mm, height_mm, quantity, produced_quantity, sort_order)
+      items:dgflow_work_order_items(id, product_name, width_mm, height_mm, quantity, produced_quantity, sort_order, remark)
     `)
     .in('status', ['pending', 'in_progress']);
+
+  // 의뢰서마다 마지막으로 생산한 날 · 현장 담당자 (2026-10-30 피드백 — 오래 밀린 미작업 · 누구 건인지)
+  const openIds = (openOrders || []).map(wo => wo.id as string);
+  const lastProduced = new Map<string, string>();
+  if (openIds.length > 0) {
+    const { data: lastLogs } = await supabase
+      .from('dgflow_production_logs').select('work_order_id, production_date')
+      .in('work_order_id', openIds).order('production_date', { ascending: false }).limit(5000);
+    for (const l of lastLogs || []) if (!lastProduced.has(l.work_order_id as string)) lastProduced.set(l.work_order_id as string, l.production_date as string);
+  }
+  const contacts = await contactsForWorkOrders(createServiceRoleClient(), openIds);
+
   const remainingGroups: RemainingGroup[] = (openOrders || [])
     .map(wo => {
       const labels = workOrderLabels(wo as unknown as WorkOrderLabelSource);
-      const items = ((wo.items || []) as (RemainingItem & { sort_order: number })[])
+      const items = ((wo.items || []) as RemainingItem[])
         .filter(i => i.quantity - i.produced_quantity > 0)
-        .sort((a, b) => a.sort_order - b.sort_order);
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      const contact = contacts.get(wo.id as string);
       return {
         id: wo.id, work_order_number: wo.work_order_number, delivery_date: wo.delivery_date,
         customer: labels.customer ?? null, site: labels.site ?? null, items, created_at: wo.created_at as string,
+        last_produced: lastProduced.get(wo.id as string) ?? null,
+        contact: contact ? `${contact.name}${contact.phone ? ` ${contact.phone}` : ''}` : null,
       };
     })
     .filter(g => g.items.length > 0)

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ShieldCheck } from 'lucide-react';
 import Logo from '@/components/layout/Logo';
+import { quickAdminLoginEnabled } from '@/lib/auth/quick-login';
 
 export default function LoginPage() {
   const [loginId, setLoginId] = useState('');
@@ -34,6 +36,20 @@ export default function LoginPage() {
     window.location.href = '/';
   }
 
+  // 관리자 계정으로 바로 — 개발 서버에서만, 운영은 켜 둔 경우에만 보인다 (lib/auth/quick-login.ts)
+  async function handleQuickAdmin() {
+    setError('');
+    setLoading(true);
+    const res = await fetch('/api/auth/quick-admin', { method: 'POST' });
+    if (!res.ok) {
+      const result = await res.json().catch(() => ({}));
+      setError(result.error || '관리자 계정으로 로그인하지 못했습니다.');
+      setLoading(false);
+      return;
+    }
+    window.location.href = '/';
+  }
+
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
       {/* 배경 장식 — 유리의 결을 연상시키는 은은한 사선 */}
@@ -49,14 +65,7 @@ export default function LoginPage() {
       <div className="relative w-full max-w-[26rem]">
         {/* 로고 */}
         <div className="mb-7 flex flex-col items-center text-center">
-          <Logo size="lg" priority />
-          <div className="mt-4 flex items-center gap-2.5">
-            <span className="h-px w-6 bg-border" />
-            <p className="text-[13px] font-medium tracking-wide text-muted-foreground">
-              주문관리 시스템
-            </p>
-            <span className="h-px w-6 bg-border" />
-          </div>
+          <Logo size="lg" withTitle priority />
         </div>
 
         {/* 로그인 폼 */}
@@ -105,6 +114,18 @@ export default function LoginPage() {
               {loading ? '로그인 중…' : '로그인'}
             </Button>
           </form>
+
+          {quickAdminLoginEnabled() && (
+            <>
+              <div className="my-4 flex items-center gap-3 text-[12px] text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />또는<span className="h-px flex-1 bg-border" />
+              </div>
+              <Button type="button" variant="outline" onClick={handleQuickAdmin} disabled={loading}
+                className="h-11 w-full rounded-xl text-sm font-semibold">
+                <ShieldCheck />관리자 계정으로 로그인
+              </Button>
+            </>
+          )}
         </div>
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
@@ -115,7 +136,7 @@ export default function LoginPage() {
         </p>
 
         <p className="mt-6 text-center text-[11px] text-muted-foreground/70">
-          © 동일유리(주) — DG-Flow
+          © 동일유리(주) · DG Flow
         </p>
       </div>
     </div>

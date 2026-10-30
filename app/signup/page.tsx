@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Logo from '@/components/layout/Logo';
 import { validateSignup, type SignupInput } from '@/lib/auth/account';
+import { DEPARTMENTS } from '@/lib/departments';
 
 const EMPTY: SignupInput = {
   name: '', phone: '', birthDate: '', department: '', position: '', loginId: '', password: '',
@@ -64,8 +65,8 @@ export default function SignupPage() {
 
       <div className="relative w-full max-w-[30rem]">
         <div className="mb-6 flex flex-col items-center text-center">
-          <Logo size="lg" priority />
-          <p className="mt-4 text-[13px] font-medium tracking-wide text-muted-foreground">회원가입</p>
+          <Logo size="lg" withTitle priority />
+          <p className="mt-4 text-[13px] font-medium text-muted-foreground">회원가입</p>
         </div>
 
         <div className="rounded-2xl border border-border/70 bg-card p-7 shadow-[0_1px_2px_rgba(16,32,48,0.04),0_12px_32px_-12px_rgba(16,32,48,0.18)]">
@@ -100,7 +101,12 @@ export default function SignupPage() {
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Field id="department" label="부서">
-                    <Input id="department" value={form.department} onChange={set('department')} placeholder="공사관리부" className="h-11" />
+                    {/* 세 부서 이름을 고를 수 있게 — 이름이 맞아야 사이드바에 '내 부서' 가 표시된다 */}
+                    <Input id="department" value={form.department} onChange={set('department')} placeholder="예: 업무지원부"
+                      list="department-options" className="h-11" />
+                    <datalist id="department-options">
+                      {DEPARTMENTS.map(d => <option key={d.key} value={d.name} />)}
+                    </datalist>
                   </Field>
                   <Field id="position" label="직책">
                     <Input id="position" value={form.position} onChange={set('position')} placeholder="대리" className="h-11" />

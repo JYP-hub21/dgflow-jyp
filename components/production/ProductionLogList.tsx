@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import NativeSelect from '@/components/ui/native-select';
 import { Pencil, Trash2, Check, X } from 'lucide-react';
+import { useProductionLines } from './useProductionLines';
+import { activeLines, lineName } from '@/lib/production/lines';
 
 /**
  * 저장한 생산 기록 — 날짜별로 묶고, 기록 한 줄마다 고치거나 지운다.
@@ -40,6 +42,7 @@ interface Props {
 }
 
 export default function ProductionLogList({ logs, onChanged, compact, readOnly }: Props) {
+  const { lines } = useProductionLines();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,7 +131,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
                         {!compact && <p className="truncate font-semibold">{log.item?.product_name ?? '(품목 없음)'}</p>}
                         <p className="tabular text-sm text-muted-foreground">
                           {!compact && log.item && `${log.item.width_mm} × ${log.item.height_mm} · `}
-                          {log.shift === 'night' ? '야간' : '주간'} {log.line_number || 1}호기
+                          {log.shift === 'night' ? '야간' : '주간'} {lineName(lines, log.line_number)}
                         </p>
                       </div>
                       {!editing && (
@@ -169,10 +172,12 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
                         </label>
                         <label className="space-y-1">
                           <span className="block text-xs font-semibold text-muted-foreground">호기</span>
-                          <NativeSelect value={draft.line} className="h-11 w-24"
+                          <NativeSelect value={draft.line} className="h-11 w-28"
                             onChange={e => setDraft({ ...draft, line: e.target.value })}>
-                            <option value="1">1호기</option>
-                            <option value="2">2호기</option>
+                            {/* 쓰는 호기 + (안 쓰게 된 호기라도) 이 기록의 호기 */}
+                            {[...activeLines(lines), ...lines.filter(l => !l.is_active && String(l.line_number) === draft.line)].map(l => (
+                              <option key={l.line_number} value={String(l.line_number)}>{l.name}</option>
+                            ))}
                           </NativeSelect>
                         </label>
                         <div className="flex gap-1.5">

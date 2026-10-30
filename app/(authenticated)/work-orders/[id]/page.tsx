@@ -1,5 +1,8 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
+import { DEFAULT_LINES, lineName } from '@/lib/production/lines';
+import { loadLines } from '@/lib/production/lines-store';
+import { itemNo } from '@/lib/production/item-view';
 import Link from 'next/link';
 import { workOrderLabels } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
@@ -62,6 +65,8 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     .eq('work_order_id', id)
     .order('production_date', { ascending: false })
     .limit(20);
+  // 호기 이름 — 편집으로 바꾸거나 더할 수 있다 (못 읽으면 1호기 · 2호기)
+  const { lines } = await loadLines(supabase).catch(() => ({ lines: DEFAULT_LINES }));
 
   // 재단 이력
   const { data: cuttingLogs } = await supabase
@@ -168,8 +173,11 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 const isComplete = remaining <= 0;
                 return (
                   <TableRow key={item.id} className={cn(isComplete && 'bg-success-50/60')}>
-                    <TableCell className="tabular pl-5 text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell className="font-semibold">{item.product_name}</TableCell>
+                    <TableCell className="tabular pl-5 text-muted-foreground">{itemNo(item, idx)}</TableCell>
+                    <TableCell>
+                      <span className="font-semibold">{item.product_name}</span>
+                      {item.remark && <span className="block text-xs text-muted-foreground">{item.remark}</span>}
+                    </TableCell>
                     <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right font-semibold">{item.produced_quantity}</TableCell>
@@ -204,7 +212,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                       {log.area_m2 && <span className="ml-1 text-muted-foreground">({Number(log.area_m2).toFixed(1)}m²)</span>}
                     </div>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{log.shift === 'night' ? '야간' : '주간'} · {log.line_number}호기</span>
+                      <span>{log.shift === 'night' ? '야간' : '주간'} · {lineName(lines, log.line_number)}</span>
                       <span>{(log.created_by_user as { name: string } | null)?.name}</span>
                     </div>
                   </div>

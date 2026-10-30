@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Segmented from '@/components/ui/segmented';
+import BokcheungLog from '@/components/production/BokcheungLog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -8,8 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import PageHeader from '@/components/layout/PageHeader';
 import { chipClass } from '@/components/ui/chip';
-import { Download, Loader2, CalendarDays } from 'lucide-react';
+import Link from 'next/link';
+import { Download, Loader2, CalendarDays, ChevronRight } from 'lucide-react';
 import type { DailyReport } from '@/lib/production/daily-report';
+import { readDraftsBetween } from '@/lib/production/bokcheung-drafts';
+import { lineName } from '@/lib/production/lines';
+import { useProductionLines } from '@/components/production/useProductionLines';
 
 /** 브라우저(한국 시간) 기준 'YYYY-MM-DD' */
 function ymd(d: Date) {
@@ -39,7 +46,32 @@ function presets(): { key: string; label: string; from: string; to: string }[] {
   ];
 }
 
-export default function ProductionReportPage() {
+/**
+ * 생산일지 — 두 보기.
+ *  · 복층생산일지 (기본): 회사 양식 그대로의 하루치. 종류 · 수량외만 입력 (2026-10-30 요청)
+ *  · 기간 합계: 기간을 골라 날짜별로 무엇을 몇 장 만들었나 (예전 일간 생산일지)
+ */
+export default function ProductionLogPage() {
+  const router = useRouter();
+  const view = useSearchParams().get('view') === 'period' ? 'period' : 'bokcheung';
+  return (
+    <div className="mx-auto max-w-6xl space-y-5">
+      <PageHeader
+        back={{ href: '/production', label: '생산 현황' }}
+        title="생산일지"
+        description={view === 'bokcheung'
+          ? '회사 복층생산일지 양식 그대로입니다. 종류와 수량외만 입력하면 엑셀로 내려받을 수 있습니다.'
+          : '기간을 고르면 날짜마다 복층생산일지 시트가 한 장씩 든 엑셀로 내려받습니다. 아래는 그 기간에 생산한 내역입니다.'}
+      />
+      <Segmented value={view}
+        onChange={v => router.replace(v === 'period' ? '/production/report?view=period' : '/production/report')}
+        options={[{ value: 'bokcheung', label: '복층생산일지' }, { value: 'period', label: '기간 합계' }]} />
+      {view === 'bokcheung' ? <BokcheungLog /> : <PeriodReport />}
+    </div>
+  );
+}
+
+function PeriodReport() {
   const [range, setRange] = useState(() => {
     const week = presets().find(p => p.key === 'week')!;
     return { from: week.from, to: week.to };
@@ -48,6 +80,7 @@ export default function ProductionReportPage() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
+  const { lines } = useProductionLines();
 
   const query = `from=${range.from}&to=${range.to}`;
 
@@ -70,19 +103,24 @@ export default function ProductionReportPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // 기간 엑셀 = 복층생산일지를 날짜마다 시트 한 장씩 (회사 파일처럼). 그 PC 에 적어 둔 종류 · 수량외도 함께 보낸다
   async function download() {
     setDownloading(true);
     setError('');
     try {
-      const res = await fetch(`/api/production/report?${query}&format=xlsx`);
-      if (!res.ok) throw new Error((await res.json()).error || '엑셀을 만들지 못했습니다.');
+      const res = await fetch(`/api/production/bokcheung/range?${query}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drafts: readDraftsBetween(range.from, range.to) }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '엑셀을 만들지 못했습니다.');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = range.from === range.to
-        ? `일간생산일지_${range.from}.xlsx`
-        : `일간생산일지_${range.from}_${range.to}.xlsx`;
+        ? `복층생산일지_${range.from}.xlsx`
+        : `복층생산일지_${range.from}_${range.to}.xlsx`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -96,29 +134,23 @@ export default function ProductionReportPage() {
   const empty = report && report.days.length === 0;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
-      <PageHeader
-        back={{ href: '/production', label: '생산 현황' }}
-        title="일간 생산일지"
-        description="기간을 고르면 그날그날 무엇을 몇 장 생산했는지 모아 보여 주고, 엑셀로 내려받을 수 있습니다."
-        actions={
-          <Button size="lg" onClick={download} disabled={downloading || loading || !report || !!empty}>
-            {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-            {downloading ? '엑셀 만드는 중…' : '엑셀 다운로드'}
-          </Button>
-        }
-      />
-
+    <div className="space-y-5">
       {/* 기간 */}
       <Card>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {presets().map(p => (
-              <button key={p.key} type="button" onClick={() => setRange({ from: p.from, to: p.to })}
-                className={chipClass(activePreset === p.key)}>
-                {p.label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {presets().map(p => (
+                <button key={p.key} type="button" onClick={() => setRange({ from: p.from, to: p.to })}
+                  className={chipClass(activePreset === p.key)}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <Button onClick={download} disabled={downloading || loading || !report || !!empty}>
+              {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+              {downloading ? '엑셀 만드는 중…' : '복층생산일지 엑셀 · 날짜별 시트'}
+            </Button>
           </div>
           <div className="flex flex-wrap items-end gap-3">
             <label className="space-y-1.5">
@@ -173,6 +205,11 @@ export default function ProductionReportPage() {
                     <b className="tabular text-base text-brand-800">{day.quantity.toLocaleString()}장</b>
                     <span className="tabular text-muted-foreground">· {day.area_m2.toFixed(2)}㎡ · 작업의뢰서 {day.work_order_count}건</span>
                     {day.night_quantity > 0 && <Badge variant="secondary">야간 {day.night_quantity}장</Badge>}
+                    {/* 그날 복층생산일지의 종류 · 수량외를 채우러 */}
+                    <Link href={`/production/report?date=${day.date}`}
+                      className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 font-semibold text-brand-800 hover:bg-brand-50">
+                      복층생산일지 입력<ChevronRight className="h-4 w-4" />
+                    </Link>
                   </div>
                 </CardHeader>
                 <CardContent className="overflow-x-auto p-0">
@@ -202,7 +239,7 @@ export default function ProductionReportPage() {
                           </TableCell>
                           <TableCell className="tabular text-right font-bold">{l.quantity}</TableCell>
                           <TableCell className="tabular text-right">{l.area_m2.toFixed(2)}</TableCell>
-                          <TableCell className="text-sm">{l.shift === 'night' ? '야간' : '주간'} · {l.line_number}호기</TableCell>
+                          <TableCell className="text-sm">{l.shift === 'night' ? '야간' : '주간'} · {lineName(lines, l.line_number)}</TableCell>
                           <TableCell className="pr-5 text-sm text-muted-foreground">{l.workers.join(', ') || '-'}</TableCell>
                         </TableRow>
                       ))}

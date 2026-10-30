@@ -1,4 +1,5 @@
 import type { UserRole } from '@/types/user';
+import { DEPARTMENTS, type DeptKey } from '@/lib/departments';
 
 /**
  * 기능 권한 정의
@@ -24,10 +25,11 @@ export const PERMISSION_GROUPS = [
       { key: 'production:input', label: '생산 · 재단 실적 입력' },
     ],
   },
+  // 대시보드 권한(dashboard:access)은 2026-10-30 에 없앴다 — 대시보드는 승인된 사람 누구나 본다.
+  // 예전에 저장된 키는 판정에 쓰이지 않고, 권한을 다시 저장할 때 normalizePermissions 가 걸러 낸다.
   {
     group: '기타',
     items: [
-      { key: 'dashboard:access', label: '대시보드' },
       { key: 'admin:master', label: '마스터 관리 (품명 · 거래처 · 현장 · 원판)' },
       { key: 'admin:users', label: '사용자 · 권한 관리' },
     ],
@@ -44,14 +46,29 @@ export const PERMISSION_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * 권한 묶음 — 사용자 관리 화면에서 한 번에 체크하는 자주 쓰는 조합.
- * 고른 뒤 낱개로 더하거나 뺄 수 있다.
+ * 부서 덩어리 권한 — 사이드바 부서 구역의 메뉴가 쓰는 권한 전부.
+ * 사용자 관리에서 덩어리째로 주고 빼며, 덩어리를 주면 그 부서 구역만 열린다 (2026-10-30 피드백
+ * "권한은 덩어리째로, 각자 자기 탭만"). 전체 현황은 누구나 대시보드에서 본다.
+ * 메뉴(MENU_ITEMS)에 부서 메뉴를 더하면 여기 권한도 함께 맞춘다 — 테스트가 어긋남을 잡는다.
  */
-export const PERMISSION_PRESETS: { label: string; permissions: string[] }[] = [
-  { label: '발주서 처리', permissions: ['dashboard:access', 'order:submit', 'order:process', 'erp:generate', 'work_order:create', 'production:view'] },
-  { label: '발주서 등록', permissions: ['dashboard:access', 'order:submit', 'production:view'] },
-  { label: '현장', permissions: ['dashboard:access', 'production:view', 'production:input'] },
-];
+export const DEPT_PERMISSIONS: Record<DeptKey, string[]> = {
+  construction: ['order:submit'],
+  support: ['order:process', 'erp:generate', 'work_order:create'],
+  production: ['production:view', 'production:input'],
+};
+
+/** 권한 묶음 — 사용자 관리 화면에서 한 번에 주는 조합. 부서 덩어리와 같다 */
+export const PERMISSION_PRESETS: { label: string; permissions: string[] }[] =
+  DEPARTMENTS.map(d => ({ label: d.name, permissions: DEPT_PERMISSIONS[d.key] }));
+
+/** 권한 목록을 '통째로 가진 부서 덩어리' 와 '덩어리에 안 묶인 나머지' 로 나눈다 — 사용자 목록 요약용 */
+export function deptBlocksOf(permissions: readonly string[] | null | undefined): { blocks: DeptKey[]; extras: string[] } {
+  const have = new Set(permissions ?? []);
+  const blocks = DEPARTMENTS.map(d => d.key).filter(k => DEPT_PERMISSIONS[k].every(p => have.has(p)));
+  const covered = new Set(blocks.flatMap(k => DEPT_PERMISSIONS[k]));
+  const extras = ALL_PERMISSIONS.filter(p => have.has(p) && !covered.has(p));
+  return { blocks, extras };
+}
 
 /**
  * 함께 있어야 하는 권한. 생산 입력 화면(/production/[id])은 생산 현황(/production) 안에 있어
@@ -92,36 +109,107 @@ export function hasAnyPermission(user: PermissionSubject, permissions: string | 
 export const ORDER_ANY = ['order:submit', 'order:process'];
 
 // 사이드바 메뉴 정의
+
+/** 사이드바 구역 — 맨 위 공통, 부서 셋(흐름 순서), 맨 아래 관리 */
+export type MenuGroup = 'common' | DeptKey | 'admin';
+
 export interface MenuItem {
   label: string;
   href: string;
   icon: string;
-  /** 여럿이면 그중 하나만 있어도 보인다 */
-  permission: string | string[];
+  /** 여럿이면 그중 하나만 있어도 보인다. 없으면 승인된 사람 누구나 (대시보드) */
+  permission?: string | string[];
   /** 사이드바에서 묶어 보여 줄 구역 */
-  section: 'work' | 'admin';
+  group: MenuGroup;
+  /** 대시보드 업무 흐름 칸에 붙는 짧은 설명 */
+  hint?: string;
 }
 
+/*
+  2026-10-30 현장 피드백으로 "업무" 한 덩어리를 부서별로 나눴다.
+  발주서 화면 하나를 공사개발부(올리기 · 올린 것)와 업무지원부(받은 것)가 나눠 쓰므로
+  메뉴도 보기(view)로 갈라 둔다 — 화면은 그대로 /purchase-orders 다.
+*/
 export const MENU_ITEMS: MenuItem[] = [
-  { label: '대시보드', href: '/dashboard', icon: 'LayoutDashboard', permission: 'dashboard:access', section: 'work' },
-  // 실제 업무 순서대로 — 발주서 → ERP 업로드 엑셀 → (회사 ERP) → 작업의뢰서 → 생산
-  // 발주서 접수함이 파이프라인의 출발점이다. 올린 사람도, 처리하는 사람도 여기서 본다.
-  { label: '발주서', href: '/purchase-orders', icon: 'Inbox', permission: ORDER_ANY, section: 'work' },
-  { label: 'ERP 업로드', href: '/erp-upload', icon: 'FileSpreadsheet', permission: 'erp:generate', section: 'work' },
+  // 대시보드는 권한 없이 누구나 — 전체 현황은 모두가 보고, 부서 메뉴만 권한대로 열린다
+  { label: '대시보드', href: '/dashboard', icon: 'LayoutDashboard', group: 'common' },
+
+  // ① 공사개발부 — 발주서를 올리고, 올린 것이 어디까지 갔는지 본다
+  { label: '발주서 올리기', href: '/purchase-orders/new', icon: 'Upload', permission: 'order:submit', group: 'construction',
+    hint: '파일을 올리고 담당자 지목' },
+  { label: '올린 발주서', href: '/purchase-orders?view=mine', icon: 'Send', permission: 'order:submit', group: 'construction',
+    hint: '담당자 확인 여부 · 진행 단계' },
+
+  // ② 업무지원부 — 받은 발주서 → ERP 업로드 엑셀 → (회사 ERP) → 작업의뢰서 등록
+  { label: '받은 발주서', href: '/purchase-orders?view=todo', icon: 'Inbox', permission: 'order:process', group: 'support',
+    hint: '나에게 온 발주서 확인' },
+  { label: 'ERP 업로드', href: '/erp-upload', icon: 'FileSpreadsheet', permission: 'erp:generate', group: 'support',
+    hint: 'ERP에 넣을 엑셀 만들기' },
   // ERP 가 뽑아 준 작업의뢰서를 받아 오는 입구. 생산 현황은 여기서 시작한다.
-  { label: '작업의뢰서 등록', href: '/work-orders/receive', icon: 'ScanLine', permission: 'work_order:create', section: 'work' },
-  { label: '작업의뢰서', href: '/work-orders', icon: 'FileCheck', permission: 'production:view', section: 'work' },
-  { label: '생산 현황', href: '/production', icon: 'Factory', permission: 'production:view', section: 'work' },
-  { label: '생산일지', href: '/production/report', icon: 'ClipboardList', permission: 'production:view', section: 'work' },
-  { label: '마스터 관리', href: '/admin/products', icon: 'Database', permission: 'admin:master', section: 'admin' },
-  { label: '사용자 관리', href: '/admin/users', icon: 'Users', permission: 'admin:users', section: 'admin' },
+  { label: '작업의뢰서 등록', href: '/work-orders/receive', icon: 'ScanLine', permission: 'work_order:create', group: 'support',
+    hint: 'ERP에서 받은 엑셀 · PDF 올리기' },
+
+  // ③ 생산관리부 — 작업의뢰서를 보고 생산 수량을 기록한다
+  { label: '작업의뢰서', href: '/work-orders', icon: 'FileCheck', permission: 'production:view', group: 'production',
+    hint: '들어온 작업의뢰서 보기' },
+  { label: '생산 현황', href: '/production', icon: 'Factory', permission: 'production:view', group: 'production',
+    hint: '생산 수량 입력 · 진행률' },
+  { label: '생산일지', href: '/production/report', icon: 'ClipboardList', permission: 'production:view', group: 'production',
+    hint: '날짜별 생산 집계 · 엑셀' },
+
+  { label: '마스터 관리', href: '/admin/products', icon: 'Database', permission: 'admin:master', group: 'admin' },
+  { label: '사용자 관리', href: '/admin/users', icon: 'Users', permission: 'admin:users', group: 'admin' },
 ];
 
 export function getMenuFor(user: PermissionSubject): MenuItem[] {
-  return MENU_ITEMS.filter(item => hasAnyPermission(user, item.permission));
+  return MENU_ITEMS.filter(item => !item.permission || hasAnyPermission(user, item.permission));
 }
 
-/** 로그인 직후 갈 곳 — 쓸 수 있는 첫 메뉴. 권한이 하나도 없으면 null */
+/** 로그인 직후 갈 곳 — 쓸 수 있는 첫 메뉴. 대시보드가 누구에게나 열려 있어 늘 대시보드다 */
 export function homePathFor(user: PermissionSubject): string | null {
   return getMenuFor(user)[0]?.href ?? null;
+}
+
+/** 발주서 목록을 보기 없이 열었을 때의 기본 보기 — 목록 화면(/purchase-orders)과 같은 규칙 */
+export function defaultPoView(user: PermissionSubject): 'todo' | 'mine' {
+  return hasPermission(user, 'order:process') ? 'todo' : 'mine';
+}
+
+/**
+ * 지금 화면에 해당하는 메뉴 하나 (없으면 undefined).
+ *
+ * - 경로가 겹치는 메뉴(`/work-orders` 와 `/work-orders/receive`)는 가장 깊이 맞는 것을 고른다.
+ * - 발주서 메뉴는 같은 화면을 보기로 나눠 쓴다. 보기가 없거나 '진행 중 · 전체' 면 목록의 기본 보기를,
+ *   발주 건 상세(`/purchase-orders/{id}`)도 기본 보기를 따른다. `/purchase-orders/new` 는 자기 메뉴가 있다.
+ */
+export function activeMenuHref(
+  items: MenuItem[], pathname: string, view: string | null, fallbackView: 'todo' | 'mine',
+): string | undefined {
+  const poView = view === 'todo' || view === 'mine' ? view : fallbackView;
+  const ownMenu = MENU_ITEMS.some(m => m.href === pathname);
+  const hits = items.filter(item => {
+    const [path, query] = item.href.split('?');
+    if (query) {
+      const onPage = pathname === path || (pathname.startsWith(`${path}/`) && !ownMenu);
+      return onPage && new URLSearchParams(query).get('view') === poView;
+    }
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
+  const depth = (m: MenuItem) => m.href.split('?')[0].length;
+  return hits.sort((a, b) => depth(b) - depth(a))[0]?.href;
+}
+
+/**
+ * 화면 머리글의 부서 이름표용 — 이 화면이 어느 메뉴에 속하는지 분명할 때만 돌려준다.
+ * 발주서 목록은 주소에 보기(todo · mine)가 있을 때만 정해지고, 발주 건 상세처럼
+ * 두 부서가 함께 쓰는 화면은 없음(undefined).
+ */
+export function menuForPage(pathname: string, view: string | null): MenuItem | undefined {
+  const hits = MENU_ITEMS.filter(item => {
+    const [path, query] = item.href.split('?');
+    if (query) return pathname === path && new URLSearchParams(query).get('view') === view;
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
+  const depth = (m: MenuItem) => m.href.split('?')[0].length;
+  return hits.sort((a, b) => depth(b) - depth(a))[0];
 }

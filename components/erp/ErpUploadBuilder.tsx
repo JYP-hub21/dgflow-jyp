@@ -36,6 +36,7 @@ import StepTitle from '@/components/ui/step-title';
 import type { SheetInfo } from '@/lib/parser/excel-order';
 import { scanOrderSheet, sheetMatrix, type OrderScan, type ScanColumns } from '@/lib/parser/order-scan';
 import { readWorkbook } from '@/lib/parser/read-workbook';
+import { fileToXlsxBuffer } from '@/lib/excel/read-file';
 import {
   matchProfile, profileFromScan, toOverrides, type FormProfile,
 } from '@/lib/parser/form-profile';
@@ -152,7 +153,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    await loadWorkbook(file.name, () => file.arrayBuffer());
+    // csv 는 xlsx 로 바꿔 넘긴다 — 아래 경로는 xlsx 바이트만 받는다 (한글 인코딩도 여기서 가려 읽는다)
+    await loadWorkbook(file.name, () => fileToXlsxBuffer(file));
   }
 
   /** 발주 건에 올라온 발주서를 저장소에서 받아 읽는다. 담당자가 열면 그게 "확인" 이다 */
@@ -552,7 +554,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             <span className="text-sm text-muted-foreground">
               {fileName ? '다른 파일을 올리려면 다시 누르세요' : '여기를 눌러 .xlsx 파일을 고릅니다'}
             </span>
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile} />
+            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
           </label>
 
           {error && (

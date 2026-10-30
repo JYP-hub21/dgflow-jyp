@@ -16,11 +16,13 @@ describe('사원별 기능 권한', () => {
     expect(hasPermission({ role: 'staff', permissions: null }, 'production:view')).toBe(false);
   });
 
-  it('메뉴는 권한이 있는 것만 보이고, 첫 화면은 그중 첫 메뉴다', () => {
+  it('메뉴는 권한이 있는 것만 보이고, 대시보드는 누구나 보며 첫 화면이다 (2026-10-30)', () => {
     const staff = { role: 'staff' as const, permissions: ['production:view'] };
-    expect(getMenuFor(staff).map(m => m.href)).toEqual(['/work-orders', '/production', '/production/report']);
-    expect(homePathFor(staff)).toBe('/work-orders');
-    expect(homePathFor({ role: 'staff', permissions: [] })).toBeNull();
+    expect(getMenuFor(staff).map(m => m.href)).toEqual(['/dashboard', '/work-orders', '/production', '/production/report']);
+    expect(homePathFor(staff)).toBe('/dashboard');
+    const nobody = { role: 'staff' as const, permissions: [] };
+    expect(getMenuFor(nobody).map(m => m.href)).toEqual(['/dashboard']);
+    expect(homePathFor(nobody)).toBe('/dashboard');
   });
 
   it('생산 입력을 주면 생산 조회가 따라온다 — 입력 화면이 조회 화면 안에 있다', () => {
