@@ -272,7 +272,8 @@ ERP 출력물 둘이 서로를 메운다 — **엑셀은 품목표**(비고가 �
 
 ## 배포 환경
 - **GitHub:** https://github.com/JYP-hub21/dgflow-jyp (main 푸시 시 Vercel 자동 배포)
-- **운영:** 사용자(JYP-hub21)의 Vercel 프로젝트 · Supabase 프로젝트 (주소는 `.env.local` 참고)
+- **운영 URL:** https://dgflow-jyp.vercel.app (Vercel 팀 JYP · 프로젝트 dgflow-jyp, 2026-10-30 첫 배포)
+- **Supabase:** 사용자 프로젝트 (주소는 `.env.local` 참고, glassflow 와 같은 프로젝트를 쓴다)
 - 2026-10-30 팀원 저장소(choeyeongjun970-sudo/dg-flow, 운영 dg-flow-snowy.vercel.app)에서 옮겨 왔다.
   사용자 DB 는 예전 스키마(기본 001~006 + 예전 007~009)였으므로 `supabase/_upgrade_jyp_db.sql`
   (팀원 007~018 을 트랜잭션 하나로 묶은 것)을 SQL Editor 에서 한 번 실행해 맞춘다.
