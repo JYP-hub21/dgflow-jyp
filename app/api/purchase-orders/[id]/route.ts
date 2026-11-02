@@ -61,6 +61,18 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/purcha
     await logEvent(supabase, id, user.id, 'cancelled', { reason: body.reason?.trim() || null });
   }
 
+  // 확인 — 파일을 내려받지 않아도 담당 부서가 눌러서 (2026-11-02: 시연 · 수기 정리일 때 큰 파일을 받을 이유가 없다)
+  if (body.check === true) {
+    if (!processor) return bad('발주서를 처리하는 사람만 확인할 수 있습니다.', 403);
+    if (po.stage === 'submitted') {
+      update.stage = 'checked';
+      update.checked_at = now;
+      update.checked_by = user.id;
+      if (!po.assignee_id) update.assignee_id = user.id;
+      await logEvent(supabase, id, user.id, 'checked');
+    }
+  }
+
   if (body.assignee_id !== undefined && body.assignee_id !== po.assignee_id) {
     if (po.stage === 'cancelled') return bad('취소된 건입니다.');
     const { data: next } = await supabase

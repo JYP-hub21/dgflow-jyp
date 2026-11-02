@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import Progress from '@/components/ui/progress';
 import Segmented from '@/components/ui/segmented';
 import PageHeader from '@/components/layout/PageHeader';
-import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus } from 'lucide-react';
+import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus, ClipboardList, CalendarDays } from 'lucide-react';
 import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
 import ProductionByDate from '@/components/production/ProductionByDate';
@@ -294,25 +294,20 @@ export default function ProductionInputPage() {
         </div>
       )}
 
-      {/* 품목별 입력 */}
-      <Card className="gap-0 pb-0">
-        <CardHeader className="flex flex-col gap-3 border-b sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <CardTitle className="text-lg">{view === 'items' ? '품목별 생산량' : '날짜별 생산'}</CardTitle>
-              <Segmented value={view} onChange={setView} className="p-0.5"
-                options={[{ value: 'items', label: '품목별' }, { value: 'dates', label: `날짜별${productionDayCount ? ` ${productionDayCount}일` : ''}` }]} />
-            </div>
-            {view === 'dates' ? (
-              <p className="mt-0.5 text-sm text-muted-foreground">날짜를 누르면 그날 만든 품목이 펼쳐집니다. 고칠 기록은 품목별에서 품목의 <b className="text-foreground">수정</b>을 누르세요.</p>
-            ) : (
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              만든 수량을 적고 저장하세요. <b className="text-foreground">1장씩</b>은 누를 때마다 남은 품목마다 1장을 더하고,{' '}
-              <b className="text-foreground">전량</b>은 남은 수량을 채웁니다 — 칸에 채우기만 하니 확인한 뒤 저장하세요.
-            </p>
-            )}
-          </div>
-          {view === 'items' && incompleteCount > 0 && (
+      {/* 품목별 입력 · 날짜별 생산 — 카드 맨 위 탭 */}
+      <Card className="gap-0 py-0">
+        <div role="tablist" aria-label="보기" className="flex gap-1 border-b bg-muted/30 px-2 sm:px-4">
+          <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
+          <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
+            count={productionDayCount ? `${productionDayCount}일` : undefined} />
+        </div>
+        {view === 'items' && (
+        <CardHeader className="flex flex-col gap-3 border-b pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            만든 수량을 적고 저장하세요. <b className="text-foreground">1장씩</b>은 누를 때마다 남은 품목마다 1장을 더하고,{' '}
+            <b className="text-foreground">전량</b>은 남은 수량을 채웁니다 — 칸에 채우기만 하니 확인한 뒤 저장하세요.
+          </p>
+          {incompleteCount > 0 && (
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
               <Button variant="outline" onClick={handleAllPlusOne} disabled={saving} className="w-full sm:w-auto">
                 <Plus />남은 {incompleteCount}건 1장씩 채우기
@@ -323,6 +318,7 @@ export default function ProductionInputPage() {
             </div>
           )}
         </CardHeader>
+        )}
 
         {view === 'dates' && (
           <CardContent className="p-0">
@@ -451,7 +447,7 @@ export default function ProductionInputPage() {
       </Card>
 
       {/* PC — 저장 막대. 표가 길어도 화면 아래에 붙어 있다 */}
-      <div className="sticky bottom-0 z-10 hidden pb-1 md:block">
+      <div className={cn('sticky bottom-0 z-10 hidden pb-1', (view === 'items' || hasInput) && 'md:block')}>
         <div className="flex items-center justify-between gap-4 rounded-xl border bg-card/95 px-5 py-3.5 shadow-lg backdrop-blur">
           <div className="text-sm">
             {saved ? (
@@ -476,6 +472,25 @@ export default function ProductionInputPage() {
       </div>
 
     </div>
+  );
+}
+
+/** 카드 맨 위 탭 한 칸 — 고른 탭은 굵은 글씨와 밑줄 */
+function ViewTab({ active, onClick, icon: Icon, label, count }: {
+  active: boolean; onClick: () => void; icon: React.ElementType; label: string; count?: string;
+}) {
+  return (
+    <button type="button" role="tab" aria-selected={active} onClick={onClick}
+      className={cn('relative flex items-center gap-2 px-3 py-3.5 text-[15px] font-semibold transition-colors',
+        active ? 'text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-full after:bg-brand-800'
+          : 'text-muted-foreground hover:text-foreground')}>
+      <Icon className={cn('h-4 w-4', active ? 'text-brand-800' : '')} />
+      {label}
+      {count && (
+        <span className={cn('tabular rounded-full px-2 py-0.5 text-xs font-semibold',
+          active ? 'bg-brand-50 text-brand-800' : 'bg-muted text-muted-foreground')}>{count}</span>
+      )}
+    </button>
   );
 }
 

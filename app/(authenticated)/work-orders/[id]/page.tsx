@@ -222,7 +222,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             <CardTitle className="text-lg">날짜별 생산</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <ProductionByDate logs={productionLogs ?? []} items={woItems} />
+            <ProductionByDate logs={productionLogs ?? []} items={woItems} compact />
           </CardContent>
         </Card>
 

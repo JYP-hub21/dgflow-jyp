@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { compareSizes, checkSummary } from '@/lib/purchase-order/match';
 import { logEvent } from '@/lib/purchase-order/server';
+import { isManualPackage } from '@/lib/purchase-order/manual';
 import { NextRequest, NextResponse } from 'next/server';
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
@@ -20,13 +21,15 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceRoleClient();
 
   const { data: pkg } = await supabase
-    .from('dgflow_purchase_order_packages').select('id, purchase_order_id, label, rows, work_order_id').eq('id', package_id).maybeSingle();
+    .from('dgflow_purchase_order_packages').select('id, purchase_order_id, sheet_name, label, rows, work_order_id').eq('id', package_id).maybeSingle();
   if (!pkg) return bad('포장을 찾을 수 없습니다.', 404);
 
   if (!work_order_id) {
     if (!pkg.work_order_id) return NextResponse.json({ success: true });
     const { data: wo } = await supabase.from('dgflow_work_orders').select('work_order_number').eq('id', pkg.work_order_id).maybeSingle();
-    await supabase.from('dgflow_purchase_order_packages')
+    // 바로 이은 것(ERP 엑셀 없는 '직접 연결' 포장)은 끊으면 포장째 지운다 — 남겨 두면 빈 포장이 단계를 '받는 중' 에 묶는다
+    if (isManualPackage(pkg)) await supabase.from('dgflow_purchase_order_packages').delete().eq('id', pkg.id);
+    else await supabase.from('dgflow_purchase_order_packages')
       .update({ work_order_id: null, linked_at: null, linked_by: null, check_result: null }).eq('id', pkg.id);
     await logEvent(supabase, pkg.purchase_order_id, user.id, 'unlinked', { package: pkg.label, work_order_number: wo?.work_order_number });
     return NextResponse.json({ success: true });

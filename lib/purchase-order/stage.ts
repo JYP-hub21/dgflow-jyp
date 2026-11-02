@@ -22,7 +22,7 @@ export const STAGE_LABEL: Record<PoStage, string> = {
 };
 
 /** 진행 막대에 그리는 여섯 칸 */
-export const STEPS = ['접수', '확인', 'ERP 엑셀', '작업의뢰서', '생산', '완료'] as const;
+export const STEPS = ['접수', '확인', 'ERP 등록', '작업의뢰서', '생산', '완료'] as const;
 /** 폰 폭(390px)에서 여섯 칸에 들어가는 짧은 이름 */
 export const STEPS_SHORT = ['접수', '확인', 'ERP', '의뢰서', '생산', '완료'] as const;
 

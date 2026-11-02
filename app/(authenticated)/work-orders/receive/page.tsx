@@ -442,6 +442,19 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         router.push(`/purchase-orders/${target.po.id}`);
         return;
       }
+      // 발주서에서 왔는데 포장이 없으면(변환기를 안 썼으면) 그 발주서에 바로 잇는다
+      if (target) {
+        const linked = await fetch(`/api/purchase-orders/${target.po.id}/direct-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ work_order_id: workOrderId }),
+        });
+        const lj = await linked.json().catch(() => ({}));
+        if (!linked.ok) toast.error(lj.error ?? '발주서에 잇지 못했습니다.');
+        else toast.success(`발주 ${target.po.intake_number} 에 이었습니다.`);
+        router.push(`/purchase-orders/${target.po.id}`);
+        return;
+      }
 
       // 그냥 올렸으면 규격이 맞는 포장을 찾아 권한다 — 누르면 잇는다 (자동으로 잇지는 않는다)
       suggestLink(workOrderId, head.work_order_number);
@@ -478,7 +491,9 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             {target.pkg && <> — 포장 <b>{target.pkg.label}</b> ({target.pkg.total_quantity}장)</>}
           </p>
           <p className="mt-0.5 text-muted-foreground">
-            저장하면 이 포장에 연결되고, ERP 업로드 엑셀과 규격 · 수량을 대조합니다.
+            {target.pkg
+              ? '저장하면 이 포장에 연결되고, ERP 업로드 엑셀과 규격 · 수량을 대조합니다.'
+              : '저장하면 이 발주서에 바로 이어집니다.'}
           </p>
         </div>
       )}

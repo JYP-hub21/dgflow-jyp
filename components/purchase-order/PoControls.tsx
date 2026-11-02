@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Ban, ChevronDown, ChevronUp, Download, Link2, Loader2, Search, Unlink, Upload, UserRound } from 'lucide-react';
+import { Ban, CheckCheck, ChevronDown, ChevronUp, Download, Link2, Loader2, Search, Unlink, Upload, UserRound } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import Progress from '@/components/ui/progress';
@@ -14,6 +14,7 @@ import { downloadChunked, formatBytes, saveBlob } from '@/lib/purchase-order/chu
 import { checkSummary, type CheckResult } from '@/lib/purchase-order/match';
 import type { WorkOrderSite } from '@/lib/work-order/site';
 import SiteBadge from '@/components/work-order/SiteBadge';
+import { isManualPackage } from '@/lib/purchase-order/manual';
 
 async function post(url: string, body: unknown, method = 'POST') {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -55,13 +56,15 @@ export function FileDownload({ poId, file }: {
 }
 
 /** 담당자 바꾸기 · 내가 맡기 · 취소 */
-export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assignees }: {
+export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assignees, unchecked = false }: {
   poId: string;
   meId: string;
   assigneeId: string | null;
   canProcess: boolean;
   canCancel: boolean;
   assignees: { id: string; name: string }[];
+  /** 아직 '확인 전' — 파일을 안 받아도 눌러서 확인한다 */
+  unchecked?: boolean;
 }) {
   const router = useRouter();
   const [picking, setPicking] = useState(false);
@@ -84,6 +87,11 @@ export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assig
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
+        {canProcess && unchecked && (
+          <Button size="sm" disabled={busy} onClick={() => run({ check: true }, '확인했습니다.')}>
+            <CheckCheck />확인했어요
+          </Button>
+        )}
         {canProcess && assigneeId !== meId && (
           <Button variant="outline" size="sm" disabled={busy} onClick={() => run({ assignee_id: meId }, '내가 맡았습니다.')}>
             <UserRound />내가 맡기
@@ -116,6 +124,7 @@ export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assig
 
 interface PackageView {
   id: string;
+  sheet_name?: string | null;
   label: string;
   rows: { location: string; width_mm: number; height_mm: number; quantity: number }[];
   total_quantity: number;
@@ -181,7 +190,9 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
         <button type="button" onClick={() => setOpen(!open)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
           {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
           <span className="truncate font-semibold">{pkg.label}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">{pkg.rows.length}행 · {pkg.total_quantity}장</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {isManualPackage(pkg) ? `ERP 엑셀 없이 바로 연결 · ${pkg.total_quantity}장` : `${pkg.rows.length}행 · ${pkg.total_quantity}장`}
+          </span>
         </button>
 
         {wo ? (

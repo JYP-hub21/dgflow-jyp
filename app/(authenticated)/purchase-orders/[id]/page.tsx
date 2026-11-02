@@ -11,6 +11,8 @@ import { buttonVariants } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader';
 import { StageBadge, StageSteps } from '@/components/purchase-order/StageBadge';
 import { FileDownload, PackageRow, PoActions } from '@/components/purchase-order/PoControls';
+import DirectLink from '@/components/purchase-order/DirectLink';
+import { isManualPackage } from '@/lib/purchase-order/manual';
 
 const when = (iso: string) => format(new Date(iso), 'MM/dd HH:mm');
 
@@ -76,6 +78,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
               canProcess={processor}
               canCancel={(po.created_by === user.id || user.role === 'master') && po.packages_linked === 0}
               assignees={assignees}
+              unchecked={po.stage === 'submitted'}
             />
           )}
         </CardContent>
@@ -88,13 +91,15 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
         </Card>
       )}
 
-      {/* 다음에 할 일 */}
-      {!cancelled && canErp && (po.derived === 'submitted' || po.derived === 'checked') && orderFiles.some(f => !f.purged_at) && (
+      {/* 다음에 할 일 — 변환기는 선택 (2026-11-02 "써도 그만 안 써도 그만, 수기로 정리하는 경우가 더 많을 수 있다") */}
+      {!cancelled && (po.derived === 'submitted' || po.derived === 'checked') && (processor || canLink) && (
         <NextStep
-          title="다음 단계 — ERP 업로드 엑셀 만들기"
-          text="올라온 발주서를 바로 열어 변환합니다. 만든 엑셀은 이 건에 저장되고, 포장마다 돌아올 작업의뢰서와 대조됩니다."
-          href={`/erp-upload?po=${po.id}`}
-          action="ERP 엑셀 만들기"
+          title="다음 단계 — 규격정리해서 ERP 에 넣고, 나온 작업의뢰서를 이어 주세요"
+          text={canErp && orderFiles.some(f => !f.purged_at)
+            ? '규격정리 · ERP 업로드 엑셀은 손으로 해도 되고, 원하면 우리 변환기로 만들 수도 있습니다(선택). 작업의뢰서가 나오면 아래 "작업의뢰서 바로 잇기" 에서 이어 주세요.'
+            : '규격정리해서 ERP 에 넣은 뒤, 나온 작업의뢰서를 아래 "작업의뢰서 바로 잇기" 에서 이어 주세요.'}
+          href={canErp && orderFiles.some(f => !f.purged_at) ? `/erp-upload?po=${po.id}` : undefined}
+          action={canErp && orderFiles.some(f => !f.purged_at) ? '변환기로 ERP 엑셀 만들기 (선택)' : undefined}
         />
       )}
       {!cancelled && po.derived === 'erp_ready' && (
@@ -118,14 +123,22 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
         </CardContent>
       </Card>
 
+      {/* 작업의뢰서 바로 잇기 — 변환기를 안 썼어도 */}
+      {!cancelled && canLink && po.derived !== 'done' && <DirectLink poId={po.id} />}
+
       {/* 포장 = 작업의뢰서 */}
       {po.packages.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">
-              포장별 작업의뢰서 <span className="font-normal text-muted-foreground">— {po.packages_linked}/{po.packages_total} 도착</span>
+              {po.packages.every(isManualPackage) ? '이어진 작업의뢰서' : '포장별 작업의뢰서'}{' '}
+              <span className="font-normal text-muted-foreground">— {po.packages_linked}/{po.packages_total} 도착</span>
             </CardTitle>
-            <p className="text-sm text-muted-foreground">ERP 업로드 엑셀의 시트 한 장이 작업의뢰서 한 장이 됩니다. 도착하면 규격 · 수량을 대조합니다.</p>
+            <p className="text-sm text-muted-foreground">
+              {po.packages.every(isManualPackage)
+                ? '이 발주서에서 나온 작업의뢰서입니다. 진행률은 생산 실적에서 바로 따라옵니다.'
+                : 'ERP 업로드 엑셀의 시트 한 장이 작업의뢰서 한 장이 됩니다. 도착하면 규격 · 수량을 대조합니다.'}
+            </p>
           </CardHeader>
           <CardContent className="space-y-4">
             {sheets.map(sheet => (
