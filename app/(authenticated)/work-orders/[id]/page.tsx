@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
-import { itemNo } from '@/lib/production/item-view';
+import { Fragment } from 'react';
+import { blockTotals, itemNo } from '@/lib/production/item-view';
 import { contactsForWorkOrders } from '@/lib/production/contacts';
 import { toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS, SITE_EDITORS } from '@/lib/work-order/site-server';
@@ -61,6 +62,9 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     .order('sort_order');
 
   const woItems = items || [];
+  // 품명 덩어리 — 머리줄을 덩어리 첫 줄 앞에
+  const itemBlocks = blockTotals(woItems);
+  const blockStarts = new Map(itemBlocks.map((b, k) => [k === 0 ? 0 : itemBlocks[k - 1].endIndex + 1, b]));
   const totalQty = woItems.reduce((s, i) => s + i.quantity, 0);
   const totalProduced = woItems.reduce((s, i) => s + i.produced_quantity, 0);
   const overallProgress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
@@ -170,17 +174,17 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
-      {/* 품목별 진행률 */}
-      <Card className="gap-0 pb-0">
+      {/* 품목별 진행률 — 품명은 덩어리 머리줄에 한 번 (넓은 화면에서는 위에 붙어 있다) */}
+      <Card className="gap-0 pb-0 lg:overflow-visible">
         <CardHeader className="border-b">
           <CardTitle className="text-lg">품목별 생산 현황 <span className="font-normal text-muted-foreground">{woItems.length}건</span></CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
+          <Table containerClassName="lg:overflow-visible">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12 pl-5">No</TableHead>
-                <TableHead>품명</TableHead>
+                <TableHead>비고 (유리 위치)</TableHead>
                 <TableHead className="text-right">규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
                 <TableHead className="text-right">완료</TableHead>
@@ -193,12 +197,25 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 const remaining = item.quantity - item.produced_quantity;
                 const progress = item.quantity > 0 ? Math.round(item.produced_quantity / item.quantity * 100) : 0;
                 const isComplete = remaining <= 0;
+                const head = blockStarts.get(idx);
                 return (
-                  <TableRow key={item.id} className={cn(isComplete && 'bg-success-50/60')}>
+                  <Fragment key={item.id}>
+                  {head && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="border-y bg-muted px-5 py-2 lg:sticky lg:-top-8 lg:z-10">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 whitespace-normal">
+                          <span className="font-bold">{head.product_name}</span>
+                          <span className="tabular text-xs text-muted-foreground">
+                            {head.count}품목 · 의뢰 {head.quantity} · 완료 {head.produced} · {head.area_m2.toFixed(2)}㎡
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow className={cn(isComplete && 'bg-success-50/60')}>
                     <TableCell className="tabular pl-5 text-muted-foreground">{itemNo(item, idx)}</TableCell>
-                    <TableCell>
-                      <span className="font-semibold">{item.product_name}</span>
-                      {item.remark && <span className="block text-xs text-muted-foreground">{item.remark}</span>}
+                    <TableCell className="whitespace-normal">
+                      {item.remark ? <span className="font-medium">{item.remark}</span> : <span className="text-muted-foreground">비고 없음</span>}
                     </TableCell>
                     <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
@@ -208,6 +225,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                     </TableCell>
                     <TableCell className="pr-5"><Progress value={progress} /></TableCell>
                   </TableRow>
+                  </Fragment>
                 );
               })}
             </TableBody>

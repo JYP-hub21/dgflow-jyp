@@ -58,7 +58,18 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
   const blockOfIndex = new Map<number, BlockTotal>();
   blocks.forEach((b, k) => { for (let i = k === 0 ? 0 : blocks[k - 1].endIndex + 1; i <= b.endIndex; i++) blockOfIndex.set(i, b); });
   const lastTodoOfBlock = new Map<BlockTotal, string>();
-  for (const it of todo) { const b = blockOfIndex.get(items.indexOf(it)); if (b) lastTodoOfBlock.set(b, it.id); }
+  const firstTodoOfBlock = new Map<BlockTotal, string>();
+  for (const it of todo) {
+    const b = blockOfIndex.get(items.indexOf(it));
+    if (!b) continue;
+    lastTodoOfBlock.set(b, it.id);
+    if (!firstTodoOfBlock.has(b)) firstTodoOfBlock.set(b, it.id);
+  }
+  // 품명 머리 — 덩어리의 첫 남은 카드 위에 품명을 한 번만 (카드마다 품명을 되풀이하지 않는다)
+  const headerBefore = (item: CardItem) => {
+    const b = blockOfIndex.get(items.indexOf(item));
+    return b && firstTodoOfBlock.get(b) === item.id ? b : null;
+  };
   const subtotalAfter = (item: CardItem) => {
     if (blocks.length < 2) return null;
     const b = blockOfIndex.get(items.indexOf(item));
@@ -69,8 +80,15 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
     <div className="space-y-2">
       {todo.map((item) => {
         const sub = subtotalAfter(item);
+        const head = headerBefore(item);
         return (
           <div key={item.id} className="space-y-2">
+            {head && (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-brand-50 px-3 py-2 pt-2.5">
+                <span className="min-w-0 text-sm font-bold leading-snug text-brand-900">{head.product_name}</span>
+                <span className="tabular shrink-0 text-xs text-muted-foreground">{head.count}품목</span>
+              </div>
+            )}
             <ItemCard item={item} no={itemNo(item, items.indexOf(item))} remaining={remainingOf(item)}
               value={quantities[item.id] ?? ''} onChange={onChange} days={daysByItem?.get(item.id) ?? []}
               editing={editItemId === item.id} onToggleEdit={() => toggleEdit(item.id)}
@@ -151,11 +169,11 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
 
   return (
     <div className={`rounded-xl border bg-card px-4 py-3.5 shadow-xs ${over ? 'border-destructive' : entered > 0 ? 'border-brand-600 bg-brand-50/60' : ''}`}>
-      <div className="font-semibold leading-snug">
-        <span className="mr-1.5 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
-        {item.product_name}
+      {/* 품명은 위 머리에 — 카드는 번호 · 비고(유리 위치) · 규격이 먼저 보이게 */}
+      <div className="flex items-start gap-1.5 font-semibold leading-snug">
+        <span className="mt-px shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
+        <span className="min-w-0 break-all">{item.remark || <span className="font-normal text-muted-foreground">비고 없음</span>}</span>
       </div>
-      {item.remark && <div className="mt-1 break-all text-[13px] text-foreground/75">{item.remark}</div>}
       <div className="mt-0.5 text-sm text-muted-foreground tabular-nums">
         {item.width_mm}×{item.height_mm} · 의뢰 {item.quantity} · 완료 {item.produced_quantity}
       </div>

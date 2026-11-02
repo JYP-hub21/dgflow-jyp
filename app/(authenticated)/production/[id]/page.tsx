@@ -196,6 +196,7 @@ export default function ProductionInputPage() {
   const productionDayCount = new Set(logs.map(l => l.production_date)).size;
   const blocks = blockTotals(items);
   const blockEnds = new Map(blocks.map(b => [b.endIndex, b]));
+  const blockStarts = new Map(blocks.map((b, k) => [k === 0 ? 0 : blocks[k - 1].endIndex + 1, b]));
   const lineOptions = activeLines(lines).map(l => ({ value: String(l.line_number), label: l.name }));
   const site = workOrder ? toWorkOrderSite(workOrder) : null;
 
@@ -295,8 +296,9 @@ export default function ProductionInputPage() {
       )}
 
       {/* 품목별 입력 · 날짜별 생산 — 카드 맨 위 탭 */}
-      <Card className="gap-0 py-0">
-        <div role="tablist" aria-label="보기" className="flex gap-1 border-b bg-muted/30 px-2 sm:px-4">
+      {/* 넓은 화면에서는 품명 머리줄이 화면 위에 붙도록 넘침을 숨기지 않는다 */}
+      <Card className="gap-0 py-0 lg:overflow-visible">
+        <div role="tablist" aria-label="보기" className="flex gap-1 rounded-t-xl border-b bg-muted/30 px-2 sm:px-4">
           <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
           <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
             count={productionDayCount ? `${productionDayCount}일` : undefined} />
@@ -334,11 +336,11 @@ export default function ProductionInputPage() {
 
         {/* PC — 표 */}
         <CardContent className={cn('hidden p-0', view === 'items' && 'md:block')}>
-          <Table>
+          <Table containerClassName="lg:overflow-visible">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12 pl-5 text-center">No.</TableHead>
-                <TableHead>품명 · 비고</TableHead>
+                <TableHead>비고 (유리 위치)</TableHead>
                 <TableHead className="text-right">규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
                 <TableHead className="text-right">완료 · 생산일</TableHead>
@@ -350,6 +352,7 @@ export default function ProductionInputPage() {
               {items.map((item, index) => {
                 const days = daysByItem.get(item.id) ?? [];
                 const blockEnd = blocks.length > 1 ? blockEnds.get(index) : undefined;
+                const blockStart = blockStarts.get(index);
                 const remaining = item.quantity - item.produced_quantity;
                 const isComplete = remaining <= 0;
                 const value = quantities[item.id] || '';
@@ -364,16 +367,30 @@ export default function ProductionInputPage() {
                 );
                 return (
                   <Fragment key={item.id}>
+                  {/* 품명 덩어리 머리줄 — 품명은 여기 한 번만 (종이 작업의뢰서처럼). 넓은 화면에서는 스크롤해도 위에 붙어 있다 */}
+                  {blockStart && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="border-y bg-muted px-5 py-2 lg:sticky lg:-top-8 lg:z-10">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 whitespace-normal">
+                          <span className="font-bold text-foreground">{blockStart.product_name}</span>
+                          <span className="tabular text-xs text-muted-foreground">
+                            {blockStart.count}품목 · 의뢰 {blockStart.quantity} · 남음 <b className="text-foreground">{blockStart.quantity - blockStart.produced}</b>
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
                   <TableRow
                     className={cn(
                       isComplete && 'bg-success-50/60 text-muted-foreground',
                       entered > 0 && !over && 'bg-brand-50/80'
                     )}>
                     <TableCell className="tabular pl-5 text-center text-sm font-bold text-muted-foreground">{itemNo(item, index)}</TableCell>
-                    <TableCell className="max-w-[260px] whitespace-normal">
-                      <p className="font-semibold text-foreground">{item.product_name}</p>
-                      {/* 비고 = 유리 위치(동 · 층 · 방). 현장에서 보고 붙이니 잘 보이게 */}
-                      {item.remark && <p className="mt-0.5 break-all text-[13px] text-foreground/75">{item.remark}</p>}
+                    <TableCell className="max-w-[320px] whitespace-normal">
+                      {/* 비고 = 유리 위치(동 · 층 · 방) — 같은 덩어리 안에서 줄마다 다른 건 이것과 규격이다 */}
+                      {item.remark
+                        ? <p className="break-all font-medium text-foreground">{item.remark}</p>
+                        : <p className="text-muted-foreground">비고 없음</p>}
                     </TableCell>
                     <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
@@ -430,7 +447,7 @@ export default function ProductionInputPage() {
                 );
               })}
               {items.length > 0 && (
-                <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70">
+                <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70 [&>td:first-child]:rounded-bl-xl [&>td:last-child]:rounded-br-xl">
                   <TableCell />
                   <TableCell colSpan={2}>
                     총계 · {items.length}품목<span className="tabular ml-2 font-semibold">{totalArea.toFixed(2)}㎡</span>

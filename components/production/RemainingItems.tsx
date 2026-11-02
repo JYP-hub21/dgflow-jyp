@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
@@ -117,18 +118,31 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
               </Link>
             </div>
             <ul className="divide-y">
-              {g.items.map(item => {
+              {g.items.map((item, i) => {
                 const remaining = item.quantity - item.produced_quantity;
+                // 품명이 바뀌는 곳에만 머리줄 — 같은 품명을 줄마다 되풀이하지 않는다
+                const newBlock = i === 0 || g.items[i - 1].product_name !== item.product_name;
+                let end = i;
+                while (newBlock && end + 1 < g.items.length && g.items[end + 1].product_name === item.product_name) end++;
+                const blockItems = newBlock ? g.items.slice(i, end + 1) : [];
                 return (
-                  <li key={item.id} className="flex items-center gap-3 px-5 py-2.5">
+                  <Fragment key={item.id}>
+                  {newBlock && (
+                    <li className="flex items-center justify-between gap-3 bg-muted/60 px-5 py-1.5 text-xs">
+                      <span className="min-w-0 truncate font-bold text-foreground">{item.product_name}</span>
+                      <span className="tabular shrink-0 text-muted-foreground">
+                        {blockItems.length}품목 · 남음 {blockItems.reduce((s, x) => s + x.quantity - x.produced_quantity, 0)}장
+                      </span>
+                    </li>
+                  )}
+                  <li className="flex items-center gap-3 px-5 py-2.5">
                     <span className="tabular w-9 shrink-0 text-center text-sm font-bold text-muted-foreground">{itemNo(item)}</span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{item.product_name}</p>
+                      <p className="truncate font-medium">{item.remark || <span className="text-muted-foreground">비고 없음</span>}</p>
                       <p className="tabular text-sm text-muted-foreground">
                         {item.width_mm} × {item.height_mm}
                         <span className="ml-2">의뢰 {item.quantity} · 완료 {item.produced_quantity}</span>
                       </p>
-                      {item.remark && <p className="truncate text-xs text-muted-foreground">{item.remark}</p>}
                     </div>
                     {item.produced_quantity === 0 && (
                       <span className="shrink-0 rounded-md bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">미착수</span>
@@ -137,6 +151,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                       {remaining}<span className="ml-0.5 text-sm font-medium text-muted-foreground">장</span>
                     </span>
                   </li>
+                  </Fragment>
                 );
               })}
             </ul>

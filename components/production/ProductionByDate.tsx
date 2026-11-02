@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CalendarDays, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -145,21 +145,24 @@ export default function ProductionByDate({ logs, items, compact = false }: {
               <DayRow key={d.date} day={d} max={max} isOpen={open.has(d.date)} onToggle={() => toggle(d.date)}>
                 {d.rows.map((r, i) => {
                   const it = r.itemId ? itemMap.get(r.itemId) : undefined;
+                  const prev = i > 0 && d.rows[i - 1].itemId ? itemMap.get(d.rows[i - 1].itemId!) : undefined;
+                  // 품명이 바뀌는 곳에만 작은 머리 — 줄마다 품명을 되풀이하지 않는다
+                  const newBlock = i === 0 || prev?.product_name !== it?.product_name;
                   return (
-                    <li key={i} className="flex items-start gap-3 rounded-lg bg-card px-3 py-2 text-sm shadow-xs">
+                    <Fragment key={i}>
+                    {newBlock && <li className="px-1 pt-1.5 text-xs font-bold text-foreground/80">{it?.product_name ?? '품목 없음'}</li>}
+                    <li className="flex items-start gap-3 rounded-lg bg-card px-3 py-2 text-sm shadow-xs">
                       <span className="tabular w-8 shrink-0 pt-0.5 text-center text-xs font-bold text-muted-foreground">{it ? it.no : '-'}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold leading-snug">{it?.product_name ?? '품목 없음'}</p>
-                        <p className="text-xs text-foreground/70">
-                          {it && <span className="tabular">{it.width_mm} × {it.height_mm}</span>}
-                          {it?.remark && <span> · {it.remark}</span>}
-                        </p>
+                        <p className="font-medium leading-snug">{it?.remark || <span className="text-muted-foreground">비고 없음</span>}</p>
+                        {it && <p className="tabular text-xs text-foreground/70">{it.width_mm} × {it.height_mm}</p>}
                       </div>
                       <span className="shrink-0 text-right">
                         <b className="tabular text-base">{r.quantity}</b><span className="text-xs text-muted-foreground">장</span>
                         <span className="block text-[11px] text-muted-foreground">{r.shift === 'night' ? '야간' : '주간'} · {lineName(lines, r.line)}</span>
                       </span>
                     </li>
+                    </Fragment>
                   );
                 })}
               </DayRow>
