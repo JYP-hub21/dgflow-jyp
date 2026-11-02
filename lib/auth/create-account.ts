@@ -27,7 +27,7 @@ export async function createAccount(input: {
 
   const { data: taken } = await supabase
     .from('dgflow_users').select('id').eq('login_id', input.loginId).maybeSingle();
-  if (taken) return { error: '이미 쓰고 있는 아이디입니다. 다른 아이디를 고르세요.', status: 409 };
+  if (taken) return { error: '이미 사용 중인 아이디입니다. 다른 아이디를 입력하세요.', status: 409 };
 
   const email = loginIdToEmail(input.loginId);
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -38,7 +38,7 @@ export async function createAccount(input: {
   if (authError) {
     const dup = /already|exists|registered/i.test(authError.message);
     return dup
-      ? { error: '이미 쓰고 있는 아이디입니다. 다른 아이디를 고르세요.', status: 409 }
+      ? { error: '이미 사용 중인 아이디입니다. 다른 아이디를 입력하세요.', status: 409 }
       : { error: authError.message, status: 400 };
   }
 

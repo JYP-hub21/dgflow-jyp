@@ -19,3 +19,11 @@ export const PRE_LAUNCH = true;
 export function quickAdminLoginEnabled(): boolean {
   return PRE_LAUNCH || process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ADMIN_QUICK_LOGIN === 'on';
 }
+
+/**
+ * 빠른 로그인은 아이디(QUICK_ADMIN_LOGIN_ID)로 관리자 계정을 찾는다.
+ * 켜져 있는 동안 그 계정의 아이디를 바꾸면 버튼이 끊기므로 아이디/비밀번호 변경에서 아이디만 잠근다.
+ */
+export function loginIdLocked(loginId: string): boolean {
+  return loginId === QUICK_ADMIN_LOGIN_ID && quickAdminLoginEnabled();
+}

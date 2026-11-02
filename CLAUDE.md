@@ -314,6 +314,11 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
 - **middleware 사용 금지:** Next.js 16에서 Supabase SSR이 middleware에서 세션 파싱 실패. 인증 체크는 `app/(authenticated)/layout.tsx`에서 수행
 - **로그인 방식:** `/api/auth/login` 에 아이디 · 비밀번호 → 서버가 아이디로 Auth 이메일을 찾아 로그인하고 세션 쿠키를 심는다
   → `window.location.href = '/'` (쓸 수 있는 첫 메뉴로 보낸다). 승인 대기 · 사용 중지면 세션을 지우고 이유를 돌려준다
+- **아이디/비밀번호 변경 (2026-11-02):** 사이드바 아래 버튼 → 한 창(`components/layout/AccountDialog.tsx`)에서 함께 바꾼다.
+  `PATCH /api/auth/account` 가 현재 비밀번호를 일회용 클라이언트로 확인하고, 아이디가 바뀌면 Auth 이메일(`{아이디}@dgflow.local`)과
+  `dgflow_users.login_id · email` 을 같이 바꾼다. 바꾸면 Auth 가 세션을 끊으므로 새 정보로 다시 로그인해 쿠키를 갈아 끼운다.
+  빠른 로그인이 켜져 있는 동안 `admin` 계정의 아이디는 잠근다(`loginIdLocked`) — 빠른 로그인이 그 아이디로 계정을 찾는다.
+  배경: 회사에 계정을 미리 만들어 나눠 주고 받은 사람이 자기 것으로 바꾸게 할 계획.
 - **알림(toast):** `app/layout.tsx` 에 `<Toaster />` 가 있어야 보인다. 빠져 있던 동안 화면의 toast 가 하나도 안 떴다
 - **Windows 개발 서버:** dev 서버가 켜져 있으면 `app/` 아래 폴더 이름 바꾸기(git mv)가 "Permission denied" 로 실패한다
 - **shadcn/ui Select:** @base-ui/react Select가 value를 그대로 표시하는 문제 → 네이티브 `<select>` 태그 사용
@@ -386,7 +391,7 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
 - **서버 (Server Component/API):** `createServerSupabaseClient()` — 쿠키 기반 세션
 - **서버 관리자 권한:** `createServiceRoleClient()` — RLS 우회, 사용자 조회, 작업의뢰서 생성 등
 
-### 테스트 (248건)
+### 테스트 (254건)
 - `__tests__/erp-list.test.ts` (8건): ERP 작업의뢰서 목록 엑셀 — 칸 찾기 · 묶기 · 날짜 · 면적 · 건너뛸 줄 · 넣을 상태 · 실물 399건 · 5,180줄
 - `__tests__/permissions.test.ts` (6건): 사원별 권한 · 메뉴 · 대시보드는 누구나 · 함께 주는 권한
 - `__tests__/departments.test.ts` (14건): 부서 순서 · 부서 칸 읽기 · 덩어리 권한(자기 구역만) · 켜지는 메뉴 · 머리글 이름표 · 빠른 로그인 켜짐 조건
@@ -395,7 +400,7 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
 - `__tests__/by-date.test.ts` (4건): 날짜별 생산 묶기(월 · 날짜 · 주야 · 호기) · 품목 칸 날짜 요약
 - `__tests__/production-site.test.ts` (4건): 품목 번호(item_no · 등록 화면 번호 매기기) · 생산 공장 표시 · 전화 링크
 - `__tests__/item-view.test.ts` (8건): 생산 화면 No. · 품명 덩어리 소계 · 품목별 생산 날짜 · 날 수 · CSV 글자 인코딩(UTF-8 · BOM · EUC-KR)
-- `__tests__/account.test.ts` (9건): 아이디 · 짧은 비밀번호 감추기 · 전화번호 · 생년월일 · 가입 신청서
+- `__tests__/account.test.ts` (15건): 아이디 · 짧은 비밀번호 감추기 · 전화번호 · 생년월일 · 가입 신청서 · 아이디/비밀번호 변경 · 빠른 로그인 계정 아이디 잠금
 - `__tests__/purchase-order.test.ts` (10건): 포장 ↔ 작업의뢰서 대조(복층 배수 포함) · 단계 계산 · 멈춘 건 · 파일 조각
 - `__tests__/area.test.ts` (4건): 면적 계산
 - `__tests__/order-status.test.ts` (9건): 상태 전이 규칙

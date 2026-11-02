@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
+import { loginIdLocked } from '@/lib/auth/quick-login';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import Sidebar from '@/components/layout/Sidebar';
 import { CurrentUserProvider } from '@/components/layout/CurrentUser';
@@ -39,6 +40,8 @@ export default async function AuthenticatedLayout({
         user={{ role: user.role, permissions: user.permissions }}
         department={user.department}
         badges={badges}
+        loginId={user.login_id}
+        loginIdLocked={loginIdLocked(user.login_id)}
       />
       {/* 폰에서는 상단 띠(h-14)가 고정이라 그만큼 내려서 시작한다 */}
       <main className="min-w-0 flex-1 overflow-y-auto bg-background p-4 pt-18 md:p-6 md:pt-6 lg:p-8">

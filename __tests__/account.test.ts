@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  birthDateError, loginIdError, loginIdToEmail, normalizeLoginId, normalizePhone, toAuthPassword, validateSignup,
+  birthDateError, loginIdError, loginIdToEmail, normalizeLoginId, normalizePhone, toAuthPassword, validateAccountChange, validateSignup,
 } from '@/lib/auth/account';
+import { loginIdLocked, quickAdminLoginEnabled, QUICK_ADMIN_LOGIN_ID } from '@/lib/auth/quick-login';
 
 describe('아이디', () => {
   it('이니셜 같은 짧은 영문도 된다', () => {
@@ -67,5 +68,37 @@ describe('가입 정보', () => {
       birthDate: '1990-05-01', department: '생산부', position: '',
     });
     expect(missing).toEqual({ error: '직책을 입력하세요.' });
+  });
+});
+
+describe('아이디/비밀번호 변경', () => {
+  const change = (loginId: string, newPassword = '', currentPassword = 'old') =>
+    validateAccountChange('hj', { loginId, newPassword, currentPassword });
+
+  it('아이디를 그대로 두고 새 비밀번호만 넣으면 비밀번호만 바꾼다', () => {
+    expect(change('hj', 'new')).toEqual({ value: { loginId: null, password: 'new' } });
+  });
+
+  it('대소문자 · 공백만 다른 아이디는 바뀐 것으로 보지 않는다', () => {
+    expect(change(' HJ ', 'new')).toEqual({ value: { loginId: null, password: 'new' } });
+  });
+
+  it('아이디만 바꾸면 비밀번호는 그대로', () => {
+    expect(change('Kim.HJ')).toEqual({ value: { loginId: 'kim.hj', password: null } });
+  });
+
+  it('둘 다 한 번에 바꿀 수 있다', () => {
+    expect(change('kim', 'new')).toEqual({ value: { loginId: 'kim', password: 'new' } });
+  });
+
+  it('바뀐 것이 없거나, 아이디 규칙에 어긋나거나, 현재 비밀번호가 없으면 막는다', () => {
+    expect(change('hj')).toEqual({ error: '변경된 내용이 없습니다.' });
+    expect(change('홍길동')).toEqual({ error: loginIdError('홍길동') });
+    expect(change('kim', '', '')).toEqual({ error: '현재 비밀번호를 입력하세요.' });
+  });
+
+  it('빠른 로그인이 켜져 있으면 그 관리자 계정의 아이디만 잠근다', () => {
+    expect(loginIdLocked(QUICK_ADMIN_LOGIN_ID)).toBe(quickAdminLoginEnabled());
+    expect(loginIdLocked('hj')).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ export function normalizeLoginId(raw: string): string {
 export function loginIdError(loginId: string): string | null {
   if (!loginId) return '아이디를 입력하세요.';
   if (!LOGIN_ID_RE.test(loginId)) {
-    return '아이디는 영문과 숫자로 씁니다 (가운데에 . _ - 사용 가능, 30자까지).';
+    return '아이디는 영문 소문자와 숫자로 입력하세요 (가운데에 . _ - 사용 가능, 30자 이내).';
   }
   return null;
 }
@@ -41,6 +41,31 @@ export function toAuthPassword(password: string): string {
 export function passwordError(password: string): string | null {
   if (!password) return '비밀번호를 입력하세요.';
   return null;
+}
+
+export interface AccountChangeInput {
+  loginId: string;
+  newPassword: string;
+  currentPassword: string;
+}
+
+/**
+ * 본인 아이디/비밀번호 변경 검사 (2026-11-02).
+ * 아이디는 그대로 두면, 새 비밀번호는 비워 두면 바꾸지 않는다 — 바뀌는 것만 null 이 아니다.
+ * 무엇을 바꾸든 현재 비밀번호가 있어야 한다 (맞는지는 서버가 Auth 로 확인).
+ */
+export function validateAccountChange(currentLoginId: string, input: AccountChangeInput):
+  { error: string } | { value: { loginId: string | null; password: string | null } } {
+  const loginId = normalizeLoginId(input.loginId ?? '');
+  const idChanged = loginId !== currentLoginId;
+  if (idChanged) {
+    const err = loginIdError(loginId);
+    if (err) return { error: err };
+  }
+  const password = input.newPassword || null;
+  if (!idChanged && !password) return { error: '변경된 내용이 없습니다.' };
+  if (!input.currentPassword) return { error: '현재 비밀번호를 입력하세요.' };
+  return { value: { loginId: idChanged ? loginId : null, password } };
 }
 
 /** 숫자만 남겨 010-1234-5678 꼴로. 자릿수가 이상하면 null */

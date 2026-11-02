@@ -11,8 +11,9 @@ import {
 import { DEPARTMENTS, deptOf, type DeptKey } from '@/lib/departments';
 import { DEPT_STYLE } from './dept-style';
 import { MENU_ICONS } from './menu-icons';
-import { LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
+import { KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 import Logo from './Logo';
+import AccountDialog from './AccountDialog';
 
 interface SidebarProps {
   userName: string;
@@ -21,6 +22,10 @@ interface SidebarProps {
   department?: string | null;
   /** 메뉴 옆 숫자 (href → 건수) */
   badges?: Record<string, number>;
+  /** 로그인 아이디 — 아이디/비밀번호 변경 창에 미리 채운다 */
+  loginId: string;
+  /** 관리자 빠른 로그인 계정이면 아이디 변경을 잠근다 */
+  loginIdLocked: boolean;
 }
 
 /** 이름 끝 두 글자를 아바타 이니셜로 (한국어 이름 기준) */
@@ -28,11 +33,12 @@ function initials(name: string) {
   return name.length > 2 ? name.slice(-2) : name;
 }
 
-export default function Sidebar({ userName, user, department, badges = {} }: SidebarProps) {
+export default function Sidebar({ userName, user, department, badges = {}, loginId, loginIdLocked }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const menuItems = getMenuFor(user);
   const [open, setOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const myDept = deptOf(department);
 
   // 화면을 옮겨 가면 서랍은 닫는다
@@ -160,17 +166,28 @@ export default function Sidebar({ userName, user, department, badges = {} }: Sid
             </div>
           </div>
           <button
+            onClick={() => setAccountOpen(true)}
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            아이디/비밀번호 변경
+          </button>
+          <button
             onClick={async () => {
               await fetch('/api/auth/signout', { method: 'POST' });
               window.location.href = '/login';
             }}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <LogOut className="h-3.5 w-3.5" />
             로그아웃
           </button>
         </div>
       </aside>
+
+      {accountOpen && (
+        <AccountDialog loginId={loginId} loginIdLocked={loginIdLocked} onClose={() => setAccountOpen(false)} />
+      )}
     </>
   );
 }
