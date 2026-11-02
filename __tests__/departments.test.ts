@@ -4,7 +4,7 @@ import {
   DEPT_PERMISSIONS, MENU_ITEMS, PERMISSION_PRESETS, activeMenuHref, defaultPoView, deptBlocksOf,
   getMenuFor, hasAnyPermission, menuForPage, normalizePermissions,
 } from '@/lib/auth/role-guard';
-import { quickAdminLoginEnabled } from '@/lib/auth/quick-login';
+import { PRE_LAUNCH, quickAdminLoginEnabled } from '@/lib/auth/quick-login';
 
 const master = { role: 'master' as const, permissions: [] };
 const preset = (label: string) => ({
@@ -109,10 +109,10 @@ describe('관리자 빠른 로그인 — 운영에서는 켜 둘 때만', () => 
     return on;
   };
 
-  it('개발 서버에서는 켜지고, 운영은 기본으로 꺼져 있다', () => {
+  it('개발 서버에서는 켜지고, 운영은 공식 시작 전이거나 켜 둘 때만', () => {
     expect(run('development')).toBe(true);
-    expect(run('production')).toBe(false);
-    expect(run('production', 'off')).toBe(false);
+    expect(run('production')).toBe(PRE_LAUNCH);
+    expect(run('production', 'off')).toBe(PRE_LAUNCH);
     expect(run('production', 'on')).toBe(true);
   });
 });

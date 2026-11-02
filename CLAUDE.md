@@ -119,7 +119,8 @@ DB 테이블(`dgflow_orders`, `dgflow_notifications` 등)과 `types/order-status
 - 사원은 `/signup` 으로 가입 신청하고 마스터가 승인한다. 마스터가 "직접 추가" 할 수도 있다.
 - 로그인 화면에 있던 마스터 계정 자동 입력 버튼은 지웠다 (가입을 열면 누구나 마스터로 들어온다).
   2026-10-30 사용자 요청으로 **'관리자 계정으로 로그인' 버튼**을 다시 뒀다 — 개발 서버에서는 늘 보이고, 운영에서는
-  환경변수 `NEXT_PUBLIC_ADMIN_QUICK_LOGIN=on` 일 때만 보인다 (`lib/auth/quick-login.ts`). 비밀번호는 화면 코드에 없고,
+  환경변수 `NEXT_PUBLIC_ADMIN_QUICK_LOGIN=on` 일 때만 보인다 (`lib/auth/quick-login.ts`). **2026-11-02 부터 공식 시작 전이라
+  `PRE_LAUNCH = true` 로 운영에도 켜 두었다 — 회사가 공식으로 쓰기 시작하면 false 로 바꿔 배포한다.** 비밀번호는 화면 코드에 없고,
   `/api/auth/quick-admin` 이 service role 로 일회용 토큰(magic link hashed_token)을 만들어 서버에서 세션을 연다.
 
 ## 전체 흐름 (발주 건이 ERP 앞뒤를 잇는다)
