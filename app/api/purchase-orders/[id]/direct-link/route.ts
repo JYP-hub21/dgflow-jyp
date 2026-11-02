@@ -3,16 +3,18 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { logEvent } from '@/lib/purchase-order/server';
-import { MANUAL_SHEET, siteScore } from '@/lib/purchase-order/manual';
+import { MANUAL_SHEET, isManualPackage, siteScore } from '@/lib/purchase-order/manual';
+import { checkSummary, compareSizes } from '@/lib/purchase-order/match';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
 const LINKERS = ['order:process', 'work_order:create'];
 
 /**
- * 작업의뢰서를 발주 건에 바로 잇기 — 우리 ERP 변환기를 안 써도 (lib/purchase-order/manual.ts).
- *   GET  → { candidates }  아직 어느 발주 건에도 안 이어진 작업의뢰서, 현장명이 닮은 것부터
- *   POST {work_order_id}  → '직접 연결' 포장을 만들어 잇는다
+ * 작업의뢰서를 발주 건에 붙이기 (lib/purchase-order/manual.ts) — 작업의뢰서 등록에서 "어느 발주서에서 나온 건가요?" 를 고르거나,
+ * 발주서 화면에서 이미 등록한 작업의뢰서를 고를 때.
+ *   GET  → { candidates }  아직 어느 발주 건에도 안 붙은 작업의뢰서, 현장명이 닮은 것부터
+ *   POST {work_order_id}  → 우리 변환기로 만든 포장 중 규격 · 수량이 맞는 게 있으면 거기에, 없으면 '직접 연결' 포장을 만들어 붙인다
  */
 export async function GET(_request: NextRequest, ctx: RouteContext<'/api/purchase-orders/[id]/direct-link'>) {
   const user = await getCurrentUser();
@@ -73,10 +75,33 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
     .from('dgflow_purchase_order_packages').select('id, label').eq('work_order_id', wo.id).maybeSingle();
   if (taken) return bad(`작업의뢰서 ${wo.work_order_number} 는 이미 다른 발주 건(${taken.label})에 연결돼 있습니다.`, 409);
 
+  const now = new Date().toISOString();
+
+  // 1) 우리 변환기로 만든 포장이 있으면 — 아직 빈 포장 중 규격 · 수량이 맞는 곳에
+  const { data: open } = await supabase
+    .from('dgflow_purchase_order_packages').select('id, label, sheet_name, rows')
+    .eq('purchase_order_id', id).is('work_order_id', null);
+  const converterPkgs = (open ?? []).filter(p => !isManualPackage(p));
+  if (converterPkgs.length > 0) {
+    const { data: items } = await supabase.from('dgflow_work_order_items').select('width_mm, height_mm, quantity').eq('work_order_id', wo.id);
+    const match = converterPkgs.map(p => ({ p, check: compareSizes(p.rows ?? [], items ?? []) })).find(m => m.check.ok);
+    if (match) {
+      const { error } = await supabase.from('dgflow_purchase_order_packages').update({
+        work_order_id: wo.id, linked_at: now, linked_by: user.id, check_result: match.check,
+      }).eq('id', match.p.id);
+      if (error) return bad(error.message, 500);
+      await markChecked(supabase, po, id, user.id, now);
+      await logEvent(supabase, id, user.id, 'linked', {
+        package: match.p.label, work_order_number: wo.work_order_number, ok: true, summary: checkSummary(match.check),
+      });
+      return NextResponse.json({ success: true, mode: 'package', label: match.p.label, summary: checkSummary(match.check) });
+    }
+  }
+
+  // 2) 아니면 '직접 연결' — 대조할 ERP 엑셀 없이
   const { data: last } = await supabase
     .from('dgflow_purchase_order_packages').select('seq').eq('purchase_order_id', id).eq('sheet_name', MANUAL_SHEET)
     .order('seq', { ascending: false }).limit(1).maybeSingle();
-  const now = new Date().toISOString();
   const { error } = await supabase.from('dgflow_purchase_order_packages').insert({
     purchase_order_id: id,
     sheet_name: MANUAL_SHEET,
@@ -91,15 +116,21 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
   });
   if (error) return bad(error.message, 500);
 
-  // 아직 '확인 전' 이었으면 — 담당 부서가 손을 댔으니 확인으로 친다
-  if (po.stage === 'submitted') {
-    await supabase.from('dgflow_purchase_orders')
-      .update({ stage: 'checked', checked_at: now, checked_by: user.id, assignee_id: po.assignee_id ?? user.id, updated_at: now })
-      .eq('id', id).eq('stage', 'submitted');
-    await logEvent(supabase, id, user.id, 'checked');
-  }
+  await markChecked(supabase, po, id, user.id, now);
   await logEvent(supabase, id, user.id, 'linked', {
-    package: '이 발주서에 바로', work_order_number: wo.work_order_number, summary: 'ERP 엑셀 없이 (대조 없음)',
+    package: '이 발주서', work_order_number: wo.work_order_number, summary: 'ERP 엑셀 대조 없이',
   });
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, mode: 'manual' });
+}
+
+/** 아직 '확인 전' 이었으면 — 담당 부서가 손을 댔으니 확인으로 친다 */
+async function markChecked(
+  supabase: ReturnType<typeof createServiceRoleClient>, po: { stage: string; assignee_id: string | null },
+  id: string, userId: string, now: string,
+) {
+  if (po.stage !== 'submitted') return;
+  await supabase.from('dgflow_purchase_orders')
+    .update({ stage: 'checked', checked_at: now, checked_by: userId, assignee_id: po.assignee_id ?? userId, updated_at: now })
+    .eq('id', id).eq('stage', 'submitted');
+  await logEvent(supabase, id, userId, 'checked');
 }

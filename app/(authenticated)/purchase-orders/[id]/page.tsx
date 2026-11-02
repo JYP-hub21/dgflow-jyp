@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { format } from 'date-fns';
-import { ArrowRight, CheckCircle2, Clock, FileSpreadsheet, History } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Clock, FileSpreadsheet, History, ScanLine } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
@@ -11,7 +11,7 @@ import { buttonVariants } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader';
 import { StageBadge, StageSteps } from '@/components/purchase-order/StageBadge';
 import { FileDownload, PackageRow, PoActions } from '@/components/purchase-order/PoControls';
-import DirectLink from '@/components/purchase-order/DirectLink';
+import PickExistingWorkOrder from '@/components/purchase-order/DirectLink';
 import { isManualPackage } from '@/lib/purchase-order/manual';
 
 const when = (iso: string) => format(new Date(iso), 'MM/dd HH:mm');
@@ -94,12 +94,13 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
       {/* 다음에 할 일 — 변환기는 선택 (2026-11-02 "써도 그만 안 써도 그만, 수기로 정리하는 경우가 더 많을 수 있다") */}
       {!cancelled && (po.derived === 'submitted' || po.derived === 'checked') && (processor || canLink) && (
         <NextStep
-          title="다음 단계 — 규격정리해서 ERP 에 넣고, 나온 작업의뢰서를 이어 주세요"
-          text={canErp && orderFiles.some(f => !f.purged_at)
-            ? '규격정리 · ERP 업로드 엑셀은 손으로 해도 되고, 원하면 우리 변환기로 만들 수도 있습니다(선택). 작업의뢰서가 나오면 아래 "작업의뢰서 바로 잇기" 에서 이어 주세요.'
-            : '규격정리해서 ERP 에 넣은 뒤, 나온 작업의뢰서를 아래 "작업의뢰서 바로 잇기" 에서 이어 주세요.'}
-          href={canErp && orderFiles.some(f => !f.purged_at) ? `/erp-upload?po=${po.id}` : undefined}
-          action={canErp && orderFiles.some(f => !f.purged_at) ? '변환기로 ERP 엑셀 만들기 (선택)' : undefined}
+          title="다음 단계 — 규격정리해서 ERP 에 넣고, 나온 작업의뢰서를 등록하세요"
+          text="작업의뢰서를 등록할 때 이 발주서를 고르면 아래 '이 발주서의 작업의뢰서' 에 붙고, 진행률이 따라옵니다."
+          href={canLink ? `/work-orders/receive?po=${po.id}` : undefined}
+          action={canLink ? '작업의뢰서 등록하기' : undefined}
+          secondary={canErp && orderFiles.some(f => !f.purged_at)
+            ? { href: `/erp-upload?po=${po.id}`, label: '규격정리 · ERP 업로드 엑셀을 우리 변환기로 만들 수도 있어요 (선택)' }
+            : undefined}
         />
       )}
       {!cancelled && po.derived === 'erp_ready' && (
@@ -123,24 +124,33 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
         </CardContent>
       </Card>
 
-      {/* 작업의뢰서 바로 잇기 — 변환기를 안 썼어도 */}
-      {!cancelled && canLink && po.derived !== 'done' && <DirectLink poId={po.id} />}
-
-      {/* 포장 = 작업의뢰서 */}
-      {po.packages.length > 0 && (
+      {/* 이 발주서의 작업의뢰서 — 우리 변환기를 썼든(포장별) 안 썼든 한 곳에 (2026-11-02) */}
+      {(po.packages.length > 0 || (canLink && !cancelled)) && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {po.packages.every(isManualPackage) ? '이어진 작업의뢰서' : '포장별 작업의뢰서'}{' '}
-              <span className="font-normal text-muted-foreground">— {po.packages_linked}/{po.packages_total} 도착</span>
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {po.packages.every(isManualPackage)
-                ? '이 발주서에서 나온 작업의뢰서입니다. 진행률은 생산 실적에서 바로 따라옵니다.'
-                : 'ERP 업로드 엑셀의 시트 한 장이 작업의뢰서 한 장이 됩니다. 도착하면 규격 · 수량을 대조합니다.'}
-            </p>
+          <CardHeader className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">
+                이 발주서의 작업의뢰서{' '}
+                {po.packages.length > 0 && <span className="font-normal text-muted-foreground">— {po.packages_linked}/{po.packages_total} 도착</span>}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {po.packages.length === 0
+                  ? 'ERP 에서 작업의뢰서가 나오면 등록하면서 이 발주서를 고르세요. 여기에 붙고 진행률이 따라옵니다.'
+                  : po.packages.every(isManualPackage)
+                    ? '이 발주서에서 나온 작업의뢰서입니다. 진행률은 생산 실적에서 바로 따라옵니다.'
+                    : '우리 변환기로 만든 ERP 엑셀의 포장마다 작업의뢰서가 붙습니다. 붙을 때 규격 · 수량을 대조합니다.'}
+              </p>
+            </div>
+            {canLink && !cancelled && (
+              <Link href={`/work-orders/receive?po=${po.id}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
+                <ScanLine />작업의뢰서 등록하기
+              </Link>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
+            {po.packages.length === 0 && (
+              <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">아직 이 발주서에서 나온 작업의뢰서가 없습니다.</p>
+            )}
             {sheets.map(sheet => (
               <div key={sheet} className="space-y-2">
                 {sheets.length > 1 && <p className="text-sm font-semibold">{sheet || '차수 미지정'}</p>}
@@ -149,6 +159,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
                 ))}
               </div>
             ))}
+            {canLink && !cancelled && po.derived !== 'done' && <PickExistingWorkOrder poId={po.id} />}
           </CardContent>
         </Card>
       )}
@@ -168,12 +179,19 @@ function Fact({ label, value, sub }: { label: string; value: React.ReactNode; su
   );
 }
 
-function NextStep({ title, text, href, action }: { title: string; text: string; href?: string; action?: string }) {
+function NextStep({ title, text, href, action, secondary }: {
+  title: string; text: string; href?: string; action?: string;
+  /** 덧붙이는 선택 길 — 작은 링크로 */
+  secondary?: { href: string; label: string };
+}) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-600/30 bg-brand-50/70 px-5 py-4">
       <div className="min-w-0">
         <p className="font-semibold text-brand-900">{title}</p>
         <p className="mt-0.5 text-sm text-muted-foreground">{text}</p>
+        {secondary && (
+          <Link href={secondary.href} className="mt-1.5 inline-block text-sm font-medium text-brand-800 hover:underline">{secondary.label} →</Link>
+        )}
       </div>
       {href && action && (
         <Link href={href} className={buttonVariants({ size: 'lg' })}>{action}<ArrowRight /></Link>

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, Plus, Trash2, Check, TriangleAlert, Copy, Upload } from 'lucide-react';
+import { Save, Plus, Trash2, Check, TriangleAlert, Copy, Upload, FileText, CircleCheck } from 'lucide-react';
 import PageHeader from '@/components/layout/PageHeader';
 import StepTitle from '@/components/ui/step-title';
 import { toast } from 'sonner';
@@ -23,6 +23,7 @@ import { readWorkbookFile } from '@/lib/excel/read-file';
 import { useFileDrop } from '@/components/ui/file-drop';
 import { numberRows } from '@/lib/work-order/numbering';
 import ProductionSitePicker, { type SiteValue } from '@/components/work-order/ProductionSitePicker';
+import PoPicker from '@/components/work-order/PoPicker';
 import { cn } from '@/lib/utils';
 
 /**
@@ -115,6 +116,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   const [fromExcel, setFromExcel] = useState(false);
   /** 생산 공장 — 오창공장(기본) 또는 외주 업체 (2026-11-02 요청) */
   const [site, setSite] = useState<SiteValue>({ site: 'ochang', partnerId: '' });
+  /** 어느 발주서에서 나온 건가 (선택) — 저장할 때 그 발주서에 붙인다 */
+  const [poId, setPoId] = useState('');
+  /** 읽은 파일 — PDF(머리글) · 엑셀(품목) 둘 다 올렸는지 보여 준다 */
+  const [loaded, setLoaded] = useState<{ pdf?: string; excel?: string }>({});
   // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
     onFiles: (files) => void handleFiles(files), accept: '.xlsx,.xls,.csv,.pdf', disabled: reading,
@@ -131,6 +136,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         if (!j) return;
         const d = j.data;
         setTarget({ po: d, pkg: d.packages.find((p: { id: string }) => p.id === q.get('pkg')) ?? null });
+        setPoId(d.id);
         setHead(h => ({
           ...h,
           customer_label: h.customer_label || d.customer_name || '',
@@ -222,6 +228,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         toast.warning('PDF 의 비고는 잘려 있을 수 있습니다. 엑셀이 있으면 같이 올려 주세요.');
       }
 
+      setLoaded(l => ({ ...l, pdf: file.name }));
       toast.success(`의뢰 정보 ${filled}칸을 채웠습니다.`);
     } catch {
       toast.error('PDF 를 읽지 못했습니다.');
@@ -270,6 +277,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         setFromExcel(true);
 
         parsed.warnings.forEach((w) => toast.warning(w));
+        setLoaded(l => ({ ...l, excel: file.name }));
         toast.success(`품목 ${parsed.items.length}행을 읽었습니다.`);
         return true;
       } catch {
@@ -429,7 +437,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       const workOrderId: string = json.data.id;
 
       // 발주 건의 포장에서 왔으면 바로 잇고 대조 결과를 보여 준 뒤 그 건으로 돌아간다
-      if (target?.pkg) {
+      if (target?.pkg && poId === target.po.id) {
         const linked = await fetch('/api/purchase-orders/link', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -442,22 +450,22 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         router.push(`/purchase-orders/${target.po.id}`);
         return;
       }
-      // 발주서에서 왔는데 포장이 없으면(변환기를 안 썼으면) 그 발주서에 바로 잇는다
-      if (target) {
-        const linked = await fetch(`/api/purchase-orders/${target.po.id}/direct-link`, {
+      // 고른 발주서에 붙인다 — 우리 변환기로 만든 포장 중 규격이 맞는 곳이 있으면 거기, 없으면 발주서에 바로
+      if (poId) {
+        const linked = await fetch(`/api/purchase-orders/${poId}/direct-link`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ work_order_id: workOrderId }),
         });
         const lj = await linked.json().catch(() => ({}));
-        if (!linked.ok) toast.error(lj.error ?? '발주서에 잇지 못했습니다.');
-        else toast.success(`발주 ${target.po.intake_number} 에 이었습니다.`);
-        router.push(`/purchase-orders/${target.po.id}`);
-        return;
+        if (!linked.ok) toast.error(lj.error ?? '발주서에 붙이지 못했습니다.');
+        else toast.success(lj.mode === 'package' ? `발주서의 ${lj.label} 에 붙였습니다 — ${lj.summary}` : '고른 발주서에 붙였습니다.');
+        // 발주서 화면에서 왔으면 그리로 돌아간다
+        if (target && target.po.id === poId) { router.push(`/purchase-orders/${poId}`); return; }
+      } else {
+        // 안 골랐으면 규격이 맞는 포장을 찾아 권한다 — 누르면 붙는다 (저절로 붙이지는 않는다)
+        suggestLink(workOrderId, head.work_order_number);
       }
-
-      // 그냥 올렸으면 규격이 맞는 포장을 찾아 권한다 — 누르면 잇는다 (자동으로 잇지는 않는다)
-      suggestLink(workOrderId, head.work_order_number);
       // 갈 수 있는 화면으로 — 생산 입력 > 작업의뢰서 보기 > 이 화면에 남아 다음 의뢰서 올리기.
       // 예전에는 늘 생산 입력으로 보내서, 생산 권한이 없는 업무지원부는 '권한 없음' 화면을 봤다.
       if (me && hasPermission(me, 'production:input')) router.push(`/production/${workOrderId}`);
@@ -501,21 +509,30 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       <Card>
         <CardHeader><StepTitle step={1}>파일 올리기</StepTitle></CardHeader>
         <CardContent>
-          <label {...dropProps} className={cn('group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-input bg-muted/30 py-10 transition-colors hover:border-brand-600 hover:bg-brand-50',
+          <label {...dropProps} className={cn('group block cursor-pointer rounded-xl border-2 border-dashed border-input bg-muted/30 p-5 transition-colors hover:border-brand-600 hover:bg-brand-50/40',
             dragging && 'border-brand-600 bg-brand-50')}>
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-800 transition-colors group-hover:bg-brand-800 group-hover:text-white">
-              <Upload className="h-6 w-6" />
-            </span>
-            <div className="text-center">
-              <div className="text-[15px] font-semibold">
-                {reading ? 'PDF 를 읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 엑셀 · PDF 올리기'}
-              </div>
-              <div className="mt-1 text-sm text-muted-foreground">
-                눌러서 고르거나 파일을 이 상자에 끌어다 놓으세요. 엑셀과 PDF 를 같이 놓아도 됩니다.<br />
-                엑셀은 <b>품목</b>을, PDF 는 <b>의뢰번호 · 업체명 · 현장명 · 날짜</b>를 채웁니다.
-                둘 다 올리면 전부 채워집니다.
-              </div>
+            <div className="flex flex-col items-center gap-1 text-center">
+              <span className="flex items-center gap-2 text-base font-bold">
+                <Upload className="h-5 w-5 text-brand-800" />
+                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 파일 2개를 올려 주세요'}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                <b className="text-foreground">PDF 와 엑셀을 둘 다 올려야 모든 칸이 자동으로 채워집니다.</b> 눌러서 고르거나 끌어다 놓으세요 — 두 파일을 한 번에 골라도 됩니다.
+              </span>
             </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <FileSlot kind="pdf" name={loaded.pdf} />
+              <FileSlot kind="excel" name={loaded.excel} />
+            </div>
+            {(loaded.pdf || loaded.excel) && (
+              <p className={cn('mt-3 text-center text-sm font-semibold', loaded.pdf && loaded.excel ? 'text-success' : 'text-foreground')}>
+                {loaded.pdf && loaded.excel
+                  ? '두 파일 모두 읽었습니다 — 아래 내용을 확인하고 등록하세요.'
+                  : loaded.pdf
+                    ? '엑셀도 올려 주세요 — 품목 · 비고가 정확히 채워집니다.'
+                    : 'PDF 도 올려 주세요 — 의뢰번호 · 업체명 · 현장명 · 날짜가 채워집니다.'}
+              </p>
+            )}
             <input type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden"
               disabled={reading}
               onChange={(e) => {
@@ -545,6 +562,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             onChange={(v) => setHead({ ...head, request_date: v })} />
           <Field label="납품일자" type="date" value={head.delivery_date}
             onChange={(v) => setHead({ ...head, delivery_date: v })} />
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+            <p className="text-[13px] font-semibold">어느 발주서에서 나온 건가요? <span className="font-normal text-muted-foreground">(선택)</span></p>
+            <PoPicker value={poId} onChange={setPoId} siteHint={head.site_label} customerHint={head.customer_label} />
+          </div>
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
             <p className="text-[13px] font-semibold">생산 공장</p>
             <ProductionSitePicker value={site} onChange={setSite} />
@@ -660,6 +681,30 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             {saving ? '저장 중…' : '등록하고 생산실적 입력으로'}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 올릴 파일 한 칸 — PDF 는 빨강, 엑셀은 초록. 읽었으면 파일 이름에 체크 */
+function FileSlot({ kind, name }: { kind: 'pdf' | 'excel'; name?: string }) {
+  const pdf = kind === 'pdf';
+  const Icon = pdf ? FileText : FileSpreadsheet;
+  return (
+    <div className={cn('flex items-start gap-3 rounded-xl border-2 bg-card px-4 py-3 text-left',
+      pdf ? 'border-destructive/40' : 'border-success/40', name && (pdf ? 'bg-destructive/5' : 'bg-success-50'))}>
+      <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white', pdf ? 'bg-destructive' : 'bg-success')}>
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1.5 font-bold">
+          <span className={pdf ? 'text-destructive' : 'text-success'}>{pdf ? 'PDF' : '엑셀'}</span>
+          <span className="text-xs font-normal text-muted-foreground">{pdf ? '.pdf' : '.xlsx · .xls · .csv'}</span>
+        </p>
+        <p className="text-sm text-foreground/80">{pdf ? '의뢰번호 · 업체명 · 현장명 · 날짜' : '품목 · 규격 · 수량 · 비고'}를 채워요</p>
+        <p className={cn('mt-1 flex items-center gap-1 truncate text-xs', name ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
+          {name ? <><CircleCheck className="h-3.5 w-3.5 shrink-0 text-success" />{name}</> : '아직 안 올림'}
+        </p>
       </div>
     </div>
   );
