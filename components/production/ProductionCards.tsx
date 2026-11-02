@@ -2,9 +2,9 @@
 
 import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, ChevronRight, ChevronUp, Check, Pencil } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronRight, ChevronUp, Check, Pencil } from 'lucide-react';
 import QtyStepper from './QtyStepper';
-import { blockTotals, daysSummary, itemNo, sizeText, type BlockTotal, type DayQty } from '@/lib/production/item-view';
+import { blockTotals, itemNo, sizeText, type BlockTotal, type DayQty } from '@/lib/production/item-view';
 
 /**
  * 폰에서 쓰는 생산실적 입력.
@@ -180,7 +180,11 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
           <span className="mr-1 text-xs font-semibold text-muted-foreground">비고</span>{item.remark}
         </p>
       )}
-      {days.length > 0 && <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">생산 {daysSummary(days)}</div>}
+      {days.length > 0 && (
+        <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground" title={days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}>
+          <CalendarDays className="h-3.5 w-3.5" />생산한 날 {days.length}일 · 날짜별 기록은 수정에서
+        </div>
+      )}
 
       <div className="mt-3 flex items-center gap-2">
         <div className="shrink-0 tabular-nums">

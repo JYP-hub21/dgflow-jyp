@@ -210,8 +210,8 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 return (
                   <Fragment key={item.id}>
                   <TableRow className={cn(isComplete && 'bg-success-50/50')}>
-                    <TableCell className="tabular text-center text-muted-foreground">{itemNo(item, idx)}</TableCell>
-                    <TableCell className="max-w-[240px] whitespace-normal break-keep text-[13px] leading-snug">{head ? item.product_name : ''}</TableCell>
+                    <TableCell className="tabular text-center font-semibold">{itemNo(item, idx)}</TableCell>
+                    <TableCell className="max-w-[240px] whitespace-normal break-keep text-[13px] font-semibold leading-snug">{head ? item.product_name : ''}</TableCell>
                     <TableCell className="tabular whitespace-nowrap text-right">{sizeText(item.width_mm, item.height_mm)}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right">{Number(item.area_m2 || 0).toFixed(2)}</TableCell>

@@ -24,7 +24,7 @@ import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { activeLines, lineName } from '@/lib/production/lines';
-import { blockTotals, daysSummary, itemNo, productionDaysByItem, sizeText } from '@/lib/production/item-view';
+import { blockTotals, itemNo, productionDaysByItem, sizeText } from '@/lib/production/item-view';
 import type { SiteContact } from '@/lib/production/contacts';
 import { SITE_SELECT, toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS } from '@/lib/work-order/site-server';
@@ -382,23 +382,26 @@ export default function ProductionInputPage() {
                       isComplete && 'bg-success-50/50',
                       entered > 0 && !over && 'bg-brand-50/80'
                     )}>
-                    <TableCell className="tabular text-center text-muted-foreground">{itemNo(item, index)}</TableCell>
-                    {/* 품명 — 종이처럼 덩어리 첫 줄에만 */}
-                    <TableCell className="max-w-[220px] whitespace-normal break-keep text-[13px] leading-snug">{blockStart ? item.product_name : ''}</TableCell>
+                    <TableCell className="tabular text-center font-semibold text-foreground">{itemNo(item, index)}</TableCell>
+                    {/* 품명 — 종이처럼 덩어리 첫 줄에만, 살짝 굵게 */}
+                    <TableCell className="max-w-[220px] whitespace-normal break-keep text-[13px] font-semibold leading-snug">{blockStart ? item.product_name : ''}</TableCell>
                     <TableCell className="tabular whitespace-nowrap text-right">{sizeText(item.width_mm, item.height_mm)}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right">{Number(item.area_m2 || 0).toFixed(2)}</TableCell>
                     <TableCell className="whitespace-normal"><RemarkText text={item.remark} /></TableCell>
                     <TableCell className="tabular text-right">
-                      {item.produced_quantity}
-                      {/* 날짜가 많으면 요약만 — 눌러서 이 품목의 기록을 날짜별로 다 본다 */}
-                      {days.length > 0 && (
-                        <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
-                          title={days.map(d => `${d.date} ${d.quantity}장`).join('\n')}
-                          className="block w-full text-right text-[11px] text-muted-foreground hover:text-brand-800 hover:underline">
-                          {daysSummary(days)}
-                        </button>
-                      )}
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {/* 생산한 날 — 작은 달력만 (마우스를 올리면 날짜별 수량, 누르면 이 품목 기록이 펼쳐진다) */}
+                        {days.length > 0 && (
+                          <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
+                            title={`생산한 날 ${days.length}일\n` + days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}
+                            aria-label={`생산한 날 ${days.length}일 보기`}
+                            className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-brand-800">
+                            <CalendarDays className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {item.produced_quantity}
+                      </span>
                     </TableCell>
                     <TableCell className="tabular text-right font-semibold">
                       {isComplete
