@@ -37,6 +37,7 @@ import type { SheetInfo } from '@/lib/parser/excel-order';
 import { scanOrderSheet, sheetMatrix, type OrderScan, type ScanColumns } from '@/lib/parser/order-scan';
 import { readWorkbook } from '@/lib/parser/read-workbook';
 import { fileToXlsxBuffer } from '@/lib/excel/read-file';
+import { useFileDrop } from '@/components/ui/file-drop';
 import {
   matchProfile, profileFromScan, toOverrides, type FormProfile,
 } from '@/lib/parser/form-profile';
@@ -152,10 +153,17 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    e.target.value = '';
+    if (file) await loadFile(file);
+  }
+  async function loadFile(file: File) {
     // csv 는 xlsx 로 바꿔 넘긴다 — 아래 경로는 xlsx 바이트만 받는다 (한글 인코딩도 여기서 가려 읽는다)
     await loadWorkbook(file.name, () => fileToXlsxBuffer(file));
   }
+  // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
+  const { dragging, dropProps } = useFileDrop({
+    onFiles: (files) => void loadFile(files[0]), accept: '.xlsx,.xls,.csv', multiple: false,
+  });
 
   /** 발주 건에 올라온 발주서를 저장소에서 받아 읽는다. 담당자가 열면 그게 "확인" 이다 */
   async function openPurchaseOrderFile(f: PurchaseOrderSource['files'][number]) {
@@ -542,17 +550,17 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
               )}
             </div>
           )}
-          <label className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-brand-600 hover:bg-brand-50 ${
-            fileName ? 'border-brand-600/50 bg-brand-50/50' : 'border-input bg-muted/30'
+          <label {...dropProps} className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-brand-600 hover:bg-brand-50 ${
+            dragging ? 'border-brand-600 bg-brand-50' : fileName ? 'border-brand-600/50 bg-brand-50/50' : 'border-input bg-muted/30'
           }`}>
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-800 transition-colors group-hover:bg-brand-800 group-hover:text-white">
               {fileName ? <FileSpreadsheet className="h-6 w-6" /> : <Upload className="h-6 w-6" />}
             </span>
             <span className="text-[15px] font-semibold text-foreground">
-              {fileName || '발주서 엑셀 파일을 선택하세요'}
+              {dragging ? '여기에 놓으세요' : fileName || '발주서 엑셀 파일을 선택하세요'}
             </span>
             <span className="text-sm text-muted-foreground">
-              {fileName ? '다른 파일을 올리려면 다시 누르세요' : '여기를 눌러 .xlsx 파일을 고릅니다'}
+              {fileName ? '다른 파일을 올리려면 다시 누르거나 끌어다 놓으세요' : '눌러서 고르거나 파일을 이 상자에 끌어다 놓으세요 (xlsx · xls · csv)'}
             </span>
             <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
           </label>

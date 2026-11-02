@@ -20,6 +20,8 @@ import type { ParsedPdf } from '@/lib/work-order/pdf';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { readWorkbookFile } from '@/lib/excel/read-file';
+import { useFileDrop } from '@/components/ui/file-drop';
+import { cn } from '@/lib/utils';
 
 /**
  * ERP 작업의뢰서를 옮겨 적어 생산현황의 출발점으로 삼는다.
@@ -107,6 +109,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   /** 엑셀에서 온 소계. 손으로 칠 때는 비어 있다 (합계만 대조한다) */
   const [subtotals, setSubtotals] = useState<WorkOrderInput['printed_subtotals']>([]);
   const [fromExcel, setFromExcel] = useState(false);
+  // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
+  const { dragging, dropProps } = useFileDrop({
+    onFiles: (files) => void handleFiles(files), accept: '.xlsx,.xls,.csv,.pdf', disabled: reading,
+  });
 
   // ?po=&pkg= — 발주 건에서 왔으면 그 건을 알아 두고, 업체 · 현장을 미리 채운다
   useEffect(() => {
@@ -463,15 +469,17 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       <Card>
         <CardHeader><StepTitle step={1}>파일 올리기</StepTitle></CardHeader>
         <CardContent>
-          <label className="group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-input bg-muted/30 py-10 transition-colors hover:border-brand-600 hover:bg-brand-50">
+          <label {...dropProps} className={cn('group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-input bg-muted/30 py-10 transition-colors hover:border-brand-600 hover:bg-brand-50',
+            dragging && 'border-brand-600 bg-brand-50')}>
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-800 transition-colors group-hover:bg-brand-800 group-hover:text-white">
               <Upload className="h-6 w-6" />
             </span>
             <div className="text-center">
               <div className="text-[15px] font-semibold">
-                {reading ? 'PDF 를 읽는 중입니다…' : '작업의뢰서 엑셀 · PDF 올리기'}
+                {reading ? 'PDF 를 읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 엑셀 · PDF 올리기'}
               </div>
               <div className="mt-1 text-sm text-muted-foreground">
+                눌러서 고르거나 파일을 이 상자에 끌어다 놓으세요. 엑셀과 PDF 를 같이 놓아도 됩니다.<br />
                 엑셀은 <b>품목</b>을, PDF 는 <b>의뢰번호 · 업체명 · 현장명 · 날짜</b>를 채웁니다.
                 둘 다 올리면 전부 채워집니다.
               </div>

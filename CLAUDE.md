@@ -291,6 +291,9 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
   `gray-500` · `blue-600` 같은 날색 대신 토큰(`muted-foreground`, `brand-*`, `success`, `warning`, `destructive`)을 쓴다
 - **`dark:` 는 `.dark` 를 붙였을 때만** (`globals.css` 의 `@custom-variant dark`). 앱은 밝은 화면 하나다 — 빠져 있던 동안
   다크 모드 브라우저에서 입력칸 · 버튼만 회색으로 바뀌었다 (Tailwind v4 기본 `dark:` 는 브라우저 설정을 따른다)
+- **파일 올리기 상자는 끌어다 놓기도 받는다** (`components/ui/file-drop` 의 `useFileDrop` — 2026-11-02 피드백 "파일을 갖다 놓았더니
+  안 들어가고 내 컴퓨터에 다운로드됐다"). 새 올리기 상자를 만들면 `{...dropProps}` 를 붙인다. 상자 밖에 놓은 파일은
+  `components/layout/FileDropGuard`(인증 레이아웃)가 막는다 — 그냥 두면 브라우저가 파일을 열거나 내려받는다
 - **화면 머리글:** `components/layout/PageHeader` (제목 · 설명 · 뒤로 · 행동 버튼)
 - **여럿 중 하나 고르기:** 2~3개는 `components/ui/segmented`, 많으면 `components/ui/chip` 의 `chipClass`.
   고른 것은 남색으로 꽉 채운다 — 연한 하늘색이면 무엇이 골라졌는지 안 보인다

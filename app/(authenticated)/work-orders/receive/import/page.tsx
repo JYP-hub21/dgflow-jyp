@@ -5,6 +5,7 @@ import Link from 'next/link';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { readWorkbookFile } from '@/lib/excel/read-file';
+import { useFileDrop } from '@/components/ui/file-drop';
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload } from 'lucide-react';
 import PageHeader from '@/components/layout/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
@@ -38,6 +39,11 @@ export default function ImportWorkOrdersPage() {
   const [showAll, setShowAll] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<{ created: number; items: number; skipped: number } | null>(null);
+
+  // 파일을 카드에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
+  const { dragging, dropProps } = useFileDrop({
+    onFiles: (files) => void onFile(files[0]), accept: '.xlsx,.xls,.csv', multiple: false, disabled: reading,
+  });
 
   async function onFile(file: File) {
     setReading(true);
@@ -125,14 +131,15 @@ export default function ImportWorkOrdersPage() {
         description="ERP 에서 뽑은 작업의뢰서 목록 엑셀(한 줄에 품목 하나)을 올리면 의뢰번호별로 묶어 한꺼번에 등록합니다. 파일을 고르면 먼저 미리 보여 주고, 확인한 뒤에 넣습니다."
       />
 
-      {/* 1. 파일 */}
-      <Card>
+      {/* 1. 파일 — 카드에 끌어다 놓아도 된다 */}
+      <Card {...dropProps} className={cn('border-2 border-dashed border-transparent transition-colors', dragging && 'border-brand-600 bg-brand-50')}>
         <CardContent className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-800"><FileSpreadsheet className="h-5 w-5" /></span>
             <div>
               <p className="font-semibold">{fileName || 'ERP 작업의뢰서 목록 엑셀'}</p>
               <p className="text-xs text-muted-foreground">xlsx · xls · csv — 의뢰번호 · 품명 · 가로규격 · 세로규격 · 주문수량 칸이 있어야 합니다</p>
+              <p className="mt-0.5 text-xs font-medium text-brand-800">{dragging ? '여기에 놓으세요' : '파일을 이 상자에 끌어다 놓아도 됩니다'}</p>
             </div>
           </div>
           <label className={cn('inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-brand-800 px-4 text-sm font-semibold text-white hover:bg-brand-700', reading && 'pointer-events-none opacity-60')}>

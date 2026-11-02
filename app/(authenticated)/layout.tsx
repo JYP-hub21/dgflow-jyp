@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import Sidebar from '@/components/layout/Sidebar';
 import { CurrentUserProvider } from '@/components/layout/CurrentUser';
+import FileDropGuard from '@/components/layout/FileDropGuard';
 
 export default async function AuthenticatedLayout({
   children,
@@ -46,6 +47,7 @@ export default async function AuthenticatedLayout({
         }}>
           {children}
         </CurrentUserProvider>
+        <FileDropGuard />
       </main>
     </div>
   );

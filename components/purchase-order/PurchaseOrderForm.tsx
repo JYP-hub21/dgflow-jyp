@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { chipClass } from '@/components/ui/chip';
 import { createClient } from '@/lib/supabase/client';
 import { formatBytes, uploadChunked } from '@/lib/purchase-order/chunks';
+import { useFileDrop } from '@/components/ui/file-drop';
+import { cn } from '@/lib/utils';
 
 interface Assignee { id: string; name: string; department: string | null; position: string | null }
 
@@ -39,7 +41,7 @@ export default function PurchaseOrderForm({ meId, assignees, customers, sites }:
 
   const totalBytes = files.reduce((n, f) => n + f.size, 0);
 
-  function addFiles(list: FileList | null) {
+  function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     setFiles(prev => [...prev, ...Array.from(list).filter(f => !prev.some(p => p.name === f.name && p.size === f.size))]);
   }
@@ -79,6 +81,8 @@ export default function PurchaseOrderForm({ meId, assignees, customers, sites }:
   }
 
   const busy = progress !== null;
+  // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
+  const { dragging, dropProps } = useFileDrop({ onFiles: addFiles, disabled: busy });
   const pct = progress ? Math.round(progress.done / Math.max(progress.total, 1) * 100) : 0;
 
   return (
@@ -87,12 +91,13 @@ export default function PurchaseOrderForm({ meId, assignees, customers, sites }:
         {/* 파일 */}
         <div>
           <Label className="mb-1.5 text-[13px] font-semibold">발주서 파일 *</Label>
-          <label className="group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-input bg-muted/30 px-6 py-8 text-center transition-colors hover:border-brand-600 hover:bg-brand-50">
+          <label {...dropProps} className={cn('group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-input bg-muted/30 px-6 py-8 text-center transition-colors hover:border-brand-600 hover:bg-brand-50',
+            dragging && 'border-brand-600 bg-brand-50')}>
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-100 text-brand-800 group-hover:bg-brand-800 group-hover:text-white">
               <Upload className="h-5 w-5" />
             </span>
-            <span className="text-[15px] font-semibold">발주서 엑셀을 고르세요</span>
-            <span className="text-sm text-muted-foreground">여러 개를 같이 올려도 됩니다. 그림이 많은 큰 파일도 됩니다.</span>
+            <span className="text-[15px] font-semibold">{dragging ? '여기에 놓으세요' : '발주서 엑셀을 고르세요'}</span>
+            <span className="text-sm text-muted-foreground">눌러서 고르거나 끌어다 놓으세요. 여러 개를 같이 올려도 되고, 그림이 많은 큰 파일도 됩니다.</span>
             <input type="file" multiple className="hidden" disabled={busy}
               onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />
           </label>
