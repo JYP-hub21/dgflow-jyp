@@ -18,6 +18,7 @@ import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
 import ProductionByDate from '@/components/production/ProductionByDate';
 import QtyStepper from '@/components/production/QtyStepper';
+import RemarkText from '@/components/production/RemarkText';
 import LinesEditor from '@/components/production/LinesEditor';
 import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
@@ -340,12 +341,12 @@ export default function ProductionInputPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12 pl-5 text-center">No.</TableHead>
-                <TableHead>비고 (유리 위치)</TableHead>
-                <TableHead className="text-right">규격 (mm)</TableHead>
+                <TableHead>규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
                 <TableHead className="text-right">완료 · 생산일</TableHead>
                 <TableHead className="text-right">잔여</TableHead>
-                <TableHead className="w-[300px] pr-5">이번 생산량</TableHead>
+                <TableHead className="w-[290px]">이번 생산량</TableHead>
+                <TableHead className="w-[30%] pr-5">비고</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -386,13 +387,7 @@ export default function ProductionInputPage() {
                       entered > 0 && !over && 'bg-brand-50/80'
                     )}>
                     <TableCell className="tabular pl-5 text-center text-sm font-bold text-muted-foreground">{itemNo(item, index)}</TableCell>
-                    <TableCell className="max-w-[320px] whitespace-normal">
-                      {/* 비고 = 유리 위치(동 · 층 · 방) — 같은 덩어리 안에서 줄마다 다른 건 이것과 규격이다 */}
-                      {item.remark
-                        ? <p className="break-all font-medium text-foreground">{item.remark}</p>
-                        : <p className="text-muted-foreground">비고 없음</p>}
-                    </TableCell>
-                    <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
+                    <TableCell className="tabular font-semibold text-foreground">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right">
                       {item.produced_quantity}
@@ -408,7 +403,7 @@ export default function ProductionInputPage() {
                     <TableCell className="tabular text-right text-base font-bold text-foreground">
                       {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
                     </TableCell>
-                    <TableCell className="py-2.5 pr-5">
+                    <TableCell className="py-2.5">
                       {isComplete && editButton}
                       {!isComplete && (
                         <div className="flex items-center gap-2">
@@ -422,6 +417,8 @@ export default function ProductionInputPage() {
                       )}
                       {over && <p className="mt-1 text-xs font-medium text-destructive">잔여 {remaining}장보다 많습니다</p>}
                     </TableCell>
+                    {/* 비고(유리 위치) — 종이 작업의뢰서처럼 맨 오른쪽. 길면 두 줄, 누르면 전체 */}
+                    <TableCell className="whitespace-normal pr-5"><RemarkText text={item.remark} /></TableCell>
                   </TableRow>
                   {editing && (
                     <TableRow className="hover:bg-transparent">
@@ -433,14 +430,13 @@ export default function ProductionInputPage() {
                   {/* 품명 덩어리가 끝나면 소계 — 품명이 하나뿐이면 총계와 같아 생략 */}
                   {blockEnd && (
                     <TableRow className="bg-muted/50 text-sm hover:bg-muted/50">
-                      <TableCell />
-                      <TableCell className="font-semibold text-muted-foreground" colSpan={2}>
+                      <TableCell className="whitespace-normal pl-5 font-semibold text-muted-foreground" colSpan={2}>
                         소계 · {blockEnd.count}품목<span className="tabular ml-2 font-normal">{blockEnd.area_m2.toFixed(2)}㎡</span>
                       </TableCell>
                       <TableCell className="tabular text-right font-semibold">{blockEnd.quantity}</TableCell>
                       <TableCell className="tabular text-right font-semibold">{blockEnd.produced}</TableCell>
                       <TableCell className="tabular text-right font-bold">{blockEnd.quantity - blockEnd.produced}</TableCell>
-                      <TableCell className="pr-5" />
+                      <TableCell colSpan={2} className="pr-5" />
                     </TableRow>
                   )}
                   </Fragment>
@@ -448,14 +444,13 @@ export default function ProductionInputPage() {
               })}
               {items.length > 0 && (
                 <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70 [&>td:first-child]:rounded-bl-xl [&>td:last-child]:rounded-br-xl">
-                  <TableCell />
-                  <TableCell colSpan={2}>
+                  <TableCell colSpan={2} className="whitespace-normal pl-5">
                     총계 · {items.length}품목<span className="tabular ml-2 font-semibold">{totalArea.toFixed(2)}㎡</span>
                   </TableCell>
                   <TableCell className="tabular text-right">{totalQty}</TableCell>
                   <TableCell className="tabular text-right">{totalProduced}</TableCell>
                   <TableCell className="tabular text-right">{totalQty - totalProduced}</TableCell>
-                  <TableCell className="pr-5" />
+                  <TableCell colSpan={2} className="pr-5" />
                 </TableRow>
               )}
             </TableBody>

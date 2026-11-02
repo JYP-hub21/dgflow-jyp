@@ -154,8 +154,8 @@ export default function ProductionByDate({ logs, items, compact = false }: {
                     <li className="flex items-start gap-3 rounded-lg bg-card px-3 py-2 text-sm shadow-xs">
                       <span className="tabular w-8 shrink-0 pt-0.5 text-center text-xs font-bold text-muted-foreground">{it ? it.no : '-'}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium leading-snug">{it?.remark || <span className="text-muted-foreground">비고 없음</span>}</p>
-                        {it && <p className="tabular text-xs text-foreground/70">{it.width_mm} × {it.height_mm}</p>}
+                        {it && <p className="tabular font-semibold leading-snug">{it.width_mm} × {it.height_mm}</p>}
+                        {it?.remark && <p className="line-clamp-2 text-xs text-foreground/70 break-keep [overflow-wrap:anywhere]" title={it.remark}>{it.remark}</p>}
                       </div>
                       <span className="shrink-0 text-right">
                         <b className="tabular text-base">{r.quantity}</b><span className="text-xs text-muted-foreground">장</span>

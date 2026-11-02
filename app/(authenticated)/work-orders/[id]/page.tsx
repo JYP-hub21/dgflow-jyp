@@ -10,6 +10,7 @@ import { hasAnyPermission } from '@/lib/auth/role-guard';
 import SiteEditor from '@/components/work-order/SiteEditor';
 import ContactCard from '@/components/work-order/ContactCard';
 import ProductionByDate from '@/components/production/ProductionByDate';
+import RemarkText from '@/components/production/RemarkText';
 import Link from 'next/link';
 import { workOrderLabels } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
@@ -184,12 +185,12 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12 pl-5">No</TableHead>
-                <TableHead>비고 (유리 위치)</TableHead>
-                <TableHead className="text-right">규격 (mm)</TableHead>
+                <TableHead>규격 (mm)</TableHead>
                 <TableHead className="text-right">의뢰</TableHead>
                 <TableHead className="text-right">완료</TableHead>
                 <TableHead className="text-right">잔여</TableHead>
-                <TableHead className="w-48 pr-5">진행률</TableHead>
+                <TableHead className="w-40">진행률</TableHead>
+                <TableHead className="w-[32%] pr-5">비고</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -214,16 +215,14 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                   )}
                   <TableRow className={cn(isComplete && 'bg-success-50/60')}>
                     <TableCell className="tabular pl-5 text-muted-foreground">{itemNo(item, idx)}</TableCell>
-                    <TableCell className="whitespace-normal">
-                      {item.remark ? <span className="font-medium">{item.remark}</span> : <span className="text-muted-foreground">비고 없음</span>}
-                    </TableCell>
-                    <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
+                    <TableCell className="tabular font-semibold">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right font-semibold">{item.produced_quantity}</TableCell>
                     <TableCell className="tabular text-right font-bold">
                       {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
                     </TableCell>
-                    <TableCell className="pr-5"><Progress value={progress} /></TableCell>
+                    <TableCell><Progress value={progress} /></TableCell>
+                    <TableCell className="whitespace-normal pr-5"><RemarkText text={item.remark} /></TableCell>
                   </TableRow>
                   </Fragment>
                 );

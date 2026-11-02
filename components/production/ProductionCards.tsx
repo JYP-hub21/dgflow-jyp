@@ -169,14 +169,17 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
 
   return (
     <div className={`rounded-xl border bg-card px-4 py-3.5 shadow-xs ${over ? 'border-destructive' : entered > 0 ? 'border-brand-600 bg-brand-50/60' : ''}`}>
-      {/* 품명은 위 머리에 — 카드는 번호 · 비고(유리 위치) · 규격이 먼저 보이게 */}
-      <div className="flex items-start gap-1.5 font-semibold leading-snug">
-        <span className="mt-px shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
-        <span className="min-w-0 break-all">{item.remark || <span className="font-normal text-muted-foreground">비고 없음</span>}</span>
+      {/* 품명은 위 머리에 — 카드는 종이 순서대로 번호 · 규격 · 수량, 비고(유리 위치)는 그 아래 */}
+      <div className="flex items-center gap-1.5 leading-snug">
+        <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
+        <span className="tabular text-base font-bold">{item.width_mm} × {item.height_mm}</span>
+        <span className="tabular text-sm text-muted-foreground">· 의뢰 {item.quantity} · 완료 {item.produced_quantity}</span>
       </div>
-      <div className="mt-0.5 text-sm text-muted-foreground tabular-nums">
-        {item.width_mm}×{item.height_mm} · 의뢰 {item.quantity} · 완료 {item.produced_quantity}
-      </div>
+      {item.remark && (
+        <p className="mt-1 text-[13px] leading-snug text-foreground/80 break-keep [overflow-wrap:anywhere]">
+          <span className="mr-1 text-xs font-semibold text-muted-foreground">비고</span>{item.remark}
+        </p>
+      )}
       {days.length > 0 && <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">생산 {daysSummary(days)}</div>}
 
       <div className="mt-3 flex items-center gap-2">

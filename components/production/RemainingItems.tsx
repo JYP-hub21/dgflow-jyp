@@ -137,11 +137,14 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                   )}
                   <li className="flex items-center gap-3 px-5 py-2.5">
                     <span className="tabular w-9 shrink-0 text-center text-sm font-bold text-muted-foreground">{itemNo(item)}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-medium">{item.remark || <span className="text-muted-foreground">비고 없음</span>}</p>
-                      <p className="tabular text-sm text-muted-foreground">
-                        {item.width_mm} × {item.height_mm}
-                        <span className="ml-2">의뢰 {item.quantity} · 완료 {item.produced_quantity}</span>
+                    <div className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-5">
+                      <div className="sm:w-44 sm:shrink-0">
+                        <p className="tabular font-semibold">{item.width_mm} × {item.height_mm}</p>
+                        <p className="tabular text-sm text-muted-foreground">의뢰 {item.quantity} · 완료 {item.produced_quantity}</p>
+                      </div>
+                      {/* 비고(유리 위치) — 종이처럼 규격 · 수량 다음 */}
+                      <p title={item.remark ?? ''} className="mt-0.5 line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug text-foreground/80 break-keep [overflow-wrap:anywhere] sm:mt-0">
+                        {item.remark ? <><span className="mr-1 text-xs font-semibold text-muted-foreground sm:hidden">비고</span>{item.remark}</> : <span className="text-muted-foreground">-</span>}
                       </p>
                     </div>
                     {item.produced_quantity === 0 && (
