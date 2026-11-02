@@ -306,16 +306,16 @@ export default function ProductionInputPage() {
         {view === 'items' && (
         <CardHeader className="flex flex-col gap-3 border-b pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            만든 수량을 적고 저장하세요. <b className="text-foreground">1장씩</b>은 누를 때마다 남은 품목마다 1장을 더하고,{' '}
-            <b className="text-foreground">전량</b>은 남은 수량을 채웁니다 — 칸에 채우기만 하니 확인한 뒤 저장하세요.
+            생산 수량을 입력한 뒤 저장하세요. <b className="text-foreground">1장씩 입력</b>은 누를 때마다 남은 품목에 1장씩 더하고,{' '}
+            <b className="text-foreground">전량 입력</b>은 남은 수량을 모두 입력합니다. 입력란에만 반영되므로 확인 후 저장하세요.
           </p>
           {incompleteCount > 0 && (
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
               <Button variant="outline" onClick={handleAllPlusOne} disabled={saving} className="w-full sm:w-auto">
-                <Plus />남은 {incompleteCount}건 1장씩 채우기
+                <Plus />남은 {incompleteCount}건 1장씩 입력
               </Button>
               <Button variant="outline" onClick={handleAllComplete} disabled={saving} className="w-full sm:w-auto">
-                <CheckCheck />남은 {incompleteCount}건 전량 채우기
+                <CheckCheck />남은 {incompleteCount}건 전량 입력
               </Button>
             </div>
           )}
@@ -394,8 +394,8 @@ export default function ProductionInputPage() {
                         {/* 생산한 날 — 작은 달력만 (마우스를 올리면 날짜별 수량, 누르면 이 품목 기록이 펼쳐진다) */}
                         {days.length > 0 && (
                           <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
-                            title={`생산한 날 ${days.length}일\n` + days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}
-                            aria-label={`생산한 날 ${days.length}일 보기`}
+                            title={`생산일 ${days.length}일\n` + days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}
+                            aria-label={`생산일 ${days.length}일 보기`}
                             className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-brand-800">
                             <CalendarDays className="h-3.5 w-3.5" />
                           </button>

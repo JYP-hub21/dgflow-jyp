@@ -17,17 +17,17 @@ import { isManualPackage } from '@/lib/purchase-order/manual';
 const when = (iso: string) => format(new Date(iso), 'MM/dd HH:mm');
 
 const EVENT_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
-  submitted: () => '발주서를 올렸습니다',
-  downloaded: d => `파일을 받았습니다${d.file_name ? ` — ${d.file_name}` : ''}`,
+  submitted: () => '발주서를 등록했습니다',
+  downloaded: d => `파일을 다운로드했습니다${d.file_name ? ` — ${d.file_name}` : ''}`,
   checked: () => '담당자가 확인했습니다',
-  assigned: d => `담당자를 ${d.to_name ?? ''} 님으로 바꿨습니다`,
+  assigned: d => `담당자를 ${d.to_name ?? ''} 님으로 변경했습니다`,
   erp_opened: () => 'ERP 변환 화면에서 열었습니다',
   erp_saved: d => `ERP 업로드 엑셀을 저장했습니다${d.sheet_name ? ` (${d.sheet_name})` : ''} — 포장 ${d.packages ?? 0}개`,
   linked: d => `작업의뢰서 ${d.work_order_number} → ${d.package} 연결 · ${d.summary ?? ''}`,
-  unlinked: d => `작업의뢰서 ${d.work_order_number ?? ''} 연결을 끊었습니다 (${d.package})`,
+  unlinked: d => `작업의뢰서 ${d.work_order_number ?? ''} 연결을 해제했습니다 (${d.package})`,
   cancelled: () => '접수를 취소했습니다',
-  edited: () => '내용을 고쳤습니다',
-  purged: () => '저장 공간 정리로 파일을 지웠습니다',
+  edited: () => '내용을 수정했습니다',
+  purged: () => '저장 공간 정리로 파일을 삭제했습니다',
 };
 
 export default async function PurchaseOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -66,7 +66,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
               label="담당자 확인"
               value={po.checked_at
                 ? <span className="flex items-center gap-1 text-success"><CheckCircle2 className="h-4 w-4" />확인함</span>
-                : cancelled ? '-' : <span className="flex items-center gap-1 text-warning"><Clock className="h-4 w-4" />아직 안 봄</span>}
+                : cancelled ? '-' : <span className="flex items-center gap-1 text-warning"><Clock className="h-4 w-4" />미확인</span>}
               sub={po.checked_at ? `${po.checked_by_name} · ${when(po.checked_at)}` : undefined}
             />
           </div>
@@ -94,12 +94,12 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
       {/* 다음에 할 일 — 변환기는 선택 (2026-11-02 "써도 그만 안 써도 그만, 수기로 정리하는 경우가 더 많을 수 있다") */}
       {!cancelled && (po.derived === 'submitted' || po.derived === 'checked') && (processor || canLink) && (
         <NextStep
-          title="다음 단계 — 규격정리해서 ERP 에 넣고, 나온 작업의뢰서를 등록하세요"
-          text="작업의뢰서를 등록할 때 이 발주서를 고르면 아래 '이 발주서의 작업의뢰서' 에 붙고, 진행률이 따라옵니다."
+          title="다음 단계 — 규격정리 후 ERP에 입력하고, 발행된 작업의뢰서를 등록하세요"
+          text="작업의뢰서 등록 시 이 발주서를 선택하면 아래 '이 발주서의 작업의뢰서'에 연결되고 생산 진행률이 표시됩니다."
           href={canLink ? `/work-orders/receive?po=${po.id}` : undefined}
-          action={canLink ? '작업의뢰서 등록하기' : undefined}
+          action={canLink ? '작업의뢰서 등록' : undefined}
           secondary={canErp && orderFiles.some(f => !f.purged_at)
-            ? { href: `/erp-upload?po=${po.id}`, label: '규격정리 · ERP 업로드 엑셀을 우리 변환기로 만들 수도 있어요 (선택)' }
+            ? { href: `/erp-upload?po=${po.id}`, label: '규격정리 · ERP 업로드 엑셀 자동 생성 (선택)' }
             : undefined}
         />
       )}
@@ -135,21 +135,21 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
               </CardTitle>
               <p className="text-sm text-muted-foreground">
                 {po.packages.length === 0
-                  ? 'ERP 에서 작업의뢰서가 나오면 등록하면서 이 발주서를 고르세요. 여기에 붙고 진행률이 따라옵니다.'
+                  ? 'ERP에서 작업의뢰서가 발행되면 등록 시 이 발주서를 선택하세요. 이곳에 연결되고 생산 진행률이 표시됩니다.'
                   : po.packages.every(isManualPackage)
-                    ? '이 발주서에서 나온 작업의뢰서입니다. 진행률은 생산 실적에서 바로 따라옵니다.'
-                    : '우리 변환기로 만든 ERP 엑셀의 포장마다 작업의뢰서가 붙습니다. 붙을 때 규격 · 수량을 대조합니다.'}
+                    ? '이 발주서에 연결된 작업의뢰서입니다. 생산 진행률은 생산 실적에 따라 자동 반영됩니다.'
+                    : 'ERP 업로드 엑셀의 포장별로 작업의뢰서가 연결되며, 연결 시 규격과 수량을 대조합니다.'}
               </p>
             </div>
             {canLink && !cancelled && (
               <Link href={`/work-orders/receive?po=${po.id}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
-                <ScanLine />작업의뢰서 등록하기
+                <ScanLine />작업의뢰서 등록
               </Link>
             )}
           </CardHeader>
           <CardContent className="space-y-4">
             {po.packages.length === 0 && (
-              <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">아직 이 발주서에서 나온 작업의뢰서가 없습니다.</p>
+              <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">이 발주서에 연결된 작업의뢰서가 없습니다.</p>
             )}
             {sheets.map(sheet => (
               <div key={sheet} className="space-y-2">

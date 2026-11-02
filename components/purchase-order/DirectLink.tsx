@@ -42,10 +42,10 @@ export default function PickExistingWorkOrder({ poId }: { poId: string }) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ work_order_id: c.id }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(json.error ?? '붙이지 못했습니다.'); return; }
+      if (!res.ok) { toast.error(json.error ?? '연결하지 못했습니다.'); return; }
       toast.success(json.mode === 'package'
-        ? `작업의뢰서 ${c.work_order_number} 를 ${json.label} 에 붙였습니다 — ${json.summary}`
-        : `작업의뢰서 ${c.work_order_number} 를 이 발주서에 붙였습니다.`);
+        ? `작업의뢰서 ${c.work_order_number} 연결 완료 (${json.label}) — ${json.summary}`
+        : `작업의뢰서 ${c.work_order_number} 연결 완료`);
       setList(prev => prev?.filter(x => x.id !== c.id) ?? null);
       router.refresh();
     } finally {
@@ -62,26 +62,26 @@ export default function PickExistingWorkOrder({ poId }: { poId: string }) {
   return (
     <div className="space-y-2">
       <button type="button" onClick={toggle} className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
-        이미 등록한 작업의뢰서에서 고르기{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        등록된 작업의뢰서에서 선택{open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
       {open && (
         <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
           {!list ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />불러오는 중…</p> : <>
             <Input value={q} onChange={e => setQ(e.target.value)} placeholder="의뢰번호 · 거래처 · 현장으로 찾기" className="max-w-sm bg-card" />
-            {shown.length === 0 && <p className="text-sm text-muted-foreground">고를 수 있는 작업의뢰서가 없습니다. 이미 다른 발주서에 붙은 것은 빠집니다.</p>}
+            {shown.length === 0 && <p className="text-sm text-muted-foreground">선택 가능한 작업의뢰서가 없습니다. 다른 발주서에 연결된 작업의뢰서는 제외됩니다.</p>}
             <ul className="divide-y rounded-lg border bg-card">
               {shown.map(c => (
                 <li key={c.id} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5 text-sm">
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-brand-800">
                       {c.work_order_number}
-                      {c.site_score >= 0.5 && <span className="ml-2 rounded-md bg-success-50 px-1.5 py-0.5 text-[11px] font-semibold text-success">현장명 비슷함</span>}
-                      {c.customer_score >= 0.8 && <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">거래처 같음</span>}
+                      {c.site_score >= 0.5 && <span className="ml-2 rounded-md bg-success-50 px-1.5 py-0.5 text-[11px] font-semibold text-success">현장명 유사</span>}
+                      {c.customer_score >= 0.8 && <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">거래처 일치</span>}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">{[c.customer, c.site].filter(Boolean).join(' · ') || '-'} · {c.total}장</p>
                   </div>
                   <Button size="sm" variant="outline" onClick={() => attach(c)} disabled={busyId !== null}>
-                    {busyId === c.id ? <Loader2 className="animate-spin" /> : <Plus />}이 발주서에 붙이기
+                    {busyId === c.id ? <Loader2 className="animate-spin" /> : <Plus />}이 발주서에 연결
                   </Button>
                 </li>
               ))}

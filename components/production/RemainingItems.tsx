@@ -92,7 +92,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                 <p className="truncate text-sm text-muted-foreground">
                   {g.site ?? '-'}
                   {g.contact && (
-                    <span> · 발주 {g.contact.name}
+                    <span> · 공사 담당 {g.contact.name}
                       {g.contact.phone && (
                         <a href={telHref(g.contact.phone)} className="ml-1 inline-flex items-center gap-0.5 font-semibold text-brand-800 hover:underline">
                           <Phone className="h-3 w-3" />{g.contact.phone}
@@ -105,7 +105,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
               <span className={cn('tabular text-sm', idle != null && idle >= STALE_DAYS ? 'font-semibold text-warning' : 'text-muted-foreground')}>
                 {g.last_produced
                   ? `마지막 생산 ${g.last_produced.slice(5).replace('-', '/')}${idle === 0 ? ' · 오늘' : idle != null && idle > 0 ? ` · ${idle}일 전` : ''}`
-                  : '아직 생산 안 함'}
+                  : '생산 이력 없음'}
               </span>
               {g.delivery_date && (
                 <span className={cn('tabular text-sm', overdue ? 'font-semibold text-destructive' : 'text-muted-foreground')}>

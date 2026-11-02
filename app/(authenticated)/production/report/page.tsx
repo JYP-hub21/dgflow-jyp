@@ -149,7 +149,7 @@ function PeriodReport() {
             </div>
             <Button onClick={download} disabled={downloading || loading || !report || !!empty}>
               {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-              {downloading ? '엑셀 만드는 중…' : '복층생산일지 엑셀 · 날짜별 시트'}
+              {downloading ? '엑셀 생성 중…' : '복층생산일지 엑셀 · 날짜별 시트'}
             </Button>
           </div>
           <div className="flex flex-wrap items-end gap-3">

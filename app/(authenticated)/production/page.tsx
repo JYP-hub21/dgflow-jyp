@@ -97,10 +97,10 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
       <PageHeader
         title="생산 현황"
         description={view === 'remaining'
-          ? '아직 다 만들지 않은 품목만 모았습니다. 납기가 가까운 작업의뢰서부터 보입니다.'
+          ? '생산이 남은 품목입니다. 납기가 가까운 작업의뢰서부터 표시됩니다.'
           : view === 'outsource'
-            ? '외주로 준 작업의뢰서 — 어느 업체에서 만드는지, 누구에게 물어볼지 봅니다.'
-            : '오창공장에서 만들 진행 중인 작업의뢰서입니다. 생산 입력을 눌러 오늘 만든 수량을 적으세요.'}
+            ? '외주로 지정한 작업의뢰서의 생산 업체와 담당자 연락처를 확인합니다.'
+            : '오창공장에서 생산할 진행 중인 작업의뢰서입니다. 생산 입력에서 당일 생산 수량을 입력하세요.'}
         actions={
           <Link href="/production/report" className={buttonVariants({ variant: 'outline' })}>
             <ClipboardList />일간 생산일지
@@ -166,7 +166,7 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                 <TableHead className="pl-5">의뢰번호</TableHead>
                 <TableHead>거래처</TableHead>
                 <TableHead>현장</TableHead>
-                <TableHead>발주서 올린 사람</TableHead>
+                <TableHead>발주서 등록자</TableHead>
                 <TableHead className="text-right">완료 / 의뢰</TableHead>
                 <TableHead className="w-52">진행률</TableHead>
                 <TableHead className="pr-5 text-right"></TableHead>
@@ -246,13 +246,13 @@ function OutsourceList({ rows }: { rows: OutsourceRow[] }) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed bg-card py-10 text-center text-sm text-muted-foreground">
-        외주로 준 진행 중 작업의뢰서가 없습니다. 작업의뢰서 화면에서 생산 공장을 외주로 바꿀 수 있습니다.
+        진행 중인 외주 작업의뢰서가 없습니다. 작업의뢰서 상세 화면에서 생산 공장을 외주로 변경할 수 있습니다.
       </div>
     );
   }
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">다른 공장에 외주로 준 작업의뢰서입니다. 오창공장의 생산 현황 · 남은 품목에는 나오지 않습니다.</p>
+      <p className="text-sm text-muted-foreground">외주로 지정한 작업의뢰서입니다. 오창공장 생산 현황과 남은 품목에서는 제외됩니다.</p>
       {rows.map(r => (
         <Card key={r.id} size="sm">
           <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -265,7 +265,7 @@ function OutsourceList({ rows }: { rows: OutsourceRow[] }) {
               <SiteBadge value={r.site} withContact />
             </div>
             <div className="min-w-0 basis-48">
-              <p className="text-xs text-muted-foreground">발주서 올린 사람</p>
+              <p className="text-xs text-muted-foreground">발주서 등록자</p>
               <ContactLine contact={r.contact} />
             </div>
             <div className="flex w-40 items-center gap-2">
@@ -284,7 +284,7 @@ function Empty() {
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-10 text-center">
       <p className="text-sm text-muted-foreground">진행 중인 생산이 없습니다.</p>
       <Link href="/work-orders/receive" className={buttonVariants({ variant: 'outline' })}>
-        <ScanLine />작업의뢰서 등록하기
+        <ScanLine />작업의뢰서 등록
       </Link>
     </div>
   );

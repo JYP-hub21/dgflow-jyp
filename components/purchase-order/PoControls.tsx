@@ -50,7 +50,7 @@ export function FileDownload({ poId, file }: {
   }
   return (
     <Button variant="outline" size="sm" onClick={download} disabled={busy}>
-      {busy ? <Loader2 className="animate-spin" /> : <Download />}받기 <span className="text-muted-foreground">{formatBytes(file.size_bytes)}</span>
+      {busy ? <Loader2 className="animate-spin" /> : <Download />}다운로드 <span className="text-muted-foreground">{formatBytes(file.size_bytes)}</span>
     </Button>
   );
 }
@@ -88,13 +88,13 @@ export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assig
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2">
         {canProcess && unchecked && (
-          <Button size="sm" disabled={busy} onClick={() => run({ check: true }, '확인했습니다.')}>
-            <CheckCheck />확인했어요
+          <Button size="sm" disabled={busy} onClick={() => run({ check: true }, '확인 완료로 처리했습니다.')}>
+            <CheckCheck />확인 완료
           </Button>
         )}
         {canProcess && assigneeId !== meId && (
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => run({ assignee_id: meId }, '내가 맡았습니다.')}>
-            <UserRound />내가 맡기
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => run({ assignee_id: meId }, '본인을 담당자로 지정했습니다.')}>
+            <UserRound />본인 담당 지정
           </Button>
         )}
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setPicking(!picking)}>
@@ -112,7 +112,7 @@ export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assig
           {assignees.map(a => (
             <button key={a.id} type="button" disabled={busy || a.id === assigneeId}
               className={chipClass(a.id === assigneeId)}
-              onClick={() => run({ assignee_id: a.id }, `담당자를 ${a.name} 님으로 바꿨습니다.`)}>
+              onClick={() => run({ assignee_id: a.id }, `담당자를 ${a.name} 님으로 변경했습니다.`)}>
               {a.name}
             </button>
           ))}
@@ -191,7 +191,7 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
           {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
           <span className="truncate font-semibold">{pkg.label}</span>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {isManualPackage(pkg) ? `ERP 엑셀 없이 바로 연결 · ${pkg.total_quantity}장` : `${pkg.rows.length}행 · ${pkg.total_quantity}장`}
+            {isManualPackage(pkg) ? `직접 연결 · ${pkg.total_quantity}장` : `${pkg.rows.length}행 · ${pkg.total_quantity}장`}
           </span>
         </button>
 
@@ -231,7 +231,7 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
       {candidates && (
         <div className="space-y-2 border-t bg-muted/30 px-4 py-3">
           {candidates.length === 0 ? (
-            <p className="text-sm text-muted-foreground">규격이 닮은 작업의뢰서가 없습니다. ERP 에서 받은 파일을 올려 주세요.</p>
+            <p className="text-sm text-muted-foreground">규격이 일치하는 작업의뢰서가 없습니다. ERP에서 받은 파일을 업로드하세요.</p>
           ) : candidates.map(c => (
             <div key={c.work_order_id} className="flex flex-wrap items-center gap-3 text-sm">
               <b>{c.work_order_number}</b>

@@ -225,7 +225,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           area_m2: parsed.printed_total ? String(parsed.printed_total.area_m2) : '',
         });
         setFromExcel(true);
-        toast.warning('PDF 의 비고는 잘려 있을 수 있습니다. 엑셀이 있으면 같이 올려 주세요.');
+        toast.warning('PDF의 비고는 일부 누락될 수 있습니다. 엑셀 파일도 함께 업로드하세요.');
       }
 
       setLoaded(l => ({ ...l, pdf: file.name }));
@@ -410,7 +410,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
 
   async function handleSave() {
     if (site.site === 'outsource' && !site.partnerId) {
-      toast.error('외주 업체를 고르세요. 목록에 없으면 "새 업체" 로 더하세요.');
+      toast.error('외주 업체를 선택하세요. 목록에 없으면 "업체 추가" 로 등록하세요.');
       return;
     }
     setSaving(true);
@@ -459,7 +459,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         });
         const lj = await linked.json().catch(() => ({}));
         if (!linked.ok) toast.error(lj.error ?? '발주서에 붙이지 못했습니다.');
-        else toast.success(lj.mode === 'package' ? `발주서의 ${lj.label} 에 붙였습니다 — ${lj.summary}` : '고른 발주서에 붙였습니다.');
+        else toast.success(lj.mode === 'package' ? `발주서 ${lj.label}에 연결했습니다 — ${lj.summary}` : '선택한 발주서에 연결했습니다.');
         // 발주서 화면에서 왔으면 그리로 돌아간다
         if (target && target.po.id === poId) { router.push(`/purchase-orders/${poId}`); return; }
       } else {
@@ -514,10 +514,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             <div className="flex flex-col items-center gap-1 text-center">
               <span className="flex items-center gap-2 text-base font-bold">
                 <Upload className="h-5 w-5 text-brand-800" />
-                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 파일 2개를 올려 주세요'}
+                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 파일 2개 업로드'}
               </span>
               <span className="text-sm text-muted-foreground">
-                <b className="text-foreground">PDF 와 엑셀을 둘 다 올려야 모든 칸이 자동으로 채워집니다.</b> 눌러서 고르거나 끌어다 놓으세요 — 두 파일을 한 번에 골라도 됩니다.
+                <b className="text-foreground">PDF와 엑셀을 모두 업로드해야 모든 항목이 자동 입력됩니다.</b> 클릭하여 선택하거나 파일을 끌어다 놓으세요. 두 파일을 한 번에 선택할 수 있습니다.
               </span>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -527,10 +527,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             {(loaded.pdf || loaded.excel) && (
               <p className={cn('mt-3 text-center text-sm font-semibold', loaded.pdf && loaded.excel ? 'text-success' : 'text-foreground')}>
                 {loaded.pdf && loaded.excel
-                  ? '두 파일 모두 읽었습니다 — 아래 내용을 확인하고 등록하세요.'
+                  ? '두 파일을 모두 읽었습니다. 아래 내용을 확인한 뒤 등록하세요.'
                   : loaded.pdf
-                    ? '엑셀도 올려 주세요 — 품목 · 비고가 정확히 채워집니다.'
-                    : 'PDF 도 올려 주세요 — 의뢰번호 · 업체명 · 현장명 · 날짜가 채워집니다.'}
+                    ? '엑셀 파일도 업로드하세요. 품목과 비고가 정확하게 입력됩니다.'
+                    : 'PDF 파일도 업로드하세요. 의뢰번호 · 업체명 · 현장명 · 날짜가 입력됩니다.'}
               </p>
             )}
             <input type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden"
@@ -563,7 +563,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           <Field label="납품일자" type="date" value={head.delivery_date}
             onChange={(v) => setHead({ ...head, delivery_date: v })} />
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-            <p className="text-[13px] font-semibold">어느 발주서에서 나온 건가요? <span className="font-normal text-muted-foreground">(선택)</span></p>
+            <p className="text-[13px] font-semibold">연결할 발주서 <span className="font-normal text-muted-foreground">(선택)</span></p>
             <PoPicker value={poId} onChange={setPoId} siteHint={head.site_label} customerHint={head.customer_label} />
           </div>
           <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
@@ -701,9 +701,9 @@ function FileSlot({ kind, name }: { kind: 'pdf' | 'excel'; name?: string }) {
           <span className={pdf ? 'text-destructive' : 'text-success'}>{pdf ? 'PDF' : '엑셀'}</span>
           <span className="text-xs font-normal text-muted-foreground">{pdf ? '.pdf' : '.xlsx · .xls · .csv'}</span>
         </p>
-        <p className="text-sm text-foreground/80">{pdf ? '의뢰번호 · 업체명 · 현장명 · 날짜' : '품목 · 규격 · 수량 · 비고'}를 채워요</p>
+        <p className="text-sm text-foreground/80">{pdf ? '의뢰번호 · 업체명 · 현장명 · 날짜' : '품목 · 규격 · 수량 · 비고'} 자동 입력</p>
         <p className={cn('mt-1 flex items-center gap-1 truncate text-xs', name ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-          {name ? <><CircleCheck className="h-3.5 w-3.5 shrink-0 text-success" />{name}</> : '아직 안 올림'}
+          {name ? <><CircleCheck className="h-3.5 w-3.5 shrink-0 text-success" />{name}</> : '미업로드'}
         </p>
       </div>
     </div>

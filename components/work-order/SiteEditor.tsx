@@ -19,7 +19,7 @@ export default function SiteEditor({ workOrderId, value, partnerId, canEdit }: {
   const [busy, setBusy] = useState(false);
 
   async function save() {
-    if (draft.site === 'outsource' && !draft.partnerId) { toast.error('외주 업체를 고르세요.'); return; }
+    if (draft.site === 'outsource' && !draft.partnerId) { toast.error('외주 업체를 선택하세요.'); return; }
     setBusy(true);
     try {
       const res = await fetch(`/api/work-orders/${workOrderId}/site`, {
@@ -28,8 +28,8 @@ export default function SiteEditor({ workOrderId, value, partnerId, canEdit }: {
         body: JSON.stringify({ production_site: draft.site, outsource_partner_id: draft.partnerId || null }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(json.error ?? '바꾸지 못했습니다.'); return; }
-      toast.success(draft.site === 'ochang' ? '오창공장에서 생산합니다.' : '외주로 바꿨습니다.');
+      if (!res.ok) { toast.error(json.error ?? '변경하지 못했습니다.'); return; }
+      toast.success(draft.site === 'ochang' ? '생산 공장을 오창공장으로 변경했습니다.' : '생산 공장을 외주로 변경했습니다.');
       setEditing(false);
       router.refresh();
     } finally {
@@ -43,7 +43,7 @@ export default function SiteEditor({ workOrderId, value, partnerId, canEdit }: {
         <SiteBadge value={value} withContact />
         {canEdit && (
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} className="h-7 px-2 text-xs text-muted-foreground">
-            <ArrowLeftRight />바꾸기
+            <ArrowLeftRight />변경
           </Button>
         )}
       </div>

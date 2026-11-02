@@ -92,7 +92,7 @@ export default function SheetEditor({
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={onDownload}>
-              <Download />이 포장만 받기
+              <Download />이 포장만 다운로드
             </Button>
           </div>
         </div>

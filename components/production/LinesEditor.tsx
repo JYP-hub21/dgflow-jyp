@@ -50,7 +50,7 @@ export default function LinesEditor({ lines, storage, onSaved, onClose }: {
   return (
     <div className="w-full space-y-3 rounded-xl border bg-muted/30 p-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-bold">호기 편집 <span className="font-normal text-muted-foreground">— 이름을 바꾸거나 새 호기(미니라인 등)를 더합니다</span></p>
+        <p className="text-sm font-bold">호기 편집 <span className="font-normal text-muted-foreground">— 호기 이름 변경 및 신규 호기(미니라인 등) 추가</span></p>
         <button type="button" onClick={onClose} aria-label="닫기" className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
       </div>
       {storage === 'none' && (
@@ -73,7 +73,7 @@ export default function LinesEditor({ lines, storage, onSaved, onClose }: {
       </div>
       {error && <p className="text-sm font-medium text-destructive">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={add} disabled={draft.length >= 20}><Plus />호기 더하기</Button>
+        <Button variant="outline" size="sm" onClick={add} disabled={draft.length >= 20}><Plus />호기 추가</Button>
         <Button size="sm" onClick={save} disabled={saving || storage === 'none'}><Save />{saving ? '저장 중…' : '저장'}</Button>
       </div>
     </div>

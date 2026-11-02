@@ -123,7 +123,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
                   <TableCell className="text-sm">
                     {p.checked_at
                       ? <span className="text-success">✓ {format(new Date(p.checked_at), 'MM/dd HH:mm')}</span>
-                      : p.derived === 'cancelled' ? '-' : <span className="font-semibold text-warning">아직 안 봄</span>}
+                      : p.derived === 'cancelled' ? '-' : <span className="font-semibold text-warning">미확인</span>}
                   </TableCell>
                   <TableCell>
                     <StageBadge stage={p.derived} stalledDays={p.stalled_days} />

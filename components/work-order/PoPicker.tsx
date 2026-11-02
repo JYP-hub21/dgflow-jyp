@@ -35,7 +35,7 @@ export default function PoPicker({ value, onChange, siteHint, customerHint }: {
   return (
     <div className="space-y-1.5">
       <NativeSelect className="w-full sm:max-w-xl" value={value} onChange={e => onChange(e.target.value)} aria-label="발주서">
-        <option value="">{options ? '고르지 않음 (발주서 없이 등록)' : '발주서 불러오는 중…'}</option>
+        <option value="">{options ? '선택 안 함 (발주서 없이 등록)' : '발주서 불러오는 중…'}</option>
         {ranked.map(({ o, score }) => (
           <option key={o.id} value={o.id}>
             {score >= 0.5 ? '★ ' : ''}{o.intake_number} · {o.site_name || o.customer_name || '현장명 없음'} · {o.creator_name}
@@ -45,11 +45,11 @@ export default function PoPicker({ value, onChange, siteHint, customerHint }: {
       {!value && best && (
         <button type="button" onClick={() => onChange(best.id)}
           className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-1 text-sm font-medium text-brand-800 hover:bg-brand-100">
-          <Sparkles className="h-3.5 w-3.5" />현장이 비슷한 발주서: {best.intake_number} · {best.site_name || best.customer_name} — 고르기
+          <Sparkles className="h-3.5 w-3.5" />현장명이 유사한 발주서: {best.intake_number} · {best.site_name || best.customer_name} — 선택
         </button>
       )}
       <p className="text-xs text-muted-foreground">
-        공사 담당자가 시스템에 올린 발주서에서 나온 작업의뢰서면 골라 주세요. 그 발주서에 진행률이 보이고, 생산 화면에 발주서 올린 사람이 뜹니다.
+        공사 담당자가 등록한 발주서로 발행된 작업의뢰서라면 선택하세요. 해당 발주서에 생산 진행률이 표시되고, 생산 화면에 발주서 등록자가 표시됩니다.
       </p>
     </div>
   );

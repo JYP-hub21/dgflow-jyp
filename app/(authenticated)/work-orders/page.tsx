@@ -132,7 +132,7 @@ function Empty() {
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-10 text-center">
       <p className="text-sm text-muted-foreground">작업의뢰서가 없습니다.</p>
       <Link href="/work-orders/receive" className={buttonVariants({ variant: 'outline' })}>
-        <ScanLine />작업의뢰서 등록하기
+        <ScanLine />작업의뢰서 등록
       </Link>
     </div>
   );

@@ -46,7 +46,7 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
     }
   }
   async function save() {
-    if (!chosen) { toast.error('담당자를 고르세요.'); return; }
+    if (!chosen) { toast.error('담당자를 선택하세요.'); return; }
     setBusy(true);
     try {
       const res = await fetch('/api/site-contacts', {
@@ -54,8 +54,8 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
         body: JSON.stringify({ site_label: siteLabel, user_id: chosen }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) { toast.error(json.error ?? '정하지 못했습니다.'); return; }
-      toast.success(`${siteLabel} 현장의 담당자를 정했습니다. 이 현장 작업의뢰서 전부에 보입니다.`);
+      if (!res.ok) { toast.error(json.error ?? '지정하지 못했습니다.'); return; }
+      toast.success(`${siteLabel} 현장의 공사 담당자를 지정했습니다. 해당 현장의 모든 작업의뢰서에 표시됩니다.`);
       setPicking(false);
       if (onChanged) onChanged(); else router.refresh();
     } finally {
@@ -69,12 +69,12 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
         <p className="text-xs text-muted-foreground"><b className="text-foreground">{siteLabel}</b> 현장의 공사 담당자</p>
         <div className="flex flex-wrap items-center gap-2">
           <NativeSelect className="w-56" value={chosen} onChange={e => setChosen(e.target.value)} aria-label="공사 담당자">
-            <option value="">{candidates ? '담당자를 고르세요' : '불러오는 중…'}</option>
+            <option value="">{candidates ? '담당자 선택' : '불러오는 중…'}</option>
             {(candidates ?? []).map(c => (
               <option key={c.id} value={c.id}>{c.name}{c.department ? ` · ${c.department}` : ''}{c.phone ? ` · ${c.phone}` : ''}</option>
             ))}
           </NativeSelect>
-          <Button size="sm" onClick={save} disabled={busy}>정하기</Button>
+          <Button size="sm" onClick={save} disabled={busy}>지정</Button>
           <Button size="sm" variant="ghost" onClick={() => setPicking(false)} disabled={busy}>취소</Button>
         </div>
       </div>
@@ -84,9 +84,9 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
   if (!contact) {
     return (
       <div className={cn('flex items-center gap-3 rounded-xl border border-dashed bg-card px-4 py-2.5 text-xs text-muted-foreground', className)}>
-        <span>공사 담당자가 아직 정해지지 않았습니다</span>
+        <span>지정된 공사 담당자가 없습니다</span>
         {assignable && (
-          <Button size="sm" variant="outline" onClick={open} className="h-8"><UserPlus />담당자 정하기</Button>
+          <Button size="sm" variant="outline" onClick={open} className="h-8"><UserPlus />담당자 지정</Button>
         )}
       </div>
     );
@@ -98,7 +98,7 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
       </span>
       <div className="min-w-0 text-sm">
         <p className="text-xs text-muted-foreground">
-          {contact.source === 'po' ? '발주서 올린 사람' : '현장 공사 담당'}{contact.department ? ` · ${contact.department}` : ''}
+          {contact.source === 'po' ? '발주서 등록자' : '현장 공사 담당자'}{contact.department ? ` · ${contact.department}` : ''}
         </p>
         <p className="flex flex-wrap items-center gap-x-2">
           <b>{contact.name}</b>
@@ -106,11 +106,11 @@ export default function ContactCard({ contact, siteLabel, canAssign = false, onC
             ? <a href={telHref(contact.phone)} className="inline-flex items-center gap-1 font-semibold text-brand-800 hover:underline">
                 <Phone className="h-3.5 w-3.5" />{contact.phone}
               </a>
-            : <span className="text-xs text-muted-foreground">전화번호 없음</span>}
+            : <span className="text-xs text-muted-foreground">연락처 없음</span>}
         </p>
       </div>
       {assignable && (
-        <button type="button" onClick={open} title="현장 담당자 바꾸기"
+        <button type="button" onClick={open} title="현장 담당자 변경"
           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
           <Pencil className="h-3.5 w-3.5" />
         </button>

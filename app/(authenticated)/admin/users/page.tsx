@@ -265,7 +265,7 @@ export default function UsersPage() {
                     permissions: editing.permissions,
                     ...(newPassword ? { password: newPassword } : {}),
                   }),
-                  newPassword ? `${editing.name} 님 정보를 저장하고 비밀번호를 바꿨습니다.` : `${editing.name} 님 정보를 저장했습니다.`,
+                  newPassword ? `${editing.name} 님 정보를 저장하고 비밀번호를 변경했습니다.` : `${editing.name} 님 정보를 저장했습니다.`,
                   () => { setEditing(null); setNewPassword(''); },
                 )}>
                   <Save />{saving ? '저장 중...' : '저장'}

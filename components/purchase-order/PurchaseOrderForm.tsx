@@ -49,7 +49,7 @@ export default function PurchaseOrderForm({ meId, assignees, customers, sites }:
   async function submit() {
     setError('');
     if (files.length === 0) { setError('발주서 파일을 올리세요.'); return; }
-    if (!assigneeId) { setError('담당자를 고르세요.'); return; }
+    if (!assigneeId) { setError('담당자를 선택하세요.'); return; }
 
     const supabase = createClient();
     const id = crypto.randomUUID();
@@ -96,7 +96,7 @@ export default function PurchaseOrderForm({ meId, assignees, customers, sites }:
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-100 text-brand-800 group-hover:bg-brand-800 group-hover:text-white">
               <Upload className="h-5 w-5" />
             </span>
-            <span className="text-[15px] font-semibold">{dragging ? '여기에 놓으세요' : '발주서 엑셀을 고르세요'}</span>
+            <span className="text-[15px] font-semibold">{dragging ? '여기에 파일을 놓으세요' : '발주서 엑셀 파일 선택'}</span>
             <span className="text-sm text-muted-foreground">눌러서 고르거나 끌어다 놓으세요. 여러 개를 같이 올려도 되고, 그림이 많은 큰 파일도 됩니다.</span>
             <input type="file" multiple className="hidden" disabled={busy}
               onChange={e => { addFiles(e.target.files); e.target.value = ''; }} />

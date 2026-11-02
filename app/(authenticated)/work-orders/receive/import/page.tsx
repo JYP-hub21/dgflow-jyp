@@ -184,9 +184,9 @@ export default function ImportWorkOrdersPage() {
                 <p className="font-semibold">잔여가 남은 의뢰서 {withRemaining}건은</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Choice on={remainingStatus === 'archive'} onClick={() => setRemainingStatus('archive')}
-                    title="완료로 보관 (권장)" desc="지난 기록으로만 남깁니다. 생산 현황 · 대시보드의 진행 중 목록에는 뜨지 않습니다." />
+                    title="완료로 보관 (권장)" desc="지난 기록으로만 보관합니다. 생산 현황 · 대시보드의 진행 중 목록에는 표시되지 않습니다." />
                   <Choice on={remainingStatus === 'active'} onClick={() => setRemainingStatus('active')}
-                    title="진행 중으로 띄우기" desc="생산 현황에 남은 수량과 함께 뜹니다. 실제로 아직 만드는 의뢰서만 있을 때 고르세요." />
+                    title="진행 중으로 등록" desc="생산 현황에 잔여 수량과 함께 표시됩니다. 현재 생산 중인 의뢰서만 있는 경우 선택하세요." />
                 </div>
                 {remainingStatus === 'active' && producedFromShipped && (
                   <p className="flex items-start gap-1.5 rounded-lg bg-warning-50 px-3 py-2 text-xs">

@@ -182,7 +182,7 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
       )}
       {days.length > 0 && (
         <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground" title={days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}>
-          <CalendarDays className="h-3.5 w-3.5" />생산한 날 {days.length}일 · 날짜별 기록은 수정에서
+          <CalendarDays className="h-3.5 w-3.5" />생산일 {days.length}일 · 일자별 기록은 수정에서 확인
         </div>
       )}
 

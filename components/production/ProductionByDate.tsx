@@ -69,7 +69,7 @@ export default function ProductionByDate({ logs, items, compact = false }: {
     return (
       <div className="flex flex-col items-center gap-2 px-5 py-12 text-center text-sm text-muted-foreground">
         <CalendarDays className="h-8 w-8 text-muted-foreground/50" />
-        아직 생산 기록이 없습니다. 품목별 입력에서 저장하면 날짜별로 모입니다.
+        생산 기록이 없습니다. 품목별 입력에서 저장하면 일자별로 집계됩니다.
       </div>
     );
   }
@@ -94,16 +94,16 @@ export default function ProductionByDate({ logs, items, compact = false }: {
     <div>
       {/* 1. 요약 */}
       <div className={cn('grid gap-px border-b bg-border', compact ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>
-        <Stat label="생산한 날" value={`${days.length}일`} sub={first === last ? dayLabel(first) : `${shortDate(first)} – ${shortDate(last)} · ${span}일 동안`} />
+        <Stat label="생산 일수" value={`${days.length}일`} sub={first === last ? dayLabel(first) : `${shortDate(first)} – ${shortDate(last)} · ${span}일간`} />
         <Stat label="총 생산" value={`${total.toLocaleString()}장`} sub={`${area.toFixed(1)}㎡`} />
-        <Stat label="하루 평균" value={`${Math.round(total / days.length).toLocaleString()}장`} sub="생산한 날 기준" />
-        <Stat label="가장 많이 만든 날" value={dayLabel(best.date)} sub={`${best.quantity.toLocaleString()}장 · ${best.itemCount}품목`} />
+        <Stat label="일평균 생산" value={`${Math.round(total / days.length).toLocaleString()}장`} sub="생산일 기준" />
+        <Stat label="최다 생산일" value={dayLabel(best.date)} sub={`${best.quantity.toLocaleString()}장 · ${best.itemCount}품목`} />
       </div>
 
       {/* 2. 날마다 만든 수량 */}
       <div className="border-b px-3 pb-2 pt-4 sm:px-5">
         <p className="mb-2 px-1 text-xs font-semibold text-muted-foreground">
-          날마다 만든 수량 <span className="font-normal">— 막대를 누르면 그날 품목이 아래에 펼쳐집니다{span > CALENDAR_DAYS && ' (생산한 날만)'}</span>
+          일별 생산 수량 <span className="font-normal">— 막대를 클릭하면 해당 일자의 품목이 아래에 표시됩니다{span > CALENDAR_DAYS && ' (생산일만 표시)'}</span>
         </p>
         <div className="h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">

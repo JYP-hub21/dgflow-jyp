@@ -204,15 +204,15 @@ export default function BokcheungLog() {
             <SaveBadge state={save} canEdit={canEdit} />
             {canEdit && (
               <Button variant="outline" onClick={fillSuggestions} disabled={!sheet || missingNote === 0}>
-                <Wand2 />수량외 제안값 채우기
+                <Wand2 />수량외 추천값 입력
               </Button>
             )}
             <Button variant="outline" onClick={() => router.push('/production/report?view=period')}>
-              <CalendarRange />기간으로 받기
+              <CalendarRange />기간별 다운로드
             </Button>
             <Button onClick={download} disabled={!sheet || downloading || loading}>
               {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-              {downloading ? '엑셀 만드는 중…' : '이 날 엑셀'}
+              {downloading ? '엑셀 생성 중…' : '엑셀 다운로드'}
             </Button>
           </div>
         </CardContent>
