@@ -1,8 +1,14 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
-import { DEFAULT_LINES, lineName } from '@/lib/production/lines';
-import { loadLines } from '@/lib/production/lines-store';
 import { itemNo } from '@/lib/production/item-view';
+import { contactsForWorkOrders } from '@/lib/production/contacts';
+import { toWorkOrderSite } from '@/lib/work-order/site';
+import { CONTACT_EDITORS, SITE_EDITORS } from '@/lib/work-order/site-server';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { hasAnyPermission } from '@/lib/auth/role-guard';
+import SiteEditor from '@/components/work-order/SiteEditor';
+import ContactCard from '@/components/work-order/ContactCard';
+import ProductionByDate from '@/components/production/ProductionByDate';
 import Link from 'next/link';
 import { workOrderLabels } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
@@ -24,6 +30,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     .from('dgflow_work_orders')
     .select(`
       *,
+      outsource_partner:dgflow_outsource_partners(name, contact_name, phone),
       order:dgflow_orders(
         order_number, order_date, delivery_date, remark,
         customer:dgflow_customers(name, short_name),
@@ -58,15 +65,12 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   const totalProduced = woItems.reduce((s, i) => s + i.produced_quantity, 0);
   const overallProgress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
 
-  // 복층 생산 이력
+  // 복층 생산 기록 — 전부 (예전에는 최근 20건만 보여 한 달씩 만든 의뢰서는 앞이 잘렸다). 날짜별로 접어 보인다
   const { data: productionLogs } = await supabase
     .from('dgflow_production_logs')
-    .select('*, created_by_user:dgflow_users!created_by(name)')
+    .select('work_order_item_id, production_date, quantity_completed, area_m2, shift, line_number')
     .eq('work_order_id', id)
-    .order('production_date', { ascending: false })
-    .limit(20);
-  // 호기 이름 — 편집으로 바꾸거나 더할 수 있다 (못 읽으면 1호기 · 2호기)
-  const { lines } = await loadLines(supabase).catch(() => ({ lines: DEFAULT_LINES }));
+    .order('production_date', { ascending: false });
 
   // 재단 이력
   const { data: cuttingLogs } = await supabase
@@ -83,6 +87,13 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
     .eq('work_order_id', id)
     .maybeSingle();
   const sourcePo = (Array.isArray(source?.po) ? source?.po[0] : source?.po) as { id: string; intake_number: string } | undefined;
+
+  // 생산 공장(오창 · 외주) · 발주서를 올린 사람 (2026-11-02 요청)
+  const [user, contacts] = await Promise.all([getCurrentUser(), contactsForWorkOrders(supabase, [id])]);
+  const site = toWorkOrderSite(workOrder);
+  const contact = contacts.get(id) ?? null;
+  const canEditSite = !!user && hasAnyPermission(user, SITE_EDITORS);
+  const canAssignContact = !!user && hasAnyPermission(user, CONTACT_EDITORS);
 
   const meta = [
     { label: '의뢰일', value: workOrder.request_date },
@@ -148,6 +159,17 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
+      {/* 어디서 만드는가 · 누구에게 물어보나 */}
+      <Card>
+        <CardContent className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
+          <div>
+            <p className="mb-1.5 text-xs font-semibold text-muted-foreground">생산 공장</p>
+            <SiteEditor workOrderId={id} value={site} partnerId={(workOrder.outsource_partner_id as string | null) ?? null} canEdit={canEditSite} />
+          </div>
+          <ContactCard contact={contact} siteLabel={labels.site} canAssign={canAssignContact} />
+        </CardContent>
+      </Card>
+
       {/* 품목별 진행률 */}
       <Card className="gap-0 pb-0">
         <CardHeader className="border-b">
@@ -195,30 +217,12 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
 
       {/* 생산 이력 + 재단 이력 */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">복층 생산 이력 <span className="font-normal text-muted-foreground">{(productionLogs || []).length}건</span></CardTitle>
+        <Card className="gap-0 pb-0">
+          <CardHeader className="border-b">
+            <CardTitle className="text-lg">날짜별 생산</CardTitle>
           </CardHeader>
-          <CardContent>
-            {(!productionLogs || productionLogs.length === 0) ? (
-              <EmptyBox text="생산 이력이 없습니다" />
-            ) : (
-              <div className="divide-y rounded-lg border">
-                {productionLogs.map(log => (
-                  <div key={log.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
-                    <div className="tabular">
-                      <span className="font-semibold">{log.production_date}</span>
-                      <span className="ml-2 font-semibold text-brand-800">{log.quantity_completed}장</span>
-                      {log.area_m2 && <span className="ml-1 text-muted-foreground">({Number(log.area_m2).toFixed(1)}m²)</span>}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{log.shift === 'night' ? '야간' : '주간'} · {lineName(lines, log.line_number)}</span>
-                      <span>{(log.created_by_user as { name: string } | null)?.name}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <CardContent className="p-0">
+            <ProductionByDate logs={productionLogs ?? []} items={woItems} />
           </CardContent>
         </Card>
 

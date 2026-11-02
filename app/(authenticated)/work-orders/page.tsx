@@ -8,6 +8,8 @@ import { buttonVariants } from '@/components/ui/button';
 import PageHeader from '@/components/layout/PageHeader';
 import PermissionGate from '@/components/layout/PermissionGate';
 import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
+import SiteBadge from '@/components/work-order/SiteBadge';
+import { toWorkOrderSite } from '@/lib/work-order/site';
 import { ScanLine, FileText, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 20;
@@ -28,7 +30,7 @@ async function WorkOrdersPage({ searchParams }: Props) {
 
   const { data: workOrders, count } = await supabase
     .from('dgflow_work_orders')
-    .select(`*, order:dgflow_orders(order_number, customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`, { count: 'exact' })
+    .select(`*, outsource_partner:dgflow_outsource_partners(name, contact_name, phone), order:dgflow_orders(order_number, customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`, { count: 'exact' })
     .order('created_at', { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1);
 
@@ -60,6 +62,7 @@ async function WorkOrdersPage({ searchParams }: Props) {
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">
                   {[labels.customer, labels.site].filter(Boolean).join(' · ') || '-'}
                 </p>
+                <SiteBadge value={toWorkOrderSite(wo)} className="mt-1.5" />
               </div>
               <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
             </Link>
@@ -78,13 +81,14 @@ async function WorkOrdersPage({ searchParams }: Props) {
                 <TableHead>현장</TableHead>
                 <TableHead>의뢰일</TableHead>
                 <TableHead>납품일</TableHead>
+                <TableHead>생산 공장</TableHead>
                 <TableHead>상태</TableHead>
                 <TableHead className="pr-5"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(!workOrders || workOrders.length === 0) ? (
-                <TableRow><TableCell colSpan={7} className="p-6"><Empty /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="p-6"><Empty /></TableCell></TableRow>
               ) : workOrders.map(wo => {
                 // ERP 에서 등록한 작업의뢰서는 주문이 없어 자신의 라벨을 쓴다
                 const labels = workOrderLabels(wo);
@@ -99,6 +103,7 @@ async function WorkOrdersPage({ searchParams }: Props) {
                     <TableCell className="max-w-[240px] truncate text-muted-foreground">{labels.site ?? '-'}</TableCell>
                     <TableCell className="tabular">{wo.request_date}</TableCell>
                     <TableCell className="tabular">{wo.delivery_date || '-'}</TableCell>
+                    <TableCell><SiteBadge value={toWorkOrderSite(wo)} /></TableCell>
                     <TableCell><WorkOrderStatusBadge status={wo.status} /></TableCell>
                     <TableCell className="pr-5">
                       <div className="flex justify-end gap-2">

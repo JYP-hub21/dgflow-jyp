@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, ChevronUp, Check, Pencil } from 'lucide-react';
 import QtyStepper from './QtyStepper';
-import { formatDays, itemNo, type DayQty } from '@/lib/production/item-view';
+import { blockTotals, daysSummary, itemNo, type BlockTotal, type DayQty } from '@/lib/production/item-view';
 
 /**
  * 폰에서 쓰는 생산실적 입력.
@@ -27,8 +27,11 @@ export interface CardItem {
   height_mm: number;
   quantity: number;
   produced_quantity: number;
+  area_m2?: number | null;
   remark?: string | null;
   sort_order?: number;
+  /** 종이 작업의뢰서의 NO */
+  item_no?: number | null;
 }
 
 interface Props {
@@ -50,14 +53,39 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
   const todo = items.filter((i) => remainingOf(i) > 0);
   const done = items.filter((i) => remainingOf(i) <= 0);
 
+  // 품명 덩어리 소계 — 작업의뢰서 종이처럼. 남은 품목 카드 중 그 덩어리의 마지막 카드 아래에 붙인다
+  const blocks = blockTotals(items);
+  const blockOfIndex = new Map<number, BlockTotal>();
+  blocks.forEach((b, k) => { for (let i = k === 0 ? 0 : blocks[k - 1].endIndex + 1; i <= b.endIndex; i++) blockOfIndex.set(i, b); });
+  const lastTodoOfBlock = new Map<BlockTotal, string>();
+  for (const it of todo) { const b = blockOfIndex.get(items.indexOf(it)); if (b) lastTodoOfBlock.set(b, it.id); }
+  const subtotalAfter = (item: CardItem) => {
+    if (blocks.length < 2) return null;
+    const b = blockOfIndex.get(items.indexOf(item));
+    return b && lastTodoOfBlock.get(b) === item.id ? b : null;
+  };
+
   return (
     <div className="space-y-2">
-      {todo.map((item) => (
-        <ItemCard key={item.id} item={item} no={itemNo(item, items.indexOf(item))} remaining={remainingOf(item)}
-          value={quantities[item.id] ?? ''} onChange={onChange} days={daysByItem?.get(item.id) ?? []}
-          editing={editItemId === item.id} onToggleEdit={() => toggleEdit(item.id)}
-          logs={editItemId === item.id && renderLogs(item.id)} />
-      ))}
+      {todo.map((item) => {
+        const sub = subtotalAfter(item);
+        return (
+          <div key={item.id} className="space-y-2">
+            <ItemCard item={item} no={itemNo(item, items.indexOf(item))} remaining={remainingOf(item)}
+              value={quantities[item.id] ?? ''} onChange={onChange} days={daysByItem?.get(item.id) ?? []}
+              editing={editItemId === item.id} onToggleEdit={() => toggleEdit(item.id)}
+              logs={editItemId === item.id && renderLogs(item.id)} />
+            {sub && (
+              <div className="rounded-lg bg-muted/70 px-3 py-2 text-xs">
+                <p className="truncate font-semibold text-muted-foreground">소계 · {sub.product_name}</p>
+                <p className="tabular mt-0.5">
+                  {sub.count}품목 · 의뢰 <b>{sub.quantity}</b> · 완료 {sub.produced} · 남음 <b>{sub.quantity - sub.produced}</b> · {sub.area_m2.toFixed(2)}㎡
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {todo.length === 0 && (
         <div className="rounded-xl border border-success/30 bg-success-50 px-4 py-6 text-center">
@@ -127,11 +155,11 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
         <span className="mr-1.5 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
         {item.product_name}
       </div>
-      {item.remark && <div className="mt-1 break-all text-xs text-muted-foreground">{item.remark}</div>}
+      {item.remark && <div className="mt-1 break-all text-[13px] text-foreground/75">{item.remark}</div>}
       <div className="mt-0.5 text-sm text-muted-foreground tabular-nums">
         {item.width_mm}×{item.height_mm} · 의뢰 {item.quantity} · 완료 {item.produced_quantity}
       </div>
-      {days.length > 0 && <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">생산 {formatDays(days)}</div>}
+      {days.length > 0 && <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">생산 {daysSummary(days)}</div>}
 
       <div className="mt-3 flex items-center gap-2">
         <div className="shrink-0 tabular-nums">

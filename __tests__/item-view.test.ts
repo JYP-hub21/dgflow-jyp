@@ -17,10 +17,16 @@ describe('생산 화면 품목 번호 · 소계 · 생산 날짜', () => {
       { product_name: '24T 5CL+14A+5CL', quantity: 2, produced_quantity: 2 },
     ];
     expect(blockTotals(items)).toEqual([
-      { product_name: '24T 5CL+14A+5CL', endIndex: 1, count: 2, quantity: 14, produced: 11 },
-      { product_name: '22T 5PL+12A+5CL', endIndex: 2, count: 1, quantity: 3, produced: 0 },
-      { product_name: '24T 5CL+14A+5CL', endIndex: 3, count: 1, quantity: 2, produced: 2 },
+      { product_name: '24T 5CL+14A+5CL', endIndex: 1, count: 2, quantity: 14, produced: 11, area_m2: 0 },
+      { product_name: '22T 5PL+12A+5CL', endIndex: 2, count: 1, quantity: 3, produced: 0, area_m2: 0 },
+      { product_name: '24T 5CL+14A+5CL', endIndex: 3, count: 1, quantity: 2, produced: 2, area_m2: 0 },
     ]);
+    // 작업의뢰서 26-2090 첫 두 덩어리 — 소계 수량 2 · 5.06㎡, 28 · 16.60㎡
+    const paper = [
+      { product_name: 'A', quantity: 2, produced_quantity: 0, area_m2: 5.06 },
+      ...[5.48, 2.92, 2.92, 1.76, 1.2, 1.2, 1.12].map(a => ({ product_name: 'B', quantity: 4, produced_quantity: 0, area_m2: a })),
+    ];
+    expect(blockTotals(paper).map(b => [b.quantity, b.area_m2])).toEqual([[2, 5.06], [28, 16.6]]);
     expect(blockTotals([])).toEqual([]);
   });
 

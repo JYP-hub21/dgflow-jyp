@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasPermission, type PermissionSubject } from '@/lib/auth/role-guard';
 import { deriveStage, stalledDays, type PoStage, type StoredStage } from './stage';
 import type { CheckResult } from './match';
+import { SITE_SELECT, toWorkOrderSite, type WorkOrderSite } from '@/lib/work-order/site';
 
 /** 서버 전용 — service role 클라이언트를 받아 발주 건을 읽고 쓴다 */
 
@@ -74,7 +75,8 @@ export interface PoPackage {
   work_order_id: string | null;
   linked_at: string | null;
   check_result: CheckResult | null;
-  work_order: { id: string; work_order_number: string; total: number; produced: number } | null;
+  /** 이어진 작업의뢰서 — 어디서 만드는지(오창 · 외주 업체)까지 */
+  work_order: { id: string; work_order_number: string; total: number; produced: number; site: WorkOrderSite } | null;
 }
 
 export interface PoSummary extends PoRow {
@@ -86,6 +88,17 @@ export interface PoSummary extends PoRow {
   stalled_days: number | null;
   produced: number;
   total: number;
+  /** 이어진 작업의뢰서들의 생산 공장 — 목록에서 "오창공장 · 외주 ○○" 로 (2026-11-02) */
+  sites: WorkOrderSite[];
+}
+
+/** 작업의뢰서별 생산 공장 (오창 · 외주 업체와 담당자) */
+async function workOrderSites(supabase: SupabaseClient, ids: string[]) {
+  const map = new Map<string, WorkOrderSite>();
+  if (ids.length === 0) return map;
+  const { data } = await supabase.from('dgflow_work_orders').select(`id, ${SITE_SELECT}`).in('id', ids);
+  for (const w of data ?? []) map.set(w.id as string, toWorkOrderSite(w));
+  return map;
 }
 
 async function userNames(supabase: SupabaseClient, ids: (string | null)[]) {
@@ -129,7 +142,8 @@ export async function listPurchaseOrders(supabase: SupabaseClient, opts: { limit
     .from('dgflow_purchase_order_packages')
     .select('purchase_order_id, work_order_id')
     .in('purchase_order_id', rows.map(r => r.id));
-  const progress = await workOrderProgress(supabase, (pkgs ?? []).map(p => p.work_order_id).filter(Boolean));
+  const linkedIds = (pkgs ?? []).map(p => p.work_order_id).filter(Boolean);
+  const [progress, sites] = await Promise.all([workOrderProgress(supabase, linkedIds), workOrderSites(supabase, linkedIds)]);
   const names = await userNames(supabase, rows.flatMap(r => [r.created_by, r.assignee_id]));
 
   return rows.map(r => {
@@ -148,8 +162,16 @@ export async function listPurchaseOrders(supabase: SupabaseClient, opts: { limit
       stalled_days: stalledDays({ ...r, stage: derived }),
       produced: mine.reduce((n, p) => n + (p.produced ?? 0), 0),
       total: mine.reduce((n, p) => n + (p.total ?? 0), 0),
+      sites: uniqueSites(mine.map(p => (p.work_order_id ? sites.get(p.work_order_id) : undefined))),
     };
   });
+}
+
+/** 같은 공장(같은 외주 업체)은 한 번만 */
+function uniqueSites(list: (WorkOrderSite | undefined)[]): WorkOrderSite[] {
+  const seen = new Map<string, WorkOrderSite>();
+  for (const s of list) if (s) seen.set(s.site === 'ochang' ? 'ochang' : `o:${s.partner?.name ?? ''}`, s);
+  return [...seen.values()];
 }
 
 export interface PoFile {
@@ -194,9 +216,10 @@ export async function loadPurchaseOrder(supabase: SupabaseClient, id: string): P
   const woIds = (pkgs ?? []).map(p => p.work_order_id).filter(Boolean) as string[];
   const progress = await workOrderProgress(supabase, woIds);
   const { data: wos } = woIds.length
-    ? await supabase.from('dgflow_work_orders').select('id, work_order_number').in('id', woIds)
+    ? await supabase.from('dgflow_work_orders').select(`id, work_order_number, ${SITE_SELECT}`).in('id', woIds)
     : { data: [] };
   const woNumber = new Map((wos ?? []).map(w => [w.id as string, w.work_order_number as string]));
+  const woSite = new Map((wos ?? []).map(w => [w.id as string, toWorkOrderSite(w)]));
 
   const names = await userNames(supabase, [
     row.created_by, row.assignee_id, row.checked_by, ...(events ?? []).map(e => e.user_id),
@@ -205,7 +228,11 @@ export async function loadPurchaseOrder(supabase: SupabaseClient, id: string): P
   const packages: PoPackage[] = (pkgs ?? []).map(p => ({
     ...p,
     work_order: p.work_order_id
-      ? { id: p.work_order_id, work_order_number: woNumber.get(p.work_order_id) ?? '?', ...(progress.get(p.work_order_id) ?? { total: 0, produced: 0 }) }
+      ? {
+          id: p.work_order_id, work_order_number: woNumber.get(p.work_order_id) ?? '?',
+          ...(progress.get(p.work_order_id) ?? { total: 0, produced: 0 }),
+          site: woSite.get(p.work_order_id) ?? { site: 'ochang' as const, partner: null },
+        }
       : null,
   }));
   const derived = deriveStage(row.stage, packages.map(p => ({
@@ -223,6 +250,7 @@ export async function loadPurchaseOrder(supabase: SupabaseClient, id: string): P
     stalled_days: stalledDays({ ...row, stage: derived }),
     produced: packages.reduce((n, p) => n + (p.work_order?.produced ?? 0), 0),
     total: packages.reduce((n, p) => n + (p.work_order?.total ?? 0), 0),
+    sites: uniqueSites(packages.map(p => p.work_order?.site)),
     files: (files ?? []) as PoFile[],
     packages,
     events: (events ?? []).map(e => ({ ...e, user_name: e.user_id ? names.get(e.user_id) ?? '-' : '시스템' })) as PoEvent[],

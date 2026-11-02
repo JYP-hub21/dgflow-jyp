@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { buttonVariants } from '@/components/ui/button';
-import { Factory, CheckCircle } from 'lucide-react';
+import { Factory, CheckCircle, Phone } from 'lucide-react';
+import type { SiteContact } from '@/lib/production/contacts';
+import { telHref } from '@/lib/work-order/site';
 import { daysBetweenDates, itemNo } from '@/lib/production/item-view';
 
 /**
@@ -20,8 +22,9 @@ export interface RemainingItem {
   height_mm: number;
   quantity: number;
   produced_quantity: number;
-  /** 작업의뢰서 품목 번호 = sort_order + 1 — 남은 것만 보여도 종이와 번호로 맞춘다 */
+  /** 작업의뢰서 품목 번호 — 종이의 NO(item_no), 없으면 sort_order + 1. 남은 것만 보여도 종이와 번호로 맞춘다 */
   sort_order?: number;
+  item_no?: number | null;
   remark?: string | null;
 }
 
@@ -34,8 +37,8 @@ export interface RemainingGroup {
   items: RemainingItem[];
   /** 이 의뢰서를 마지막으로 생산한 날 (없으면 아직 안 함) */
   last_produced?: string | null;
-  /** 현장 담당자 — 발주 건을 올린 공사개발부 담당 */
-  contact?: string | null;
+  /** 발주서 올린 사람(공사개발부) — 물어볼 사람 */
+  contact?: SiteContact | null;
 }
 
 /** 이 날 수가 지나도록 손대지 않은 의뢰서는 눈에 띄게 (회의: "못 만들면 한 달까지 밀린다") */
@@ -86,7 +89,16 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                 </Link>
                 <span className="ml-2 font-medium">{g.customer ?? ''}</span>
                 <p className="truncate text-sm text-muted-foreground">
-                  {g.site ?? '-'}{g.contact && <span> · 공사 담당 {g.contact}</span>}
+                  {g.site ?? '-'}
+                  {g.contact && (
+                    <span> · 발주 {g.contact.name}
+                      {g.contact.phone && (
+                        <a href={telHref(g.contact.phone)} className="ml-1 inline-flex items-center gap-0.5 font-semibold text-brand-800 hover:underline">
+                          <Phone className="h-3 w-3" />{g.contact.phone}
+                        </a>
+                      )}
+                    </span>
+                  )}
                 </p>
               </div>
               <span className={cn('tabular text-sm', idle != null && idle >= STALE_DAYS ? 'font-semibold text-warning' : 'text-muted-foreground')}>

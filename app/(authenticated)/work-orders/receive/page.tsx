@@ -21,6 +21,8 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { readWorkbookFile } from '@/lib/excel/read-file';
 import { useFileDrop } from '@/components/ui/file-drop';
+import { numberRows } from '@/lib/work-order/numbering';
+import ProductionSitePicker, { type SiteValue } from '@/components/work-order/ProductionSitePicker';
 import { cn } from '@/lib/utils';
 
 /**
@@ -43,6 +45,8 @@ import { cn } from '@/lib/utils';
  */
 
 interface Row {
+  /** 종이 작업의뢰서의 NO — 엑셀 · PDF 에서 읽은 줄만 있다. 손으로 더한 줄은 앞 번호 + 1 (lib/work-order/numbering.ts) */
+  no: number | '';
   product_name: string;
   width_mm: number | '';
   height_mm: number | '';
@@ -53,7 +57,7 @@ interface Row {
 }
 
 const EMPTY: Row = {
-  product_name: '', width_mm: '', height_mm: '', quantity: '', area_m2: '', remark: '',
+  no: '', product_name: '', width_mm: '', height_mm: '', quantity: '', area_m2: '', remark: '',
 };
 
 /**
@@ -109,6 +113,8 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   /** 엑셀에서 온 소계. 손으로 칠 때는 비어 있다 (합계만 대조한다) */
   const [subtotals, setSubtotals] = useState<WorkOrderInput['printed_subtotals']>([]);
   const [fromExcel, setFromExcel] = useState(false);
+  /** 생산 공장 — 오창공장(기본) 또는 외주 업체 (2026-11-02 요청) */
+  const [site, setSite] = useState<SiteValue>({ site: 'ochang', partnerId: '' });
   // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
     onFiles: (files) => void handleFiles(files), accept: '.xlsx,.xls,.csv,.pdf', disabled: reading,
@@ -195,6 +201,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       if (opts.fillItems && parsed.items.length > 0) {
         setRows(
           parsed.items.map((item, i) => ({
+            no: item.no,
             product_name:
               i === 0 || item.product_name !== parsed.items[i - 1].product_name
                 ? item.product_name
@@ -239,6 +246,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
 
         setRows(
           parsed.items.map((item, i) => ({
+            no: item.no,
             // 품명은 블록 첫 행에만 남긴다 — 아래는 상속으로 따라온다
             product_name:
               i === 0 || item.product_name !== parsed.items[i - 1].product_name
@@ -271,15 +279,17 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   const names = useMemo(() => resolveNames(rows), [rows]);
+  // 품목 번호 — 종이에 찍힌 NO 그대로 (줄을 지우거나 빈칸이 있어도 다른 줄 번호는 안 바뀐다)
+  const numbers = useMemo(() => numberRows(rows), [rows]);
   const countedQty = rows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
   const countedArea = Math.round(rows.reduce((s, r) => s + areaOf(r), 0) * 100) / 100;
 
   /** 저장·검산에 쓰는 행 — 규격·수량이 찬 것만, 품명은 상속 적용 */
   const filledItems = rows
-    .map((row, idx) => ({ row, name: names[idx] }))
+    .map((row, idx) => ({ row, name: names[idx], no: numbers[idx] }))
     .filter(({ row }) => row.width_mm && row.height_mm && row.quantity)
-    .map(({ row, name }, i) => ({
-      no: i + 1,
+    .map(({ row, name, no }) => ({
+      no,
       product_name: name,
       width_mm: Number(row.width_mm),
       height_mm: Number(row.height_mm),
@@ -357,6 +367,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       ...rows,
       ...picked.map(({ row, name }, i) => ({
         ...row,
+        no: '' as const,
         product_name: i === 0 ? name : '',
         // 外 ↔ 內 는 비고에서도 바뀐다
         remark: row.remark.replace('(外)', '(內)').replace('外', '內'),
@@ -390,6 +401,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   async function handleSave() {
+    if (site.site === 'outsource' && !site.partnerId) {
+      toast.error('외주 업체를 고르세요. 목록에 없으면 "새 업체" 로 더하세요.');
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch('/api/work-orders/from-scan', {
@@ -400,6 +415,8 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           request_date: head.request_date || null,
           delivery_date: head.delivery_date || null,
           notes: null,
+          production_site: site.site,
+          outsource_partner_id: site.site === 'outsource' ? site.partnerId : null,
           items: filledItems,
         }),
       });
@@ -513,6 +530,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             onChange={(v) => setHead({ ...head, request_date: v })} />
           <Field label="납품일자" type="date" value={head.delivery_date}
             onChange={(v) => setHead({ ...head, delivery_date: v })} />
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+            <p className="text-[13px] font-semibold">생산 공장</p>
+            <ProductionSitePicker value={site} onChange={setSite} />
+          </div>
         </CardContent>
       </Card>
 
@@ -547,7 +568,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             <TableBody>
               {rows.map((row, idx) => (
                 <TableRow key={idx}>
-                  <TableCell className="tabular py-2 pl-5 text-muted-foreground">{idx + 1}</TableCell>
+                  <TableCell className="tabular py-2 pl-5 text-muted-foreground" title={row.no === '' ? '손으로 더한 줄 — 앞 번호에 이어 붙인 번호' : '작업의뢰서에 찍힌 번호'}>{numbers[idx]}</TableCell>
                   <TableCell className="py-2">
                     {/* 비우면 위 품명을 물려받는다. 뭘 물려받는지 흐리게 보여 준다 */}
                     <Input value={row.product_name} data-row={idx} data-cell="name"

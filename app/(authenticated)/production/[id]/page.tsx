@@ -16,14 +16,19 @@ import PageHeader from '@/components/layout/PageHeader';
 import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus } from 'lucide-react';
 import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
+import ProductionByDate from '@/components/production/ProductionByDate';
 import QtyStepper from '@/components/production/QtyStepper';
 import LinesEditor from '@/components/production/LinesEditor';
 import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { activeLines, lineName } from '@/lib/production/lines';
-import { blockTotals, formatDays, itemNo, productionDaysByItem } from '@/lib/production/item-view';
+import { blockTotals, daysSummary, itemNo, productionDaysByItem } from '@/lib/production/item-view';
 import type { SiteContact } from '@/lib/production/contacts';
+import { SITE_SELECT, toWorkOrderSite } from '@/lib/work-order/site';
+import { CONTACT_EDITORS } from '@/lib/work-order/site-server';
+import ContactCard from '@/components/work-order/ContactCard';
+import SiteBadge from '@/components/work-order/SiteBadge';
 
 interface WorkOrderItem {
   id: string;
@@ -36,6 +41,8 @@ interface WorkOrderItem {
   /** 작업의뢰서 비고 — 동 · 호 · 위치. 현장 시공자가 이걸 보고 유리를 붙인다 */
   remark: string | null;
   sort_order: number;
+  /** 종이 작업의뢰서의 NO (마이그레이션 021) */
+  item_no: number | null;
 }
 
 /** 이 PC(한국 시간) 기준 오늘 — toISOString 은 UTC 라 새벽 0~9시에 전날로 잡혔다 */
@@ -45,7 +52,7 @@ function localToday() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-type WorkOrderHead = WorkOrderLabelSource & { work_order_number: string };
+type WorkOrderHead = WorkOrderLabelSource & { work_order_number: string; production_site?: string | null; outsource_partner?: unknown };
 
 export default function ProductionInputPage() {
   const params = useParams();
@@ -63,7 +70,9 @@ export default function ProductionInputPage() {
   const [editingLines, setEditingLines] = useState(false);
   const me = useCurrentUser();
   const canEditLines = !!me && hasAnyPermission(me, ['production:input', 'admin:master']);
-  const [contact, setContact] = useState<SiteContact | null>(null);
+  const canAssignContact = !!me && hasAnyPermission(me, CONTACT_EDITORS);
+  /** 발주서 올린 사람 — undefined 는 아직 받는 중 */
+  const [contact, setContact] = useState<SiteContact | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   /** 폰에서는 생산일자·주야간·호기를 접어 둔다. 교대마다 한 번 정하는 값이다 */
@@ -71,18 +80,24 @@ export default function ProductionInputPage() {
   const [logs, setLogs] = useState<ProductionLog[]>([]);
   /** "수정" 을 눌러 기록을 펼친 품목 */
   const [editItemId, setEditItemId] = useState<string | null>(null);
+  /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02) */
+  const [view, setView] = useState<'items' | 'dates'>('items');
 
   useEffect(() => {
     supabase.from('dgflow_work_orders')
-      .select('work_order_number, customer_label, site_label, order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))')
+      .select(`work_order_number, customer_label, site_label, ${SITE_SELECT}, order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`)
       .eq('id', workOrderId).single()
       .then(({ data }) => setWorkOrder(data as unknown as WorkOrderHead));
     loadItems();
     loadLogs();
-    // 현장 담당자 — 이 의뢰서가 이어진 발주 건을 올린 공사개발부 담당
+    loadContact();
+  }, [workOrderId]);
+
+  /** 공사 담당자 — 발주서 올린 사람, 없으면 그 현장에 정해 둔 담당자 (lib/production/contacts.ts) */
+  function loadContact() {
     fetch(`/api/work-orders/${workOrderId}/contact`).then(r => (r.ok ? r.json() : null))
       .then(b => setContact(b?.contact ?? null)).catch(() => {});
-  }, [workOrderId]);
+  }
 
   async function loadItems() {
     const { data } = await supabase.from('dgflow_work_order_items')
@@ -170,6 +185,7 @@ export default function ProductionInputPage() {
 
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
   const totalProduced = items.reduce((s, i) => s + i.produced_quantity, 0);
+  const totalArea = Math.round(items.reduce((s, i) => s + Number(i.area_m2 || 0), 0) * 100) / 100;
   const totalInput = Object.values(quantities).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const inputCount = Object.values(quantities).filter(v => parseInt(v) > 0).length;
   const progress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
@@ -177,10 +193,11 @@ export default function ProductionInputPage() {
   const labels = workOrder ? workOrderLabels(workOrder) : null;
   // 품목별 생산 날짜 · 품명 덩어리별 소계 (워드 8번 · 회의)
   const daysByItem = productionDaysByItem(logs);
+  const productionDayCount = new Set(logs.map(l => l.production_date)).size;
   const blocks = blockTotals(items);
   const blockEnds = new Map(blocks.map(b => [b.endIndex, b]));
   const lineOptions = activeLines(lines).map(l => ({ value: String(l.line_number), label: l.name }));
-  const contactText = contact ? `공사 담당 ${contact.name}${contact.phone ? ` ${contact.phone}` : ''}` : null;
+  const site = workOrder ? toWorkOrderSite(workOrder) : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -213,7 +230,12 @@ export default function ProductionInputPage() {
         <PageHeader
           back={{ href: `/work-orders/${workOrderId}`, label: '작업의뢰서로' }}
           title="생산실적 입력"
-          description={[workOrder?.work_order_number, labels?.customer, labels?.site, contactText].filter(Boolean).join(' · ')}
+          description={<>
+            {[workOrder?.work_order_number, labels?.customer, labels?.site].filter(Boolean).join(' · ')}
+            {site?.site === 'outsource' && <SiteBadge value={site} withContact className="ml-2 align-middle" />}
+          </>}
+          // 누가 올린 발주서인지 · 연락처 — 물어볼 사람을 바로 안다 (2026-11-02 요청)
+          actions={contact !== undefined && <ContactCard contact={contact} siteLabel={labels?.site} canAssign={canAssignContact} onChanged={loadContact} />}
         />
       </div>
 
@@ -264,21 +286,33 @@ export default function ProductionInputPage() {
           )}
         </CardContent>
       </Card>
-      {contactText && (
-        <p className="text-sm text-muted-foreground md:hidden">{contactText}</p>
+      {/* 폰 — 발주서 올린 사람 · 외주면 업체 */}
+      {(contact !== undefined || site?.site === 'outsource') && (
+        <div className="space-y-2 md:hidden">
+          {site?.site === 'outsource' && <SiteBadge value={site} withContact />}
+          {contact !== undefined && <ContactCard contact={contact} siteLabel={labels?.site} canAssign={canAssignContact} onChanged={loadContact} />}
+        </div>
       )}
 
       {/* 품목별 입력 */}
       <Card className="gap-0 pb-0">
         <CardHeader className="flex flex-col gap-3 border-b sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <CardTitle className="text-lg">품목별 생산량</CardTitle>
+            <div className="flex flex-wrap items-center gap-3">
+              <CardTitle className="text-lg">{view === 'items' ? '품목별 생산량' : '날짜별 생산'}</CardTitle>
+              <Segmented value={view} onChange={setView} className="p-0.5"
+                options={[{ value: 'items', label: '품목별' }, { value: 'dates', label: `날짜별${productionDayCount ? ` ${productionDayCount}일` : ''}` }]} />
+            </div>
+            {view === 'dates' ? (
+              <p className="mt-0.5 text-sm text-muted-foreground">날짜를 누르면 그날 만든 품목이 펼쳐집니다. 고칠 기록은 품목별에서 품목의 <b className="text-foreground">수정</b>을 누르세요.</p>
+            ) : (
             <p className="mt-0.5 text-sm text-muted-foreground">
               만든 수량을 적고 저장하세요. <b className="text-foreground">1장씩</b>은 누를 때마다 남은 품목마다 1장을 더하고,{' '}
               <b className="text-foreground">전량</b>은 남은 수량을 채웁니다 — 칸에 채우기만 하니 확인한 뒤 저장하세요.
             </p>
+            )}
           </div>
-          {incompleteCount > 0 && (
+          {view === 'items' && incompleteCount > 0 && (
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
               <Button variant="outline" onClick={handleAllPlusOne} disabled={saving} className="w-full sm:w-auto">
                 <Plus />남은 {incompleteCount}건 1장씩 채우기
@@ -290,14 +324,20 @@ export default function ProductionInputPage() {
           )}
         </CardHeader>
 
+        {view === 'dates' && (
+          <CardContent className="p-0">
+            <ProductionByDate logs={logs} items={items} />
+          </CardContent>
+        )}
+
         {/* 폰 — 품목당 카드 한 장 */}
-        <CardContent className="p-3 md:hidden">
+        <CardContent className={cn('p-3 md:hidden', view === 'dates' && 'hidden')}>
           <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem}
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
 
         {/* PC — 표 */}
-        <CardContent className="hidden p-0 md:block">
+        <CardContent className={cn('hidden p-0', view === 'items' && 'md:block')}>
           <Table>
             <TableHeader>
               <TableRow>
@@ -336,13 +376,21 @@ export default function ProductionInputPage() {
                     <TableCell className="tabular pl-5 text-center text-sm font-bold text-muted-foreground">{itemNo(item, index)}</TableCell>
                     <TableCell className="max-w-[260px] whitespace-normal">
                       <p className="font-semibold text-foreground">{item.product_name}</p>
-                      {item.remark && <p className="mt-0.5 break-all text-xs text-muted-foreground">{item.remark}</p>}
+                      {/* 비고 = 유리 위치(동 · 층 · 방). 현장에서 보고 붙이니 잘 보이게 */}
+                      {item.remark && <p className="mt-0.5 break-all text-[13px] text-foreground/75">{item.remark}</p>}
                     </TableCell>
                     <TableCell className="tabular text-right">{item.width_mm} × {item.height_mm}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
                     <TableCell className="tabular text-right">
                       {item.produced_quantity}
-                      {days.length > 0 && <p className="mt-0.5 text-[11px] text-muted-foreground" title={days.map(d => `${d.date} ${d.quantity}장`).join('\n')}>{formatDays(days)}</p>}
+                      {/* 날짜가 많으면 요약만 — 눌러서 이 품목의 기록을 날짜별로 다 본다 */}
+                      {days.length > 0 && (
+                        <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
+                          title={days.map(d => `${d.date} ${d.quantity}장`).join('\n')}
+                          className="mt-0.5 block w-full text-right text-[11px] text-muted-foreground hover:text-brand-800 hover:underline">
+                          {daysSummary(days)}
+                        </button>
+                      )}
                     </TableCell>
                     <TableCell className="tabular text-right text-base font-bold text-foreground">
                       {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
@@ -373,7 +421,9 @@ export default function ProductionInputPage() {
                   {blockEnd && (
                     <TableRow className="bg-muted/50 text-sm hover:bg-muted/50">
                       <TableCell />
-                      <TableCell className="font-semibold text-muted-foreground" colSpan={2}>소계 · {blockEnd.count}품목</TableCell>
+                      <TableCell className="font-semibold text-muted-foreground" colSpan={2}>
+                        소계 · {blockEnd.count}품목<span className="tabular ml-2 font-normal">{blockEnd.area_m2.toFixed(2)}㎡</span>
+                      </TableCell>
                       <TableCell className="tabular text-right font-semibold">{blockEnd.quantity}</TableCell>
                       <TableCell className="tabular text-right font-semibold">{blockEnd.produced}</TableCell>
                       <TableCell className="tabular text-right font-bold">{blockEnd.quantity - blockEnd.produced}</TableCell>
@@ -386,7 +436,9 @@ export default function ProductionInputPage() {
               {items.length > 0 && (
                 <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70">
                   <TableCell />
-                  <TableCell colSpan={2}>총계 · {items.length}품목</TableCell>
+                  <TableCell colSpan={2}>
+                    총계 · {items.length}품목<span className="tabular ml-2 font-semibold">{totalArea.toFixed(2)}㎡</span>
+                  </TableCell>
                   <TableCell className="tabular text-right">{totalQty}</TableCell>
                   <TableCell className="tabular text-right">{totalProduced}</TableCell>
                   <TableCell className="tabular text-right">{totalQty - totalProduced}</TableCell>
@@ -423,18 +475,6 @@ export default function ProductionInputPage() {
         </div>
       </div>
 
-      {/* 저장한 생산 기록 — 고치거나 지울 수 있다 */}
-      {logs.length > 0 && (
-        <Card className="gap-0 pb-0">
-          <CardHeader className="border-b">
-            <CardTitle className="text-lg">생산 기록</CardTitle>
-            <p className="mt-0.5 text-sm text-muted-foreground">잘못 저장한 기록은 위 표에서 품목의 <b className="text-foreground">수정</b>을 눌러 고치세요.</p>
-          </CardHeader>
-          <CardContent className="p-0">
-            <ProductionLogList readOnly logs={logs} onChanged={reload} />
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

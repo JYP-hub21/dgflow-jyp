@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { format } from 'date-fns';
+import { validateSite } from '@/lib/work-order/site-server';
 
 /**
  * 사원이 화면에서 확인한 작업의뢰서를 저장한다.
@@ -22,7 +23,12 @@ interface Payload {
   request_date: string | null;
   delivery_date: string | null;
   notes: string | null;
+  /** 오창공장 · 외주 (lib/work-order/site.ts) — 없으면 오창공장 */
+  production_site?: string;
+  outsource_partner_id?: string | null;
   items: {
+    /** 종이 작업의뢰서의 NO (lib/work-order/numbering.ts) */
+    no?: number;
     product_name: string;
     width_mm: number;
     height_mm: number;
@@ -60,6 +66,8 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceRoleClient();
   const workOrderNumber = payload.work_order_number.trim();
+  const site = await validateSite(supabase, payload);
+  if ('error' in site) return NextResponse.json({ error: site.error }, { status: 400 });
 
   // 같은 의뢰서를 두 번 올리는 일이 잦다. 번호로 막는다.
   const { data: dup } = await supabase
@@ -86,6 +94,8 @@ export async function POST(request: NextRequest) {
       site_label: payload.site_label?.trim() || null,
       notes: payload.notes?.trim() || null,
       status: 'pending',
+      production_site: site.production_site,
+      outsource_partner_id: site.outsource_partner_id,
     })
     .select()
     .single();
@@ -102,6 +112,8 @@ export async function POST(request: NextRequest) {
       area_m2: item.area_m2,
       remark: item.remark?.trim() || null,
       sort_order: idx,
+      // 번호는 종이 그대로 — 정렬을 어떻게 바꿔도 이 번호로 보인다
+      item_no: Number.isInteger(item.no) && item.no! > 0 ? item.no : idx + 1,
     }))
   );
 

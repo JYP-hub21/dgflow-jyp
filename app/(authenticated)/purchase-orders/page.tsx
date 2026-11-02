@@ -12,6 +12,7 @@ import { chipClass, chipCountClass } from '@/components/ui/chip';
 import PageHeader from '@/components/layout/PageHeader';
 import { StageBadge, StageSteps } from '@/components/purchase-order/StageBadge';
 import StorageUsage from '@/components/purchase-order/StorageUsage';
+import SiteBadge from '@/components/work-order/SiteBadge';
 
 type View = 'todo' | 'mine' | 'open' | 'all';
 
@@ -83,6 +84,9 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
               {p.intake_number} · {p.creator_name} → {p.assignee_name ?? '-'}
             </p>
             <StageSteps stage={p.derived} compact />
+            {p.sites.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">{p.sites.map((s, i) => <SiteBadge key={i} value={s} />)}</div>
+            )}
           </Link>
         ))}
       </div>
@@ -126,6 +130,10 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
                     <div className="mt-1.5"><StageSteps stage={p.derived} compact /></div>
                     {p.packages_total > 0 && (
                       <p className="mt-1 text-xs text-muted-foreground">작업의뢰서 {p.packages_linked}/{p.packages_total}</p>
+                    )}
+                    {/* 어디서 만드는지 — 오창공장 · 외주 업체 */}
+                    {p.sites.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">{p.sites.map((s, i) => <SiteBadge key={i} value={s} />)}</div>
                     )}
                   </TableCell>
                   <TableCell className="tabular text-sm">{p.due_date || '-'}</TableCell>

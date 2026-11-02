@@ -99,6 +99,8 @@ export async function POST(request: NextRequest) {
     produced_quantity: plans[k].produced[idx],
     remark: it.remark?.trim() || null,
     sort_order: idx,
+    // ERP 목록의 NO 그대로 (없으면 순서)
+    item_no: it.no > 0 ? it.no : idx + 1,
   })));
   const { error: itemError } = await supabase.from('dgflow_work_order_items').insert(items);
   if (itemError) {

@@ -12,6 +12,8 @@ import { chipClass } from '@/components/ui/chip';
 import { createClient } from '@/lib/supabase/client';
 import { downloadChunked, formatBytes, saveBlob } from '@/lib/purchase-order/chunks';
 import { checkSummary, type CheckResult } from '@/lib/purchase-order/match';
+import type { WorkOrderSite } from '@/lib/work-order/site';
+import SiteBadge from '@/components/work-order/SiteBadge';
 
 async function post(url: string, body: unknown, method = 'POST') {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -118,7 +120,7 @@ interface PackageView {
   rows: { location: string; width_mm: number; height_mm: number; quantity: number }[];
   total_quantity: number;
   check_result: CheckResult | null;
-  work_order: { id: string; work_order_number: string; total: number; produced: number } | null;
+  work_order: { id: string; work_order_number: string; total: number; produced: number; site: WorkOrderSite } | null;
 }
 
 interface Candidate {
@@ -185,6 +187,8 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
         {wo ? (
           <div className="flex flex-wrap items-center gap-3">
             <Link href={`/work-orders/${wo.id}`} className="font-bold text-brand-800 hover:underline">{wo.work_order_number}</Link>
+            {/* 어디서 만드는지 — 외주면 업체 담당자 전화까지 (공사개발부가 진행을 물을 곳) */}
+            <SiteBadge value={wo.site} withContact />
             {check && (
               <Badge variant={check.ok ? 'success' : 'destructive'} title={checkSummary(check)}>
                 {check.ok ? '대조 일치' : `다름 ${check.diffs.length}`}

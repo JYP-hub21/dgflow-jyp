@@ -8,9 +8,12 @@
  *    잘못 넣었을 때 "그날 박스" 를 찾으려면 날짜가 필요하다.
  */
 
-/** 작업의뢰서 품목 번호 (sort_order 는 0부터) */
-export function itemNo(item: { sort_order?: number | null }, fallbackIndex = 0): number {
-  return (item.sort_order ?? fallbackIndex) + 1;
+/**
+ * 작업의뢰서 품목 번호 — 종이에 찍힌 NO(item_no, 마이그레이션 021).
+ * 그 전에 등록한 품목은 등록 순서(sort_order, 0부터) + 1. 화면의 정렬 · 접기와 상관없이 늘 같은 번호다.
+ */
+export function itemNo(item: { item_no?: number | null; sort_order?: number | null }, fallbackIndex = 0): number {
+  return item.item_no ?? (item.sort_order ?? fallbackIndex) + 1;
 }
 
 export interface BlockTotal {
@@ -20,20 +23,25 @@ export interface BlockTotal {
   count: number;
   quantity: number;
   produced: number;
+  /** 면적(㎡) — 작업의뢰서 소계 줄과 같은 값 (품목 면적의 합) */
+  area_m2: number;
 }
 
-/** 이어지는 같은 품명끼리 묶은 소계 (순서는 받은 그대로) */
-export function blockTotals(items: { product_name: string; quantity: number; produced_quantity: number }[]): BlockTotal[] {
+/** 이어지는 같은 품명끼리 묶은 소계 (순서는 받은 그대로) — 작업의뢰서 종이의 소계 줄과 같다 */
+export function blockTotals(items: { product_name: string; quantity: number; produced_quantity: number; area_m2?: number | null }[]): BlockTotal[] {
   const blocks: BlockTotal[] = [];
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   items.forEach((it, i) => {
     const last = blocks[blocks.length - 1];
+    const area = Number(it.area_m2 ?? 0);
     if (last && last.product_name === it.product_name && last.endIndex === i - 1) {
       last.endIndex = i;
       last.count++;
       last.quantity += it.quantity;
       last.produced += it.produced_quantity;
+      last.area_m2 = round2(last.area_m2 + area);
     } else {
-      blocks.push({ product_name: it.product_name, endIndex: i, count: 1, quantity: it.quantity, produced: it.produced_quantity });
+      blocks.push({ product_name: it.product_name, endIndex: i, count: 1, quantity: it.quantity, produced: it.produced_quantity, area_m2: round2(area) });
     }
   });
   return blocks;
@@ -63,6 +71,16 @@ export function formatDays(days: DayQty[], max = 3): string {
   const shown = days.length > max ? days.slice(-max) : days;
   const text = shown.map(d => `${short(d.date)} ${d.quantity}`).join(' · ');
   return days.length > max ? `외 ${days.length - max}일 · ${text}` : text;
+}
+
+/**
+ * 품목 칸에 넣는 짧은 요약 — 이틀까지는 "10/30 1 · 10/31 2", 그보다 많으면 "5일 · 마지막 10/31".
+ * 한 달씩 나눠 만드는 품목은 날짜를 칸에 다 늘어놓을 수 없다 (2026-11-02) — 전부는 눌러서 · 날짜별 보기에서 본다.
+ */
+export function daysSummary(days: DayQty[]): string {
+  if (days.length <= 2) return formatDays(days, 2);
+  const last = days[days.length - 1].date;
+  return `${days.length}일 · 마지막 ${Number(last.slice(5, 7))}/${Number(last.slice(8))}`;
 }
 
 /** 두 날짜 사이 날 수 (b 가 늦으면 양수) */
