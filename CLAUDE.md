@@ -400,6 +400,9 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
 - 2026-10-30 팀원 저장소(choeyeongjun970-sudo/dg-flow, 운영 dg-flow-snowy.vercel.app)에서 옮겨 왔다.
   사용자 DB 는 예전 스키마(기본 001~006 + 예전 007~009)였으므로 `supabase/_upgrade_jyp_db.sql`
   (팀원 007~018 을 트랜잭션 하나로 묶은 것)을 SQL Editor 에서 한 번 실행해 맞춘다.
+- **서버 지역 = 시드니(`vercel.json` 의 `regions: ["syd1"]`)** — Supabase DB 가 호주 시드니(ap-southeast-2)에 있다(2026-11-02 DB 주소를
+  AWS IP 대역표와 맞춰 확인). Vercel 기본(미국 워싱턴 iad1)이면 서버가 DB 에 묻는 질문마다 미국 ↔ 호주를 왕복해 화면 하나가 5–8초 걸렸다.
+  DB 를 서울로 옮기면(새 Supabase 프로젝트 + 데이터 이전, glassflow 와 공용) 서버도 icn1 로 바꾼다.
 - **Vercel 환경변수:** NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
   (NEXT_PUBLIC_APP_URL 은 선택 — 없으면 Vercel 운영 도메인을 쓴다)
   (환경변수를 바꾸면 반드시 Redeploy — 기존 배포에는 소급 적용되지 않는다)
