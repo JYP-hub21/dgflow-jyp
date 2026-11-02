@@ -12,14 +12,14 @@ import { cn } from '@/lib/utils';
 export default function QtyStepper({ value, onChange, size = 'md', invalid, highlight, label = '이번 생산량' }: {
   value: string;
   onChange: (v: string) => void;
-  /** md: PC 표(44px) · lg: 폰 카드(48px) */
-  size?: 'md' | 'lg';
+  /** sm: 작업의뢰서 모양 표(36px) · md: 44px · lg: 폰 카드(48px) */
+  size?: 'sm' | 'md' | 'lg';
   invalid?: boolean;
   highlight?: boolean;
   label?: string;
 }) {
   const n = parseInt(value) || 0;
-  const tall = size === 'lg' ? 'h-12' : 'h-11';
+  const tall = size === 'lg' ? 'h-12' : size === 'sm' ? 'h-9' : 'h-11';
   const step = (d: number) => {
     const next = Math.max(0, n + d);
     onChange(next === 0 ? '' : String(next));
@@ -35,7 +35,7 @@ export default function QtyStepper({ value, onChange, size = 'md', invalid, high
         value={value}
         onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ''))}
         className={cn('h-full rounded-r-none text-right font-semibold tabular-nums',
-          size === 'lg' ? 'w-20 text-lg' : 'w-24 text-base',
+          size === 'lg' ? 'w-20 text-lg' : size === 'sm' ? 'w-20 text-sm' : 'w-24 text-base',
           highlight && !invalid && 'border-brand-600')}
       />
       <div className="flex w-7 flex-col">

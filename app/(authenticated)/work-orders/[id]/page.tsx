@@ -1,7 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import { Fragment } from 'react';
-import { blockTotals, itemNo } from '@/lib/production/item-view';
+import { blockTotals, itemNo, sizeText } from '@/lib/production/item-view';
 import { contactsForWorkOrders } from '@/lib/production/contacts';
 import { toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS, SITE_EDITORS } from '@/lib/work-order/site-server';
@@ -66,6 +66,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   // 품명 덩어리 — 머리줄을 덩어리 첫 줄 앞에
   const itemBlocks = blockTotals(woItems);
   const blockStarts = new Map(itemBlocks.map((b, k) => [k === 0 ? 0 : itemBlocks[k - 1].endIndex + 1, b]));
+  const blockEnds = new Map(itemBlocks.map(b => [b.endIndex, b]));
   const totalQty = woItems.reduce((s, i) => s + i.quantity, 0);
   const totalProduced = woItems.reduce((s, i) => s + i.produced_quantity, 0);
   const overallProgress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
@@ -175,22 +176,28 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         </CardContent>
       </Card>
 
-      {/* 품목별 진행률 — 품명은 덩어리 머리줄에 한 번 (넓은 화면에서는 위에 붙어 있다) */}
-      <Card className="gap-0 pb-0 lg:overflow-visible">
+      {/* 품목 — 작업의뢰서 종이 그대로(No · 품명 · 규격 · 수량 · 면적 · 비고, 품명은 덩어리 첫 줄에만, 분홍 소계) + 오른쪽 생산 */}
+      <Card className="gap-0 pb-0">
         <CardHeader className="border-b">
           <CardTitle className="text-lg">품목별 생산 현황 <span className="font-normal text-muted-foreground">{woItems.length}건</span></CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table containerClassName="lg:overflow-visible">
+          <Table className="[&_td+td]:border-l [&_th+th]:border-l">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12 pl-5">No</TableHead>
-                <TableHead>규격 (mm)</TableHead>
-                <TableHead className="text-right">의뢰</TableHead>
-                <TableHead className="text-right">완료</TableHead>
-                <TableHead className="text-right">잔여</TableHead>
-                <TableHead className="w-40">진행률</TableHead>
-                <TableHead className="w-[32%] pr-5">비고</TableHead>
+                <TableHead colSpan={6} className="h-8 text-center text-xs font-semibold text-muted-foreground">작업의뢰서</TableHead>
+                <TableHead colSpan={3} className="h-8 bg-brand-50 text-center text-xs font-semibold text-brand-800">생산</TableHead>
+              </TableRow>
+              <TableRow>
+                <TableHead className="w-12 text-center">No</TableHead>
+                <TableHead className="w-[210px] text-center">품명</TableHead>
+                <TableHead className="w-32 text-center">규격</TableHead>
+                <TableHead className="w-14 text-center">수량</TableHead>
+                <TableHead className="w-16 text-center">면적</TableHead>
+                <TableHead className="w-[26%] text-center">비고</TableHead>
+                <TableHead className="w-16 bg-brand-50 text-center">완료</TableHead>
+                <TableHead className="w-16 bg-brand-50 text-center">잔여</TableHead>
+                <TableHead className="w-32 bg-brand-50 text-center">진행률</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -199,31 +206,35 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 const progress = item.quantity > 0 ? Math.round(item.produced_quantity / item.quantity * 100) : 0;
                 const isComplete = remaining <= 0;
                 const head = blockStarts.get(idx);
+                const end = blockEnds.get(idx);
                 return (
                   <Fragment key={item.id}>
-                  {head && (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="border-y bg-muted px-5 py-2 lg:sticky lg:-top-8 lg:z-10">
-                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 whitespace-normal">
-                          <span className="font-bold">{head.product_name}</span>
-                          <span className="tabular text-xs text-muted-foreground">
-                            {head.count}품목 · 의뢰 {head.quantity} · 완료 {head.produced} · {head.area_m2.toFixed(2)}㎡
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                  <TableRow className={cn(isComplete && 'bg-success-50/60')}>
-                    <TableCell className="tabular pl-5 text-muted-foreground">{itemNo(item, idx)}</TableCell>
-                    <TableCell className="tabular font-semibold">{item.width_mm} × {item.height_mm}</TableCell>
+                  <TableRow className={cn(isComplete && 'bg-success-50/50')}>
+                    <TableCell className="tabular text-center text-muted-foreground">{itemNo(item, idx)}</TableCell>
+                    <TableCell className="max-w-[240px] whitespace-normal break-keep text-[13px] leading-snug">{head ? item.product_name : ''}</TableCell>
+                    <TableCell className="tabular whitespace-nowrap text-right">{sizeText(item.width_mm, item.height_mm)}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
-                    <TableCell className="tabular text-right font-semibold">{item.produced_quantity}</TableCell>
-                    <TableCell className="tabular text-right font-bold">
-                      {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
+                    <TableCell className="tabular text-right">{Number(item.area_m2 || 0).toFixed(2)}</TableCell>
+                    <TableCell className="whitespace-normal"><RemarkText text={item.remark} /></TableCell>
+                    <TableCell className="tabular text-right">{item.produced_quantity}</TableCell>
+                    <TableCell className="tabular text-right font-semibold">
+                      {isComplete ? <span className="inline-flex items-center gap-0.5 text-xs text-success"><CheckCircle className="h-3.5 w-3.5" />완료</span> : remaining}
                     </TableCell>
                     <TableCell><Progress value={progress} /></TableCell>
-                    <TableCell className="whitespace-normal pr-5"><RemarkText text={item.remark} /></TableCell>
                   </TableRow>
+                  {end && (
+                    <TableRow className="bg-destructive/[0.07] text-[13px] hover:bg-destructive/[0.07]">
+                      <TableCell className="text-center font-semibold">소계</TableCell>
+                      <TableCell />
+                      <TableCell />
+                      <TableCell className="tabular text-right font-semibold">{end.quantity}</TableCell>
+                      <TableCell className="tabular text-right font-semibold">{end.area_m2.toFixed(2)}</TableCell>
+                      <TableCell />
+                      <TableCell className="tabular text-right font-semibold">{end.produced}</TableCell>
+                      <TableCell className="tabular text-right font-semibold">{end.quantity - end.produced}</TableCell>
+                      <TableCell />
+                    </TableRow>
+                  )}
                   </Fragment>
                 );
               })}

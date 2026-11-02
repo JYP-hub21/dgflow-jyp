@@ -83,6 +83,11 @@ export function daysSummary(days: DayQty[]): string {
   return `${days.length}일 · 마지막 ${Number(last.slice(5, 7))}/${Number(last.slice(8))}`;
 }
 
+/** 규격 — 작업의뢰서 종이와 같은 꼴 "1,423 X 1,776" */
+export function sizeText(w: number, h: number): string {
+  return `${Number(w).toLocaleString('en-US')} X ${Number(h).toLocaleString('en-US')}`;
+}
+
 /** 두 날짜 사이 날 수 (b 가 늦으면 양수) */
 export function daysBetweenDates(a: string, b: string): number {
   return Math.round((new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000);

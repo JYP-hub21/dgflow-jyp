@@ -24,7 +24,7 @@ import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { activeLines, lineName } from '@/lib/production/lines';
-import { blockTotals, daysSummary, itemNo, productionDaysByItem } from '@/lib/production/item-view';
+import { blockTotals, daysSummary, itemNo, productionDaysByItem, sizeText } from '@/lib/production/item-view';
 import type { SiteContact } from '@/lib/production/contacts';
 import { SITE_SELECT, toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS } from '@/lib/work-order/site-server';
@@ -202,7 +202,7 @@ export default function ProductionInputPage() {
   const site = workOrder ? toWorkOrderSite(workOrder) : null;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className="mx-auto max-w-7xl space-y-5">
       {/*
         폰에서는 머리글이 따라다녀야 한다 — 13행을 내려가며 치다 보면
         진행률도 저장 버튼도 화면 밖으로 나가기 때문이다.
@@ -297,8 +297,7 @@ export default function ProductionInputPage() {
       )}
 
       {/* 품목별 입력 · 날짜별 생산 — 카드 맨 위 탭 */}
-      {/* 넓은 화면에서는 품명 머리줄이 화면 위에 붙도록 넘침을 숨기지 않는다 */}
-      <Card className="gap-0 py-0 lg:overflow-visible">
+      <Card className="gap-0 py-0">
         <div role="tablist" aria-label="보기" className="flex gap-1 rounded-t-xl border-b bg-muted/30 px-2 sm:px-4">
           <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
           <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
@@ -335,24 +334,34 @@ export default function ProductionInputPage() {
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
 
-        {/* PC — 표 */}
+        {/*
+          PC — 표. 왼쪽은 작업의뢰서 종이 그대로(No · 품명 · 규격 · 수량 · 면적 · 비고, 품명은 덩어리 첫 줄에만, 분홍 소계),
+          오른쪽은 생산 점검(완료 · 잔여 · 오늘 생산). 2026-11-02 "작업의뢰서라는 좋은 표본이 있으니 그 형태를 옮기고,
+          매일 몇 개 만들었는지만 점검하게" — 무엇 하나 굵게 튀지 않게 종이처럼 평범한 글자로.
+        */}
         <CardContent className={cn('hidden p-0', view === 'items' && 'md:block')}>
-          <Table containerClassName="lg:overflow-visible">
+          <Table className="[&_td+td]:border-l [&_th+th]:border-l">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-12 pl-5 text-center">No.</TableHead>
-                <TableHead>규격 (mm)</TableHead>
-                <TableHead className="text-right">의뢰</TableHead>
-                <TableHead className="text-right">완료 · 생산일</TableHead>
-                <TableHead className="text-right">잔여</TableHead>
-                <TableHead className="w-[290px]">이번 생산량</TableHead>
-                <TableHead className="w-[30%] pr-5">비고</TableHead>
+                <TableHead colSpan={6} className="h-8 text-center text-xs font-semibold text-muted-foreground">작업의뢰서</TableHead>
+                <TableHead colSpan={3} className="h-8 bg-brand-50 text-center text-xs font-semibold text-brand-800">생산</TableHead>
+              </TableRow>
+              <TableRow>
+                <TableHead className="w-12 text-center">No</TableHead>
+                <TableHead className="w-[210px] text-center">품명</TableHead>
+                <TableHead className="w-32 text-center">규격</TableHead>
+                <TableHead className="w-14 text-center">수량</TableHead>
+                <TableHead className="w-16 text-center">면적</TableHead>
+                <TableHead className="w-[20%] text-center">비고</TableHead>
+                <TableHead className="w-24 bg-brand-50 text-center">완료</TableHead>
+                <TableHead className="w-16 bg-brand-50 text-center">잔여</TableHead>
+                <TableHead className="w-[230px] bg-brand-50 text-center">오늘 생산</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {items.map((item, index) => {
                 const days = daysByItem.get(item.id) ?? [];
-                const blockEnd = blocks.length > 1 ? blockEnds.get(index) : undefined;
+                const blockEnd = blockEnds.get(index);
                 const blockStart = blockStarts.get(index);
                 const remaining = item.quantity - item.produced_quantity;
                 const isComplete = remaining <= 0;
@@ -361,55 +370,48 @@ export default function ProductionInputPage() {
                 const over = entered > remaining;
                 const editing = editItemId === item.id;
                 const editButton = item.produced_quantity > 0 && (
-                  <Button variant={editing ? 'secondary' : 'ghost'} className="h-11 px-3"
+                  <Button variant={editing ? 'secondary' : 'ghost'} size="sm" className="h-9 px-2.5"
                     onClick={() => setEditItemId(editing ? null : item.id)}>
                     {editing ? <ChevronUp /> : <Pencil />}수정
                   </Button>
                 );
                 return (
                   <Fragment key={item.id}>
-                  {/* 품명 덩어리 머리줄 — 품명은 여기 한 번만 (종이 작업의뢰서처럼). 넓은 화면에서는 스크롤해도 위에 붙어 있다 */}
-                  {blockStart && (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="border-y bg-muted px-5 py-2 lg:sticky lg:-top-8 lg:z-10">
-                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 whitespace-normal">
-                          <span className="font-bold text-foreground">{blockStart.product_name}</span>
-                          <span className="tabular text-xs text-muted-foreground">
-                            {blockStart.count}품목 · 의뢰 {blockStart.quantity} · 남음 <b className="text-foreground">{blockStart.quantity - blockStart.produced}</b>
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )}
                   <TableRow
                     className={cn(
-                      isComplete && 'bg-success-50/60 text-muted-foreground',
+                      isComplete && 'bg-success-50/50',
                       entered > 0 && !over && 'bg-brand-50/80'
                     )}>
-                    <TableCell className="tabular pl-5 text-center text-sm font-bold text-muted-foreground">{itemNo(item, index)}</TableCell>
-                    <TableCell className="tabular font-semibold text-foreground">{item.width_mm} × {item.height_mm}</TableCell>
+                    <TableCell className="tabular text-center text-muted-foreground">{itemNo(item, index)}</TableCell>
+                    {/* 품명 — 종이처럼 덩어리 첫 줄에만 */}
+                    <TableCell className="max-w-[220px] whitespace-normal break-keep text-[13px] leading-snug">{blockStart ? item.product_name : ''}</TableCell>
+                    <TableCell className="tabular whitespace-nowrap text-right">{sizeText(item.width_mm, item.height_mm)}</TableCell>
                     <TableCell className="tabular text-right">{item.quantity}</TableCell>
+                    <TableCell className="tabular text-right">{Number(item.area_m2 || 0).toFixed(2)}</TableCell>
+                    <TableCell className="whitespace-normal"><RemarkText text={item.remark} /></TableCell>
                     <TableCell className="tabular text-right">
                       {item.produced_quantity}
                       {/* 날짜가 많으면 요약만 — 눌러서 이 품목의 기록을 날짜별로 다 본다 */}
                       {days.length > 0 && (
                         <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
                           title={days.map(d => `${d.date} ${d.quantity}장`).join('\n')}
-                          className="mt-0.5 block w-full text-right text-[11px] text-muted-foreground hover:text-brand-800 hover:underline">
+                          className="block w-full text-right text-[11px] text-muted-foreground hover:text-brand-800 hover:underline">
                           {daysSummary(days)}
                         </button>
                       )}
                     </TableCell>
-                    <TableCell className="tabular text-right text-base font-bold text-foreground">
-                      {isComplete ? <Badge variant="success"><CheckCircle />완료</Badge> : remaining}
+                    <TableCell className="tabular text-right font-semibold">
+                      {isComplete
+                        ? <span className="inline-flex items-center gap-0.5 text-xs font-semibold text-success"><CheckCircle className="h-3.5 w-3.5" />완료</span>
+                        : remaining}
                     </TableCell>
-                    <TableCell className="py-2.5">
+                    <TableCell className="py-1.5">
                       {isComplete && editButton}
                       {!isComplete && (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           {/* 옆의 작은 + · − 로 한 장씩 (2026-10-30 피드백) */}
-                          <QtyStepper value={value} onChange={v => setQty(item.id, v)} invalid={over} highlight={entered > 0} />
-                          <Button variant="outline" className="h-11" onClick={() => setQty(item.id, String(remaining))}>
+                          <QtyStepper size="sm" value={value} onChange={v => setQty(item.id, v)} invalid={over} highlight={entered > 0} />
+                          <Button variant="outline" size="sm" className="h-9" onClick={() => setQty(item.id, String(remaining))}>
                             전량
                           </Button>
                           {editButton}
@@ -417,40 +419,42 @@ export default function ProductionInputPage() {
                       )}
                       {over && <p className="mt-1 text-xs font-medium text-destructive">잔여 {remaining}장보다 많습니다</p>}
                     </TableCell>
-                    {/* 비고(유리 위치) — 종이 작업의뢰서처럼 맨 오른쪽. 길면 두 줄, 누르면 전체 */}
-                    <TableCell className="whitespace-normal pr-5"><RemarkText text={item.remark} /></TableCell>
                   </TableRow>
                   {editing && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={7} className="border-l-4 border-l-brand-600 bg-brand-50/40 p-0 whitespace-normal">
+                      <TableCell colSpan={9} className="border-l-4 border-l-brand-600 bg-brand-50/40 p-0 whitespace-normal">
                         <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === item.id)} onChanged={reload} />
                       </TableCell>
                     </TableRow>
                   )}
-                  {/* 품명 덩어리가 끝나면 소계 — 품명이 하나뿐이면 총계와 같아 생략 */}
+                  {/* 덩어리 끝 소계 — 종이처럼 분홍 줄 */}
                   {blockEnd && (
-                    <TableRow className="bg-muted/50 text-sm hover:bg-muted/50">
-                      <TableCell className="whitespace-normal pl-5 font-semibold text-muted-foreground" colSpan={2}>
-                        소계 · {blockEnd.count}품목<span className="tabular ml-2 font-normal">{blockEnd.area_m2.toFixed(2)}㎡</span>
-                      </TableCell>
+                    <TableRow className="bg-destructive/[0.07] text-[13px] hover:bg-destructive/[0.07]">
+                      <TableCell className="text-center font-semibold">소계</TableCell>
+                      <TableCell />
+                      <TableCell />
                       <TableCell className="tabular text-right font-semibold">{blockEnd.quantity}</TableCell>
+                      <TableCell className="tabular text-right font-semibold">{blockEnd.area_m2.toFixed(2)}</TableCell>
+                      <TableCell />
                       <TableCell className="tabular text-right font-semibold">{blockEnd.produced}</TableCell>
-                      <TableCell className="tabular text-right font-bold">{blockEnd.quantity - blockEnd.produced}</TableCell>
-                      <TableCell colSpan={2} className="pr-5" />
+                      <TableCell className="tabular text-right font-semibold">{blockEnd.quantity - blockEnd.produced}</TableCell>
+                      <TableCell />
                     </TableRow>
                   )}
                   </Fragment>
                 );
               })}
               {items.length > 0 && (
-                <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70 [&>td:first-child]:rounded-bl-xl [&>td:last-child]:rounded-br-xl">
-                  <TableCell colSpan={2} className="whitespace-normal pl-5">
-                    총계 · {items.length}품목<span className="tabular ml-2 font-semibold">{totalArea.toFixed(2)}㎡</span>
-                  </TableCell>
+                <TableRow className="bg-brand-50/70 font-bold hover:bg-brand-50/70">
+                  <TableCell className="text-center">합계</TableCell>
+                  <TableCell className="text-[13px] font-normal text-muted-foreground">{items.length}품목</TableCell>
+                  <TableCell />
                   <TableCell className="tabular text-right">{totalQty}</TableCell>
+                  <TableCell className="tabular text-right">{totalArea.toFixed(2)}</TableCell>
+                  <TableCell />
                   <TableCell className="tabular text-right">{totalProduced}</TableCell>
                   <TableCell className="tabular text-right">{totalQty - totalProduced}</TableCell>
-                  <TableCell colSpan={2} className="pr-5" />
+                  <TableCell />
                 </TableRow>
               )}
             </TableBody>

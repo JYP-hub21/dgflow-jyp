@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, ChevronRight, ChevronUp, Check, Pencil } from 'lucide-react';
 import QtyStepper from './QtyStepper';
-import { blockTotals, daysSummary, itemNo, type BlockTotal, type DayQty } from '@/lib/production/item-view';
+import { blockTotals, daysSummary, itemNo, sizeText, type BlockTotal, type DayQty } from '@/lib/production/item-view';
 
 /**
  * 폰에서 쓰는 생산실적 입력.
@@ -172,8 +172,8 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
       {/* 품명은 위 머리에 — 카드는 종이 순서대로 번호 · 규격 · 수량, 비고(유리 위치)는 그 아래 */}
       <div className="flex items-center gap-1.5 leading-snug">
         <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-xs font-bold text-muted-foreground">No.{no}</span>
-        <span className="tabular text-base font-bold">{item.width_mm} × {item.height_mm}</span>
-        <span className="tabular text-sm text-muted-foreground">· 의뢰 {item.quantity} · 완료 {item.produced_quantity}</span>
+        <span className="tabular font-semibold">{sizeText(item.width_mm, item.height_mm)}</span>
+        <span className="tabular text-sm text-muted-foreground">· 수량 {item.quantity} · 완료 {item.produced_quantity}</span>
       </div>
       {item.remark && (
         <p className="mt-1 text-[13px] leading-snug text-foreground/80 break-keep [overflow-wrap:anywhere]">
