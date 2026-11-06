@@ -13,12 +13,12 @@ const preset = (label: string) => ({
 });
 
 describe('부서별 사이드바 (2026-10-30 현장 피드백)', () => {
-  it('발주서는 공사개발부 → 업무지원부 → 생산관리부 순서로 흐른다', () => {
-    expect(DEPARTMENTS.map(d => [d.order, d.name])).toEqual([[1, '공사개발부'], [2, '업무지원부'], [3, '생산관리부']]);
+  it('발주서는 공사관리부 → 업무지원부 → 생산관리부 순서로 흐른다', () => {
+    expect(DEPARTMENTS.map(d => [d.order, d.name])).toEqual([[1, '공사관리부'], [2, '업무지원부'], [3, '생산관리부']]);
   });
 
   it('사원 정보의 부서 칸은 핵심 낱말로 읽는다', () => {
-    expect(deptOf('공사개발부')).toBe('construction');
+    expect(deptOf('공사관리부')).toBe('construction');
     expect(deptOf('공사부')).toBe('construction');
     expect(deptOf(' 업무지원팀 ')).toBe('support');
     expect(deptOf('생산관리부')).toBe('production');

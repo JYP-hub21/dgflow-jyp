@@ -8,7 +8,7 @@ import { isMissingTable } from '@/lib/production/bokcheung-store';
 
 /**
  * 현장별 공사 담당자 (lib/production/contacts.ts, 마이그레이션 022).
- *   GET                         → { candidates }  고를 수 있는 사람 — 공사개발부 먼저
+ *   GET                         → { candidates }  고를 수 있는 사람 — 공사관리부 먼저
  *   PUT {site_label, user_id}   → 그 현장의 담당자 정하기 (user_id 가 null 이면 지우기)
  */
 export async function GET() {

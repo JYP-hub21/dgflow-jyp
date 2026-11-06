@@ -7,7 +7,7 @@ import { SITE_EDITORS, cleanPartner } from '@/lib/work-order/site-server';
 
 /**
  * 외주 업체 (lib/work-order/site.ts).
- *   GET          → { partners }   쓰는 업체, 이름순 (승인된 사람 누구나 — 공사개발부도 담당자를 본다)
+ *   GET          → { partners }   쓰는 업체, 이름순 (승인된 사람 누구나 — 공사관리부도 담당자를 본다)
  *   POST {name, contact_name, phone, memo} → 새 업체 (작업의뢰서를 다루는 업무지원부 · 마스터)
  */
 export async function GET() {

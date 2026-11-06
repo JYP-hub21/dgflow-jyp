@@ -127,14 +127,14 @@ export interface MenuItem {
 
 /*
   2026-10-30 현장 피드백으로 "업무" 한 덩어리를 부서별로 나눴다.
-  발주서 화면 하나를 공사개발부(올리기 · 올린 것)와 업무지원부(받은 것)가 나눠 쓰므로
+  발주서 화면 하나를 공사관리부(올리기 · 올린 것)와 업무지원부(받은 것)가 나눠 쓰므로
   메뉴도 보기(view)로 갈라 둔다 — 화면은 그대로 /purchase-orders 다.
 */
 export const MENU_ITEMS: MenuItem[] = [
   // 대시보드는 권한 없이 누구나 — 전체 현황은 모두가 보고, 부서 메뉴만 권한대로 열린다
   { label: '대시보드', href: '/dashboard', icon: 'LayoutDashboard', group: 'common' },
 
-  // ① 공사개발부 — 발주서를 올리고, 올린 것이 어디까지 갔는지 본다
+  // ① 공사관리부 — 발주서를 올리고, 올린 것이 어디까지 갔는지 본다
   { label: '발주서 올리기', href: '/purchase-orders/new', icon: 'Upload', permission: 'order:submit', group: 'construction',
     hint: '파일을 올리고 담당자 지목' },
   { label: '올린 발주서', href: '/purchase-orders?view=mine', icon: 'Send', permission: 'order:submit', group: 'construction',

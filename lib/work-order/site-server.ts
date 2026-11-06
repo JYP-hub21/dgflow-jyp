@@ -4,7 +4,7 @@ import { isSite, type ProductionSite } from './site';
 /** 생산 공장 · 외주 업체를 고칠 수 있는 사람 — 작업의뢰서를 다루는 업무지원부와 마스터 */
 export const SITE_EDITORS = ['work_order:create', 'order:process', 'admin:master'];
 
-/** 현장별 공사 담당자를 정할 수 있는 사람 — 위 사람들 + 공사개발부(자기 현장을 자기로) */
+/** 현장별 공사 담당자를 정할 수 있는 사람 — 위 사람들 + 공사관리부(자기 현장을 자기로) */
 export const CONTACT_EDITORS = [...SITE_EDITORS, 'order:submit'];
 
 /** 외주 업체 입력값 다듬기 — 글자 수를 막아 둔다 */

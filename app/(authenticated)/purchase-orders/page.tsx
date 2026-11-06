@@ -41,7 +41,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
     all,
   };
   const shown = lists[view];
-  // 앞의 둘은 사이드바 메뉴 이름과 같다 — 받은 발주서(업무지원부) · 올린 발주서(공사개발부)
+  // 앞의 둘은 사이드바 메뉴 이름과 같다 — 받은 발주서(업무지원부) · 올린 발주서(공사관리부)
   const tabs: { key: View; label: string; hidden?: boolean }[] = [
     { key: 'todo', label: '받은 발주서', hidden: !processor },
     { key: 'mine', label: '올린 발주서' },

@@ -4,7 +4,7 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { contactsForWorkOrders } from '@/lib/production/contacts';
 
-/** GET /api/work-orders/{id}/contact — 이 작업의뢰서의 현장 담당자(발주 건을 올린 공사개발부 담당). 없으면 contact: null */
+/** GET /api/work-orders/{id}/contact — 이 작업의뢰서의 현장 담당자(발주 건을 올린 공사관리부 담당). 없으면 contact: null */
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

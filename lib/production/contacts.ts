@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 
 /**
- * 작업의뢰서의 공사 담당자(공사개발부) — 생산 현황 · 생산 입력에서 "누구에게 물어볼지".
+ * 작업의뢰서의 공사 담당자(공사관리부) — 생산 현황 · 생산 입력에서 "누구에게 물어볼지".
  * 2026-10-30 회의 · 워드 8번, 2026-11-02 "현장별 공사관리부 담당자 정보 — 복층 입력할 때".
  *
  * 찾는 순서

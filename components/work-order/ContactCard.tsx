@@ -13,7 +13,7 @@ import type { SiteContact } from '@/lib/production/contacts';
 interface Candidate { id: string; name: string; department: string | null; phone: string | null }
 
 /**
- * 공사 담당자(공사개발부) — 생산 입력 · 작업의뢰서 화면 오른쪽 위에.
+ * 공사 담당자(공사관리부) — 생산 입력 · 작업의뢰서 화면 오른쪽 위에.
  * 2026-11-02 "누가 올린 발주서인지 사람이랑 연락처가 뜨면 그 사람과 소통하면 되는구나 하고 빨리 판단" ·
  * "현장별 공사관리부 담당자 정보 — 복층 입력할 때".
  *

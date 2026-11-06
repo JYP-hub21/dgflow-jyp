@@ -38,7 +38,7 @@ export interface RemainingGroup {
   items: RemainingItem[];
   /** 이 의뢰서를 마지막으로 생산한 날 (없으면 아직 안 함) */
   last_produced?: string | null;
-  /** 발주서 올린 사람(공사개발부) — 물어볼 사람 */
+  /** 발주서 올린 사람(공사관리부) — 물어볼 사람 */
   contact?: SiteContact | null;
 }
 

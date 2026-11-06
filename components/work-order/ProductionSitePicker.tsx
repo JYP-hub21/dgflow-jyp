@@ -14,7 +14,7 @@ export interface SiteValue { site: ProductionSite; partnerId: string }
 
 /**
  * 생산 공장 고르기 — 오창공장 / 외주(업체). 외주면 업체를 고르고, 없으면 그 자리에서 더한다.
- * 업체 담당자 · 전화가 바뀌면 연필을 눌러 고친다 — 공사개발부가 그 번호로 진행을 묻는다.
+ * 업체 담당자 · 전화가 바뀌면 연필을 눌러 고친다 — 공사관리부가 그 번호로 진행을 묻는다.
  * 작업의뢰서 등록 · 작업의뢰서 화면이 같이 쓴다 (lib/work-order/site.ts).
  */
 export default function ProductionSitePicker({ value, onChange }: { value: SiteValue; onChange: (v: SiteValue) => void }) {

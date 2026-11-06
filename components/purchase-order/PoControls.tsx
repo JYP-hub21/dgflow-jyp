@@ -198,7 +198,7 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
         {wo ? (
           <div className="flex flex-wrap items-center gap-3">
             <Link href={`/work-orders/${wo.id}`} className="font-bold text-brand-800 hover:underline">{wo.work_order_number}</Link>
-            {/* 어디서 만드는지 — 외주면 업체 담당자 전화까지 (공사개발부가 진행을 물을 곳) */}
+            {/* 어디서 만드는지 — 외주면 업체 담당자 전화까지 (공사관리부가 진행을 물을 곳) */}
             <SiteBadge value={wo.site} withContact />
             {check && (
               <Badge variant={check.ok ? 'success' : 'destructive'} title={checkSummary(check)}>

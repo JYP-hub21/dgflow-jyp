@@ -1,5 +1,5 @@
 /**
- * 회사 부서 — 발주서 한 건은 공사개발부 → 업무지원부 → 생산관리부 순서로 흐른다.
+ * 회사 부서 — 발주서 한 건은 공사관리부 → 업무지원부 → 생산관리부 순서로 흐른다.
  *
  * 2026-10-30 현장 피드백: "로그인하고 무엇을 해야 하는지, 일이 어떻게 진행되는지 모르겠다."
  * 그래서 사이드바 · 대시보드 · 화면 머리글이 이 목록 하나로 부서 이름 · 순서 · 색을 맞춘다.
@@ -18,7 +18,7 @@ export interface Department {
 
 export const DEPARTMENTS: Department[] = [
   {
-    key: 'construction', name: '공사개발부', order: 1,
+    key: 'construction', name: '공사관리부', order: 1,
     summary: '현장에서 받은 발주서를 올리고, 처리할 담당자를 지목합니다.',
   },
   {
@@ -35,7 +35,7 @@ export const DEPT_BY_KEY = Object.fromEntries(DEPARTMENTS.map(d => [d.key, d])) 
 
 /**
  * 사원 정보의 부서 칸(자유 입력)을 세 부서 중 하나로 읽는다. 못 읽으면 null.
- * '공사개발부' 대신 '공사부' · '업무지원팀' · '생산팀' 처럼 적어도 알아보게 핵심 낱말로 본다.
+ * '공사관리부' 대신 '공사부' · '업무지원팀' · '생산팀' 처럼 적어도 알아보게 핵심 낱말로 본다.
  */
 export function deptOf(department: string | null | undefined): DeptKey | null {
   const s = (department ?? '').replace(/\s/g, '');
