@@ -14,7 +14,7 @@ const D_PATH = 'M7.21 6.4L13.81 6.4L18.53 6.6L19.54 6.87L19.94 7.14L20.55 7.21L2
 
 export function LogoMark({ size = 32, className }: { size?: number; className?: string }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="동일유리" className={cn('shrink-0', className)}>
+    <svg width={size} height={size} viewBox="0 0 32 32" role="img" aria-label="동일유리(주)" className={cn('shrink-0', className)}>
       <rect width="32" height="32" rx="9" fill={NAVY} />
       <path d={D_PATH} fill="#FFFFFF" fillRule="evenodd" />
     </svg>
@@ -36,14 +36,14 @@ interface LogoProps {
   priority?: boolean;
 }
 
-/** 마크 + "동일유리". withTitle 이면 아래에 "DG Flow · 발주 · 생산 관리" */
+/** 마크 + "동일유리(주)". withTitle 이면 아래에 "DG Flow · 발주 · 생산 관리" */
 export default function Logo({ size = 'md', withTitle = false, className }: LogoProps) {
   const s = SIZES[size];
   return (
     <div className={cn('flex items-center', size === 'lg' ? 'gap-3.5' : 'gap-2.5', className)}>
       <LogoMark size={s.mark} />
       <div className="min-w-0 leading-none">
-        <p className={cn('font-extrabold tracking-[-0.04em] text-brand-900', s.name)}>동일유리</p>
+        <p className={cn('font-extrabold tracking-[-0.04em] text-brand-900', s.name)}>동일유리<span className="ml-0.5 text-[0.72em] font-bold tracking-normal">(주)</span></p>
         {withTitle && (
           <p className={cn('mt-1 whitespace-nowrap font-semibold tracking-[-0.01em] text-muted-foreground', s.sub)}>DG Flow · 발주 · 생산 관리</p>
         )}
