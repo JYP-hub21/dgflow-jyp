@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { readWeeklyDraft, writeWeeklyDraft } from '@/lib/production/weekly-drafts';
 import { isIsoDate } from '@/lib/production/daily-report';
@@ -12,6 +12,8 @@ import { Check, ChevronLeft, ChevronRight, CloudOff, Copy, Download, Loader2 } f
 import { useProductionLines } from '@/components/production/useProductionLines';
 import { activeLines, lineName } from '@/lib/production/lines';
 import { cn } from '@/lib/utils';
+import CrewPicker from '@/components/production/CrewPicker';
+import type { CrewMember } from '@/lib/production/crew';
 import {
   CREW_COLUMNS, DEFAULT_SETTINGS, EMPTY_DAY_ENTRY, SHIFT_TYPES, buildWeeklySheet, dayKey, weekOf, weeklyLineNumbers,
   type CrewKey, type WeekInfo, type WeeklyAuto, type WeeklyDayEntry, type WeeklyLineSheet, type WeeklyRow,
@@ -51,6 +53,16 @@ const toNumber = (s: string): number | null => {
 const fixed = (v: number | '휴무', digits: number) => (v === '휴무' ? v : v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const percent = (v: number) => `${Math.round(v * 100)}%`;
 const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+
+/** 투입 인원 칸에서 고를 명단 — 표마다 넘기지 않고 한 곳에서 준다 */
+interface CrewRoster {
+  members: CrewMember[];
+  /** 이 주에 적혀 있는 이름 (명단에 없는 사람 포함) */
+  usedNames: string[];
+  canAdd: boolean;
+  add: (name: string) => Promise<void>;
+}
+const CrewContext = createContext<CrewRoster>({ members: [], usedNames: [], canAdd: false, add: async () => {} });
 
 export default function WeeklyLog() {
   const router = useRouter();
@@ -177,6 +189,25 @@ export default function WeeklyLog() {
     const all = Object.values(entries).flatMap(e => Object.values(e.crew ?? {}));
     return [...new Set(all.map(n => (n ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
   }, [entries]);
+  // 생산 인원 명단 (조직도 생산부) — 표가 없으면 이 주에 적힌 이름으로만 고른다
+  const [crew, setCrew] = useState<{ storage: 'db' | 'none'; members: CrewMember[] }>({ storage: 'none', members: [] });
+  useEffect(() => {
+    fetch('/api/production/crew').then(r => (r.ok ? r.json() : null))
+      .then(j => { if (j) setCrew({ storage: j.storage, members: j.members ?? [] }); })
+      .catch(() => {});
+  }, []);
+  const addCrew = useCallback(async (name: string) => {
+    const res = await fetch('/api/production/crew', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error ?? '명단에 추가하지 못했습니다.');
+    setCrew(prev => ({ ...prev, members: [...prev.members.filter(m => m.id !== j.data.id), j.data] }));
+  }, []);
+  const roster = useMemo<CrewRoster>(() => ({
+    members: crew.members, usedNames: names, canAdd: crew.storage === 'db' && !!data?.canEdit, add: addCrew,
+  }), [crew, names, data?.canEdit, addCrew]);
+
   const canEdit = !!data?.canEdit;
   const thisMonday = weekOf(todayKst()).monday;
   const week = data?.week ?? weekOf(date);
@@ -231,20 +262,22 @@ export default function WeeklyLog() {
               {shortDate(sundayDate)} 일요일 생산 {sundayJo.toLocaleString()}조는 주간생산일지 양식에 칸이 없어 이 표에 포함되지 않습니다.
             </p>
           )}
+          {/* 복층 · 3복층 생산량을 맨 위에 (2026-11-09 사용자 요청) — 아래 호기별 표의 생산조 · 생산M² 가 여기서 온다 */}
+          <OutputTable sheet={sheet.lines} nameOf={n => lineName(lines, n)} entries={entries} auto={data.auto} canEdit={canEdit} onChange={change} />
+
           <p className="break-keep text-sm text-muted-foreground">
             <b className="text-foreground">근무 구분 · 근무시간 · 투입 인원 · 사유</b>를 입력하면 목표 · 시간당 생산 · 환산 · 평가가 계산되고, 회사 주간생산일지 양식 그대로 엑셀이 나옵니다.
-            근무시간은 설비 고장 같은 부동시간을 뺀 실제 생산 시간을 입력하세요. 생산조 · 생산M²는 아래 복층 · 3복층 칸에서 가져옵니다.
+            근무시간은 설비 고장 같은 부동시간을 뺀 실제 생산 시간을 입력하세요. 투입 인원 칸을 누르면 생산부 명단에서 고를 수 있습니다.
           </p>
 
-          {sheet.lines.map(block => (
-            <LineTable key={block.line} block={block} name={lineName(lines, block.line)} entries={entries} canEdit={canEdit} auto={data.auto} onChange={change} />
-          ))}
-
-          <OutputTable sheet={sheet.lines} nameOf={n => lineName(lines, n)} entries={entries} auto={data.auto} canEdit={canEdit} onChange={change} />
+          <CrewContext.Provider value={roster}>
+            {sheet.lines.map(block => (
+              <LineTable key={block.line} block={block} name={lineName(lines, block.line)} entries={entries} canEdit={canEdit} auto={data.auto} onChange={change} />
+            ))}
+          </CrewContext.Provider>
         </>
       )}
 
-      <datalist id="weekly-names">{names.map(n => <option key={n} value={n} />)}</datalist>
     </div>
   );
 }
@@ -362,6 +395,7 @@ function DayRow({ row, line, entry, prevCrew, produced, canEdit, onChange }: {
   const crew = entry.crew ?? {};
   const setCrew = (k: CrewKey, v: string) => onChange(key, e => ({ ...e, crew: { ...e.crew, [k]: v } }));
   const copyable = canEdit && !!prevCrew && Object.values(prevCrew).some(Boolean);
+  const roster = useContext(CrewContext);
   const hoursMissing = produced && entry.work_hours === null;
   return (
     <tr>
@@ -392,8 +426,8 @@ function DayRow({ row, line, entry, prevCrew, produced, canEdit, onChange }: {
       <td className={calc}>{row.barcodeRatio === null ? '' : row.barcodeRatio.toFixed(1)}</td>
       {CREW_COLUMNS.map((c, i) => (
         <td key={c.key} className={cn(td, 'relative')}>
-          <input aria-label={c.label} size={1} list="weekly-names" disabled={!canEdit} value={crew[c.key] ?? ''} className={cellInput}
-            onChange={e => setCrew(c.key, e.target.value)} />
+          <CrewPicker value={crew[c.key] ?? ''} label={c.label} members={roster.members} usedNames={roster.usedNames}
+            canEdit={canEdit} canAdd={roster.canAdd} onChange={v => setCrew(c.key, v)} onAdd={roster.add} />
           {i === 0 && copyable && !Object.values(crew).some(Boolean) && (
             <button type="button" title="전날 인원과 동일하게 입력" aria-label="전날 인원과 동일하게 입력"
               className="absolute inset-y-1 right-2 flex items-center text-muted-foreground hover:text-primary"
@@ -431,7 +465,7 @@ const OUTPUT_FIELDS = [
   { field: 'triple_m2', from: 'triple', unit: 'm2', label: 'M²' },
 ] as const;
 
-/** 엑셀 맨 아래 칸 — 날마다 복층 · 3복층. 위 표의 생산조 · 생산M² 는 여기서 온다 */
+/** 엑셀 맨 아래 칸 — 날마다 복층 · 3복층. 화면에서는 맨 위에 둔다. 호기별 표의 생산조 · 생산M² 는 여기서 온다 */
 function OutputTable({ sheet, nameOf, entries, auto, canEdit, onChange }: {
   sheet: WeeklyLineSheet[];
   nameOf: (line: number) => string;
@@ -445,7 +479,7 @@ function OutputTable({ sheet, nameOf, entries, auto, canEdit, onChange }: {
       <div className="border-b bg-muted/40 px-5 py-3">
         <h3 className="text-[15px] font-bold">복층 · 3복층 생산량</h3>
         <p className="mt-0.5 break-keep text-sm text-muted-foreground">
-          엑셀 맨 아래 칸과 같습니다. 합계는 복층 + 3복층 × 2 이며, 위 표의 생산조 · 생산M²로 들어갑니다.
+          엑셀 맨 아래 칸과 같습니다. 합계는 복층 + 3복층 × 2 이며, 아래 호기별 표의 생산조 · 생산M²로 들어갑니다.
           흐린 값은 생산 기록(유리 3장 이상을 3복층으로 구분)입니다. 스텝 · 이형처럼 200%로 인정할 수량은 3복층 칸으로 옮겨 입력하세요.
         </p>
       </div>
