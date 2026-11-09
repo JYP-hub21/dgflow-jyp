@@ -2,7 +2,7 @@
  * 생산 인원 명단 — 표 dgflow_crew_members (supabase/migrations/20261109_026_crew_members.sql).
  *
  * 주간생산일지 투입 인원 칸에서 고른다. 이름은 공개 저장소에 두지 않고 표에만 있다.
- * 조직도 표기와 예전 일지 표기가 다른 사람이 있어(묘나잉윈 / 묘낭윈 등) 다른 표기는 aliases 로 찾기만 한다.
+ * 조직도 표기와 예전 일지 표기가 다른 사람이 있어 다른 표기는 aliases 로 찾기만 한다. (실제 이름은 이 저장소에 적지 않는다)
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isMissingTable, type EntriesStorage } from './bokcheung-store';
@@ -34,7 +34,7 @@ export async function loadCrew(supabase: SupabaseClient): Promise<{ storage: Ent
   return { storage: 'db', members: (data ?? []) as CrewMember[] };
 }
 
-/** 조직도 성명 칸 "묘나잉윈(MYO NAING WIN)" → 이름 · 영문. 괄호가 겹친 오타("조비토(MAYUGA JOY))")도 받는다 */
+/** 조직도 성명 칸 "가나다(GANA DA)" → 이름 · 영문. 괄호가 겹친 오타("라마바(RAMA BA))")도 받는다 */
 export function splitOrgName(raw: string): { name: string; english: string } {
   const t = raw.trim();
   const m = t.match(/^([^(]+?)\s*\((.*)$/);
