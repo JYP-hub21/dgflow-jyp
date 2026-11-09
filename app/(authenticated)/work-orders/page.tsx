@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { workOrderLabels } from '@/lib/work-order/labels';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -9,12 +9,17 @@ import PageHeader from '@/components/layout/PageHeader';
 import PermissionGate from '@/components/layout/PermissionGate';
 import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
 import SiteBadge from '@/components/work-order/SiteBadge';
+import ListSearch, { searchCondition } from '@/components/work-order/ListSearch';
 import { toWorkOrderSite } from '@/lib/work-order/site';
+import { loadReceipts } from '@/lib/work-order/receipts';
+import { loadDeliveries } from '@/lib/production/delivery-store';
+import { deliveredByWorkOrder } from '@/lib/production/delivery';
+import { Badge } from '@/components/ui/badge';
 import { ScanLine, FileText, ChevronRight } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 
-type Props = { searchParams: Promise<{ page?: string }> };
+type Props = { searchParams: Promise<{ page?: string; q?: string }> };
 
 // 등록 화면(/work-orders/receive)은 권한이 달라 폴더 layout 으로 막지 않고 여기서 막는다
 export default function Page(props: Props) {
@@ -28,11 +33,30 @@ async function WorkOrdersPage({ searchParams }: Props) {
 
   const supabase = await createServerSupabaseClient();
 
-  const { data: workOrders, count } = await supabase
+  const q = (params.q ?? '').trim();
+  const search = searchCondition(q);
+  let query = supabase
     .from('dgflow_work_orders')
-    .select(`*, outsource_partner:dgflow_outsource_partners(name, contact_name, phone), order:dgflow_orders(order_number, customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`, { count: 'exact' })
+    .select(`*, outsource_partner:dgflow_outsource_partners(name, contact_name, phone), order:dgflow_orders(order_number, customer:dgflow_customers(short_name), site:dgflow_sites(site_name)), items:dgflow_work_order_items(quantity, produced_quantity)`, { count: 'exact' });
+  if (search) query = query.or(search);
+  const { data: workOrders, count } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1);
+
+  // 납품 수량 · 수신 확인 — 표가 생기기 전에는 빈 값으로 온다
+  const service = createServiceRoleClient();
+  const ids = (workOrders || []).map(wo => wo.id as string);
+  const [{ logs: deliveries }, { storage: receiptStorage, receipts }] = await Promise.all([
+    loadDeliveries(service, ids), loadReceipts(service, ids),
+  ]);
+  const delivered = deliveredByWorkOrder(deliveries);
+  const totalsOf = (wo: { id: string; items?: { quantity: number; produced_quantity: number }[] }) => ({
+    quantity: (wo.items ?? []).reduce((s, i) => s + i.quantity, 0),
+    produced: (wo.items ?? []).reduce((s, i) => s + i.produced_quantity, 0),
+    delivered: delivered.get(wo.id) ?? 0,
+  });
+  const notReceived = (wo: { id: string; status: string; production_site?: string | null }) =>
+    receiptStorage === 'db' && wo.status !== 'completed' && wo.production_site !== 'outsource' && !receipts.has(wo.id);
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -46,6 +70,8 @@ async function WorkOrdersPage({ searchParams }: Props) {
         }
       />
 
+      <ListSearch action="/work-orders" value={q} />
+
       {/* 폰 — 카드 목록 */}
       <div className="space-y-2.5 md:hidden">
         {(!workOrders || workOrders.length === 0) && <Empty />}
@@ -57,7 +83,8 @@ async function WorkOrdersPage({ searchParams }: Props) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-bold">{wo.work_order_number}</span>
-                  <WorkOrderStatusBadge status={wo.status} />
+                  <WorkOrderStatusBadge status={wo.status} totals={totalsOf(wo)} />
+                  {notReceived(wo) && <Badge variant="warning">수신 미확인</Badge>}
                 </div>
                 <p className="mt-0.5 truncate text-sm text-muted-foreground">
                   {[labels.customer, labels.site].filter(Boolean).join(' · ') || '-'}
@@ -104,7 +131,12 @@ async function WorkOrdersPage({ searchParams }: Props) {
                     <TableCell className="tabular">{wo.request_date}</TableCell>
                     <TableCell className="tabular">{wo.delivery_date || '-'}</TableCell>
                     <TableCell><SiteBadge value={toWorkOrderSite(wo)} /></TableCell>
-                    <TableCell><WorkOrderStatusBadge status={wo.status} /></TableCell>
+                    <TableCell>
+                      <span className="flex flex-wrap items-center gap-1">
+                        <WorkOrderStatusBadge status={wo.status} totals={totalsOf(wo)} />
+                        {notReceived(wo) && <Badge variant="warning">수신 미확인</Badge>}
+                      </span>
+                    </TableCell>
                     <TableCell className="pr-5">
                       <div className="flex justify-end gap-2">
                         <Link href={`/work-orders/${wo.id}/preview`} className={buttonVariants({ variant: 'outline', size: 'sm' })}>

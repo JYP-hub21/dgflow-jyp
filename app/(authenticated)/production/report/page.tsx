@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Segmented from '@/components/ui/segmented';
 import BokcheungLog from '@/components/production/BokcheungLog';
+import WeeklyLog from '@/components/production/WeeklyLog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -47,26 +48,36 @@ function presets(): { key: string; label: string; from: string; to: string }[] {
 }
 
 /**
- * 생산일지 — 두 보기.
+ * 생산일지 — 세 보기.
  *  · 복층생산일지 (기본): 회사 양식 그대로의 하루치. 종류 · 수량외만 입력 (2026-10-30 요청)
+ *  · 주간생산일지: 회사 양식 그대로의 한 주. 근무 · 인원 · 사유를 입력 (2026-11-06 요청)
  *  · 기간 합계: 기간을 골라 날짜별로 무엇을 몇 장 만들었나 (예전 일간 생산일지)
  */
+const VIEW_DESCRIPTIONS = {
+  bokcheung: '회사 복층생산일지 양식 그대로입니다. 종류와 수량외만 입력하면 엑셀로 내려받을 수 있습니다.',
+  weekly: '회사 주간생산일지 양식 그대로입니다. 한 주의 근무와 투입 인원을 입력하면 엑셀로 내려받을 수 있습니다.',
+  period: '기간을 고르면 날짜마다 복층생산일지 시트가 한 장씩 든 엑셀로 내려받습니다. 아래는 그 기간에 생산한 내역입니다.',
+};
+
 export default function ProductionLogPage() {
   const router = useRouter();
-  const view = useSearchParams().get('view') === 'period' ? 'period' : 'bokcheung';
+  const param = useSearchParams().get('view');
+  const view = param === 'period' || param === 'weekly' ? param : 'bokcheung';
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className={view === 'weekly' ? 'space-y-5' : 'mx-auto max-w-6xl space-y-5'}>
       <PageHeader
         back={{ href: '/production', label: '생산 현황' }}
         title="생산일지"
-        description={view === 'bokcheung'
-          ? '회사 복층생산일지 양식 그대로입니다. 종류와 수량외만 입력하면 엑셀로 내려받을 수 있습니다.'
-          : '기간을 고르면 날짜마다 복층생산일지 시트가 한 장씩 든 엑셀로 내려받습니다. 아래는 그 기간에 생산한 내역입니다.'}
+        description={VIEW_DESCRIPTIONS[view]}
       />
       <Segmented value={view}
-        onChange={v => router.replace(v === 'period' ? '/production/report?view=period' : '/production/report')}
-        options={[{ value: 'bokcheung', label: '복층생산일지' }, { value: 'period', label: '기간 합계' }]} />
-      {view === 'bokcheung' ? <BokcheungLog /> : <PeriodReport />}
+        onChange={v => router.replace(v === 'bokcheung' ? '/production/report' : `/production/report?view=${v}`)}
+        options={[
+          { value: 'bokcheung', label: '복층생산일지' },
+          { value: 'weekly', label: '주간생산일지' },
+          { value: 'period', label: '기간 합계' },
+        ]} />
+      {view === 'bokcheung' ? <BokcheungLog /> : view === 'weekly' ? <WeeklyLog /> : <PeriodReport />}
     </div>
   );
 }
@@ -80,24 +91,31 @@ function PeriodReport() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState('');
+  /** 엑셀에서 뺄 날짜 — 체크를 끈 날 (회의: 여러 날을 골라 한 파일로) */
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const { lines } = useProductionLines();
 
   const query = `from=${range.from}&to=${range.to}`;
+  // 기간을 빠르게 바꾸면 앞선 요청이 늦게 올 수 있다 — 마지막 요청의 결과만 쓴다
+  const latest = useRef(0);
 
   const load = useCallback(async () => {
     if (!range.from || !range.to) return;
+    const mine = ++latest.current;
     setLoading(true);
     setError('');
     try {
       const res = await fetch(`/api/production/report?${query}`);
       const body = await res.json();
+      if (mine !== latest.current) return;
       if (!res.ok) throw new Error(body.error || '불러오지 못했습니다.');
       setReport(body);
     } catch (e) {
+      if (mine !== latest.current) return;
       setReport(null);
       setError(e instanceof Error ? e.message : '불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [query, range.from, range.to]);
 
@@ -111,7 +129,10 @@ function PeriodReport() {
       const res = await fetch(`/api/production/bokcheung/range?${query}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ drafts: readDraftsBetween(range.from, range.to) }),
+        body: JSON.stringify({
+          drafts: readDraftsBetween(range.from, range.to),
+          dates: skipped.size > 0 ? pickedDays.map(d => d.date) : undefined,
+        }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '엑셀을 만들지 못했습니다.');
       const blob = await res.blob();
@@ -132,6 +153,12 @@ function PeriodReport() {
 
   const activePreset = presets().find(p => p.from === range.from && p.to === range.to)?.key;
   const empty = report && report.days.length === 0;
+  const pickedDays = (report?.days ?? []).filter(d => !skipped.has(d.date));
+  const toggleDay = (date: string) => setSkipped(prev => {
+    const next = new Set(prev);
+    if (!next.delete(date)) next.add(date);
+    return next;
+  });
 
   return (
     <div className="space-y-5">
@@ -147,9 +174,9 @@ function PeriodReport() {
                 </button>
               ))}
             </div>
-            <Button onClick={download} disabled={downloading || loading || !report || !!empty}>
+            <Button onClick={download} disabled={downloading || loading || !report || !!empty || pickedDays.length === 0}>
               {downloading ? <Loader2 className="animate-spin" /> : <Download />}
-              {downloading ? '엑셀 생성 중…' : '복층생산일지 엑셀 · 날짜별 시트'}
+              {downloading ? '엑셀 생성 중…' : `복층생산일지 엑셀 · 선택한 ${pickedDays.length}일`}
             </Button>
           </div>
           <div className="flex flex-wrap items-end gap-3">
@@ -182,8 +209,8 @@ function PeriodReport() {
         <>
           {/* 기간 요약 */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Stat label="생산 수량" value={report.quantity.toLocaleString()} unit="장" />
-            <Stat label="생산 면적" value={report.area_m2.toFixed(2)} unit="㎡" />
+            <Stat label="생산 수량" value={report.quantity.toLocaleString()} unit="조" />
+            <Stat label="생산 면적" value={report.area_m2.toFixed(2)} unit="M²" />
             <Stat label="생산한 날" value={String(report.days.length)} unit="일" />
           </div>
 
@@ -198,13 +225,17 @@ function PeriodReport() {
             [...report.days].reverse().map(day => (
               <Card key={day.date} className="gap-0 py-0">
                 <CardHeader className="flex flex-col gap-2 border-b bg-brand-50/60 py-4 sm:flex-row sm:items-center sm:justify-between">
-                  <CardTitle className="text-lg">
-                    {day.date} <span className={day.weekday === '일' ? 'text-destructive' : day.weekday === '토' ? 'text-brand-600' : 'text-muted-foreground'}>({day.weekday})</span>
-                  </CardTitle>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <input type="checkbox" checked={!skipped.has(day.date)} onChange={() => toggleDay(day.date)}
+                      aria-label={`${day.date} 엑셀에 포함`} className="h-4.5 w-4.5 accent-brand-800" />
+                    <CardTitle className="text-lg">
+                      {day.date} <span className={day.weekday === '일' ? 'text-destructive' : day.weekday === '토' ? 'text-brand-600' : 'text-muted-foreground'}>({day.weekday})</span>
+                    </CardTitle>
+                  </label>
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <b className="tabular text-base text-brand-800">{day.quantity.toLocaleString()}장</b>
-                    <span className="tabular text-muted-foreground">· {day.area_m2.toFixed(2)}㎡ · 작업의뢰서 {day.work_order_count}건</span>
-                    {day.night_quantity > 0 && <Badge variant="secondary">야간 {day.night_quantity}장</Badge>}
+                    <b className="tabular text-base text-brand-800">{day.quantity.toLocaleString()}조</b>
+                    <span className="tabular text-muted-foreground">· {day.area_m2.toFixed(2)}M² · 작업의뢰서 {day.work_order_count}건</span>
+                    {day.night_quantity > 0 && <Badge variant="secondary">야간 {day.night_quantity}조</Badge>}
                     {/* 그날 복층생산일지의 종류 · 수량외를 채우러 */}
                     <Link href={`/production/report?date=${day.date}`}
                       className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 font-semibold text-brand-800 hover:bg-brand-50">
@@ -221,7 +252,7 @@ function PeriodReport() {
                         <TableHead>품명</TableHead>
                         <TableHead className="text-right">규격 (mm)</TableHead>
                         <TableHead className="text-right">수량</TableHead>
-                        <TableHead className="text-right">면적(㎡)</TableHead>
+                        <TableHead className="text-right">면적(M²)</TableHead>
                         <TableHead>주/야 · 호기</TableHead>
                         <TableHead className="pr-5">입력자</TableHead>
                       </TableRow>

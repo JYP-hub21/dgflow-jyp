@@ -1,7 +1,8 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
+import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST: 생산실적 입력
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
 
   // 작업의뢰서 품목의 생산완료 수량 = 생산 기록의 합
   if (work_order_item_id) await syncProducedQuantity(supabase, work_order_item_id);
+  await syncWorkOrderStatus(createServiceRoleClient(), work_order_id);
 
   return NextResponse.json({ data }, { status: 201 });
 }

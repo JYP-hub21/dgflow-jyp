@@ -67,7 +67,7 @@ function TrendTooltip({ active, payload, series }: { active?: boolean; payload?:
           <span key={s.line}>{i > 0 && ' · '}{s.name} <b className="text-foreground">{valueOf(p, s.line).toLocaleString()}</b></span>
         ))}
       </p>
-      <p className="tabular text-muted-foreground">합계 <b className="text-foreground">{p.total.toLocaleString()}</b> · {p.area_m2.toFixed(1)}㎡</p>
+      <p className="tabular text-muted-foreground">합계 <b className="text-foreground">{p.total.toLocaleString()}</b> · {p.area_m2.toFixed(1)}M²</p>
     </div>
   );
 }

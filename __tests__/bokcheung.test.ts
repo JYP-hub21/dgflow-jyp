@@ -181,6 +181,9 @@ function sheetFromCompany(ws: ExcelJS.Worksheet) {
   return { sheet, entries };
 }
 
+/** 2026-11-06 회의로 회사 파일과 일부러 달라진 칸 — 평 표기를 없앴다: K 열(M²) · N 열(1) · 머리글 · 누계(M²) */
+const AREA_CHANGED = (c: string, r: number) => c === 'K' || c === 'N' || (r === 7 && c === 'J') || (r === 45 && (c === 'E' || c === 'J'));
+
 describe.skipIf(!hasFixture)('회사 복층생산일지 5월 16일 시트와 같은가', async () => {
   const company = new ExcelJS.Workbook();
   await company.xlsx.readFile(FIXTURE);
@@ -205,6 +208,7 @@ describe.skipIf(!hasFixture)('회사 복층생산일지 5월 16일 시트와 같
     for (let r = 1; r <= 45; r++) for (const c of COLS) {
       const cell0 = ws0.getCell(`${c}${r}`), cell1 = ws1.getCell(`${c}${r}`);
       if (cell0.isMerged && cell0.master.address !== cell0.address) continue; // 병합의 딸린 칸
+      if (AREA_CHANGED(c, r)) continue;
       let a = plain(cell0.value), b = plain(cell1.value);
       if (typeof a === 'number' && typeof b === 'number') { a = Math.round(a * 100) / 100; b = Math.round(b * 100) / 100; }
       if (JSON.stringify(a) !== JSON.stringify(b)) diffs.push(`${c}${r} 회사=${JSON.stringify(a)} 우리=${JSON.stringify(b)}`);
@@ -212,7 +216,15 @@ describe.skipIf(!hasFixture)('회사 복층생산일지 5월 16일 시트와 같
     expect(diffs).toEqual([]);
   });
 
-  it('수식이 같다 — 면적 ㎡×10.89, 소계 SUM, 종류별 SUMIF', () => {
+  it('평 표기를 없앴다 — 머리글은 수량(조) · 수량(M²), 값은 ㎡ 그대로 (2026-11-06 회의)', () => {
+    expect(ws1.getCell('J7').value).toBe('수량(조)');
+    expect(ws1.getCell('K7').value).toBe('수량(M²)');
+    expect(ws1.getCell('E45').value).toBe('누계(M²)');
+    expect(ws1.getCell('N8').value).toBe(1);
+    expect(plain(ws1.getCell('K8').value)).toBeCloseTo(26.88, 2);
+  });
+
+  it('수식이 같다 — 수량 칸 M×N, 소계 SUM, 종류별 SUMIF', () => {
     expect(ws1.getCell('K8').formula).toBe('+M8*N8');
     expect(ws1.getCell('K23').formula).toBe('+M23*N23');
     expect(ws1.getCell('J24').formula).toBe(ws0.getCell('J24').formula);

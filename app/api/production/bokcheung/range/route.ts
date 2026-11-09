@@ -15,6 +15,7 @@ const MAX_DAYS = 366;
 /**
  * POST /api/production/bokcheung/range?from=YYYY-MM-DD&to=YYYY-MM-DD
  * body: { drafts?: { [날짜]: { [줄 열쇠]: { glass_type, quantity_note } } } } — 화면이 그 PC 에 임시 저장해 둔 입력값
+ *       dates?: 기간 안에서 골라 받을 날짜 (없으면 기간 전체)
  *
  * 기간의 복층생산일지를 날짜마다 시트 한 장씩 넣은 엑셀 (복층 생산이 있는 날만).
  * 회사 복층생산일지(2026).xlsx 와 같은 시트라 회사 파일로 옮겨 이어 붙일 수 있다.
@@ -46,7 +47,8 @@ export async function POST(request: NextRequest) {
       fetchProductionLogs(supabase, `${from.slice(0, 4)}-01-01`, to),
       loadLines(supabase),
     ]);
-    const sheets = buildBokcheungRange(logs, from, to, lines);
+    const picked = Array.isArray(body?.dates) ? new Set<unknown>(body.dates) : null;
+    const sheets = buildBokcheungRange(logs, from, to, lines).filter(s => !picked || picked.has(s.date));
     if (sheets.length === 0) {
       return NextResponse.json({ error: '이 기간에 입력된 복층 생산실적이 없습니다.' }, { status: 400 });
     }

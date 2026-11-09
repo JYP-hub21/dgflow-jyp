@@ -437,7 +437,7 @@ function RawGlassTab() {
               <TableHead>유형</TableHead>
               <TableHead className="text-right">가로(mm)</TableHead>
               <TableHead className="text-right">세로(mm)</TableHead>
-              <TableHead className="text-right">면적(m²)</TableHead>
+              <TableHead className="text-right">면적(M²)</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>

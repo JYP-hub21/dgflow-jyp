@@ -6,9 +6,14 @@ import { contactsForWorkOrders } from '@/lib/production/contacts';
 import { toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS, SITE_EDITORS } from '@/lib/work-order/site-server';
 import { getCurrentUser } from '@/lib/auth/get-user';
-import { hasAnyPermission } from '@/lib/auth/role-guard';
+import { hasAnyPermission, hasPermission } from '@/lib/auth/role-guard';
 import SiteEditor from '@/components/work-order/SiteEditor';
 import ContactCard from '@/components/work-order/ContactCard';
+import WorkOrderEditActions from '@/components/work-order/WorkOrderEditActions';
+import ReceiptButton from '@/components/work-order/ReceiptButton';
+import { formatKst, loadReceipts } from '@/lib/work-order/receipts';
+import { loadDeliveries } from '@/lib/production/delivery-store';
+import { groupDeliveries } from '@/lib/production/delivery';
 import ProductionByDate from '@/components/production/ProductionByDate';
 import RemarkText from '@/components/production/RemarkText';
 import Link from 'next/link';
@@ -100,11 +105,22 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   const contact = contacts.get(id) ?? null;
   const canEditSite = !!user && hasAnyPermission(user, SITE_EDITORS);
   const canAssignContact = !!user && hasAnyPermission(user, CONTACT_EDITORS);
+  const canRevise = !!user && hasPermission(user, 'work_order:create');
+  const canReceive = !!user && hasPermission(user, 'production:view');
+
+  // 납품 · 수신 확인 — 표가 생기기 전에는 비어 있다
+  const [{ storage: deliveryStorage, logs: deliveryLogs }, { storage: receiptStorage, receipts }] = await Promise.all([
+    loadDeliveries(supabase, [id]), loadReceipts(supabase, [id]),
+  ]);
+  const totalDelivered = deliveryLogs.reduce((s, l) => s + l.quantity, 0);
+  const deliveryDays = groupDeliveries(deliveryLogs);
+  const receipt = receipts.get(id);
 
   const meta = [
     { label: '의뢰일', value: workOrder.request_date },
     { label: '납품일', value: workOrder.delivery_date || order?.delivery_date || '-' },
     { label: '작성', value: order?.creator?.name ?? 'ERP 작업의뢰서' },
+    { label: '시스템 등록', value: formatKst(workOrder.created_at as string) },
   ];
 
   return (
@@ -114,7 +130,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         title={
           <span className="flex flex-wrap items-center gap-3">
             작업의뢰서 {workOrder.work_order_number}
-            <WorkOrderStatusBadge status={workOrder.status} />
+            <WorkOrderStatusBadge status={workOrder.status} totals={{ quantity: totalQty, produced: totalProduced, delivered: totalDelivered }} />
           </span>
         }
         description={
@@ -130,6 +146,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
         }
         actions={
           <>
+            {canRevise && <WorkOrderEditActions id={id} number={workOrder.work_order_number} />}
             <Link href={`/work-orders/${id}/preview`} className={buttonVariants({ variant: 'outline' })}>
               <FileText />의뢰서 보기
             </Link>
@@ -145,7 +162,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
 
       {/* 요약 — 날짜 · 진행률 */}
       <Card>
-        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[repeat(3,auto)_1fr] md:items-center">
+        <CardContent className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-[repeat(4,auto)_1fr] md:items-center">
           {meta.map(m => (
             <div key={m.label}>
               <p className="text-xs font-semibold text-muted-foreground">{m.label}</p>
@@ -157,13 +174,28 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
               <p className="text-xs font-semibold text-muted-foreground">전체 생산 진행률</p>
               <p className="tabular text-sm">
                 <b className="text-base">{totalProduced}</b>
-                <span className="text-muted-foreground"> / {totalQty}장</span>
+                <span className="text-muted-foreground"> / {totalQty}조</span>
               </p>
             </div>
             <Progress value={overallProgress} />
           </div>
         </CardContent>
       </Card>
+
+      {/* 생산관리부가 받았는지 — 회의: 언제 받았는지 시각까지 남아야 한다 */}
+      {receiptStorage === 'db' && site.site !== 'outsource' && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground">생산관리부 수신 확인</p>
+              {receipt
+                ? <p className="tabular mt-1 font-semibold">{formatKst(receipt.received_at)}{receipt.received_by_name && <span className="ml-2 font-medium text-muted-foreground">{receipt.received_by_name}</span>}</p>
+                : <p className="mt-1 font-semibold text-warning">미확인</p>}
+            </div>
+            {!receipt && canReceive && <ReceiptButton workOrderId={id} />}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 어디서 만드는가 · 누구에게 물어보나 */}
       <Card>
@@ -193,7 +225,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 <TableHead className="w-[210px] text-center">품명</TableHead>
                 <TableHead className="w-32 text-center">규격</TableHead>
                 <TableHead className="w-14 text-center">수량</TableHead>
-                <TableHead className="w-16 text-center">면적</TableHead>
+                <TableHead className="w-16 text-center">면적(M²)</TableHead>
                 <TableHead className="w-[26%] text-center">비고</TableHead>
                 <TableHead className="w-16 bg-brand-50 text-center">완료</TableHead>
                 <TableHead className="w-16 bg-brand-50 text-center">잔여</TableHead>
@@ -253,6 +285,26 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             <ProductionByDate logs={productionLogs ?? []} items={woItems} compact />
           </CardContent>
         </Card>
+
+        {deliveryStorage === 'db' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">날짜별 납품 <span className="font-normal text-muted-foreground">{totalDelivered} / {totalQty}조</span></CardTitle>
+            </CardHeader>
+            <CardContent>
+              {deliveryDays.length === 0 ? <EmptyBox text="납품 기록이 없습니다" /> : (
+                <div className="divide-y rounded-lg border">
+                  {deliveryDays.map(day => (
+                    <div key={day.date} className="tabular flex items-center justify-between gap-3 px-3.5 py-2.5 text-sm">
+                      <span className="font-semibold">{day.date}</span>
+                      <span><b className="text-brand-800">{day.quantity}조</b><span className="ml-2 text-muted-foreground">{day.area_m2.toFixed(2)}M²</span></span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>

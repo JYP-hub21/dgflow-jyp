@@ -12,7 +12,7 @@ import { chipClass } from '@/components/ui/chip';
 import { CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CloudOff, Download, Loader2, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  GLASS_TYPES, JAE_PER_M2, SUMMARY_COLUMNS, summarizeTypes,
+  GLASS_TYPES, SUMMARY_COLUMNS, summarizeTypes,
   type BokcheungBlock, type BokcheungEntry, type BokcheungSheet,
 } from '@/lib/production/bokcheung';
 
@@ -43,7 +43,6 @@ function addDays(date: string, n: number) {
 }
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const weekday = (date: string) => WEEKDAYS[new Date(`${date}T12:00:00Z`).getUTCDay()];
-const jae = (m2: number) => (m2 * JAE_PER_M2).toFixed(2);
 
 export default function BokcheungLog() {
   const router = useRouter();
@@ -69,13 +68,18 @@ export default function BokcheungLog() {
   const pending = useRef(new Set<string>());
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // 날짜를 빠르게 바꾸면 앞선 요청이 늦게 올 수 있다 — 마지막 요청의 결과만 쓴다
+  const latest = useRef(0);
+
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     setLoading(true);
     setError('');
     setSave('idle');
     try {
       const res = await fetch(`/api/production/bokcheung?date=${date}`);
       const body = await res.json();
+      if (mine !== latest.current) return;
       if (!res.ok) throw new Error(body.error || '불러오지 못했습니다.');
       const loaded = body as Loaded;
       // 저장된 값 > 이 PC 임시 저장 > 같은 재료로 예전에 적은 종류
@@ -89,10 +93,11 @@ export default function BokcheungLog() {
       setData(loaded);
       if (loaded.storage === 'none') setSave('local');
     } catch (e) {
+      if (mine !== latest.current) return;
       setData(null);
       setError(e instanceof Error ? e.message : '불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   }, [date]);
 
@@ -262,7 +267,7 @@ export default function BokcheungLog() {
                       {SUMMARY_COLUMNS.map(c => <TableHead key={c.label} className="text-center first:pl-5">{c.label}</TableHead>)}
                       <TableHead className="text-center">합계</TableHead>
                       <TableHead className="text-center">누계(수량)</TableHead>
-                      <TableHead className="pr-5 text-center">누계(평)</TableHead>
+                      <TableHead className="pr-5 text-center">누계(M²)</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -270,7 +275,7 @@ export default function BokcheungLog() {
                       {summary.counts.map((n, i) => <TableCell key={i} className="tabular text-center first:pl-5">{n}</TableCell>)}
                       <TableCell className="tabular text-center font-bold">{summary.total}</TableCell>
                       <TableCell className="tabular text-center">{sheet.cumulative.quantity.toLocaleString()}조</TableCell>
-                      <TableCell className="tabular pr-5 text-center">{Number(jae(sheet.cumulative.area_m2)).toLocaleString(undefined, { minimumFractionDigits: 2 })}</TableCell>
+                      <TableCell className="tabular pr-5 text-center">{sheet.cumulative.area_m2.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
@@ -280,7 +285,7 @@ export default function BokcheungLog() {
           <p className="break-keep text-xs text-muted-foreground">
             합계는 종류 칸 값으로 셉니다 (회사 수식과 같이 B종(U3-2) 칸이 U3 를 셉니다). 종류가 빈 줄은 합계에 들어가지 않습니다.
             누계는 올해 1월 1일부터 이날까지 시스템에 입력된 복층 생산실적입니다.
-            {sheet.excluded.quantity > 0 && ` 복층이 아닌 품목 ${sheet.excluded.quantity}장(${sheet.excluded.names.join(', ')})은 이 일지에서 뺐습니다.`}
+            {sheet.excluded.quantity > 0 && ` 복층이 아닌 품목 ${sheet.excluded.quantity}조(${sheet.excluded.names.join(', ')})은 이 일지에서 뺐습니다.`}
           </p>
         </>
       )}
@@ -311,7 +316,7 @@ function BlockTable({ block, entries, canEdit, onChange }: {
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b bg-muted/40 px-5 py-3">
         <h3 className="text-[15px] font-bold">{block.name}</h3>
         <p className="tabular text-sm text-muted-foreground">
-          {block.rows.length}줄 · <b className="text-foreground">{block.quantity}조</b> · {jae(block.area_m2)}평(재) · {block.area_m2.toFixed(2)}㎡
+          {block.rows.length}줄 · <b className="text-foreground">{block.quantity}조</b> · {block.area_m2.toFixed(2)}M²
         </p>
       </div>
       <CardContent className="overflow-x-auto p-0">
@@ -328,7 +333,7 @@ function BlockTable({ block, entries, canEdit, onChange }: {
               <TableHead className="text-right">세로</TableHead>
               <TableHead className="w-32">수량외</TableHead>
               <TableHead className="text-right">수량(조)</TableHead>
-              <TableHead className="pr-5 text-right">수량(평)</TableHead>
+              <TableHead className="pr-5 text-right">수량(M²)</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -358,7 +363,7 @@ function BlockTable({ block, entries, canEdit, onChange }: {
                       onChange={ev => onChange(r.key, 'quantity_note', ev.target.value)} className="h-9 w-28" />
                   </TableCell>
                   <TableCell className="tabular text-right font-bold">{r.quantity}조</TableCell>
-                  <TableCell className="tabular pr-5 text-right">{jae(r.area_m2)}</TableCell>
+                  <TableCell className="tabular pr-5 text-right">{r.area_m2.toFixed(2)}</TableCell>
                 </TableRow>
               );
             })}
@@ -366,7 +371,7 @@ function BlockTable({ block, entries, canEdit, onChange }: {
               <TableRow className="bg-muted/40 font-bold hover:bg-muted/40">
                 <TableCell className="pl-5" colSpan={9}>소계</TableCell>
                 <TableCell className="tabular text-right">{block.quantity}조</TableCell>
-                <TableCell className="tabular pr-5 text-right">{jae(block.area_m2)}</TableCell>
+                <TableCell className="tabular pr-5 text-right">{block.area_m2.toFixed(2)}</TableCell>
               </TableRow>
             )}
           </TableBody>

@@ -1,7 +1,7 @@
 import ExcelJS from 'exceljs';
 import templateJson from './bokcheung-template.json';
 import {
-  JAE_PER_M2, SUMMARY_COLUMNS, quantityNoteCell, summarizeTypes,
+  AREA_FACTOR, SUMMARY_COLUMNS, quantityNoteCell, summarizeTypes,
   type BokcheungBlock, type BokcheungEntry, type BokcheungSheet,
 } from './bokcheung';
 
@@ -139,10 +139,10 @@ function addBokcheungSheet(
       const r = start + i;
       put(r, blockRowSpec(bs, i, n));
       const row = block.rows[i];
-      const k = round4((row?.area_m2 ?? 0) * JAE_PER_M2);
+      const k = round4((row?.area_m2 ?? 0) * AREA_FACTOR);
       kTotal += k;
       ws.getCell(`K${r}`).value = { formula: `+M${r}*N${r}`, result: k };
-      ws.getCell(`N${r}`).value = JAE_PER_M2;
+      ws.getCell(`N${r}`).value = AREA_FACTOR;
       if (!row) continue;
       const e = entries[row.key];
       if (!row.continued) {
@@ -180,7 +180,7 @@ function addBokcheungSheet(
     ws.getCell(`${SUMMARY_CELLS[i]}${sumRow}`).value = { formula: `SUMIF(${typeRange},"${c.match}",${qtyRange})`, result: counts[i] };
   });
   ws.getCell(`J${sumRow}`).value = { formula: `SUM(A${sumRow}:I${sumRow})`, result: total };
-  // 누계 — 수량(조)과 재
+  // 누계 — 수량(조)과 M²
   ws.getCell(`C${L.tail + 3}`).value = sheet.cumulative.quantity;
-  ws.getCell(`J${L.tail + 3}`).value = round2(sheet.cumulative.area_m2 * JAE_PER_M2);
+  ws.getCell(`J${L.tail + 3}`).value = round2(sheet.cumulative.area_m2 * AREA_FACTOR);
 }

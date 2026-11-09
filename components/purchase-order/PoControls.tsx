@@ -191,7 +191,7 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
           {open ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
           <span className="truncate font-semibold">{pkg.label}</span>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {isManualPackage(pkg) ? `직접 연결 · ${pkg.total_quantity}장` : `${pkg.rows.length}행 · ${pkg.total_quantity}장`}
+            {isManualPackage(pkg) ? `직접 연결 · ${pkg.total_quantity}조` : `${pkg.rows.length}행 · ${pkg.total_quantity}조`}
           </span>
         </button>
 

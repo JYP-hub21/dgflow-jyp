@@ -152,7 +152,7 @@ export default function CuttingInputPage() {
                 <TableHead className="text-right">수량</TableHead>
                 <TableHead>원판</TableHead>
                 <TableHead className="text-right">원판 수량</TableHead>
-                <TableHead className="text-right">원판 면적(m²)</TableHead>
+                <TableHead className="text-right">원판 면적(M²)</TableHead>
                 <TableHead>구분</TableHead>
                 <TableHead className="pr-5">비고</TableHead>
               </TableRow>

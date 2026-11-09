@@ -93,7 +93,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
 
   async function remove(log: ProductionLog) {
     const name = log.item ? `${log.item.product_name} ${log.item.width_mm}×${log.item.height_mm}` : '이 기록';
-    if (!confirm(`${log.production_date} ${name} ${log.quantity_completed}장 기록을 삭제할까요?`)) return;
+    if (!confirm(`${log.production_date} ${name} ${log.quantity_completed}조 기록을 삭제할까요?`)) return;
     setBusy(true);
     const res = await fetch(`/api/production/${log.id}`, { method: 'DELETE' });
     if (res.ok) {
@@ -118,7 +118,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
             <div className={cn('flex items-center justify-between bg-muted/60 px-5 text-sm', compact ? 'py-1.5' : 'py-2')}>
               <span className="tabular font-bold">{date}</span>
               <span className="tabular text-muted-foreground">
-                <b className="text-foreground">{dayQty}</b>장 · {dayArea.toFixed(2)}m²
+                <b className="text-foreground">{dayQty}</b>장 · {dayArea.toFixed(2)}M²
               </span>
             </div>
             <ul className="divide-y">
@@ -136,7 +136,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
                       </div>
                       {!editing && (
                         <>
-                          <span className="tabular text-lg font-bold">{log.quantity_completed}<span className="ml-0.5 text-sm font-medium text-muted-foreground">장</span></span>
+                          <span className="tabular text-lg font-bold">{log.quantity_completed}<span className="ml-0.5 text-sm font-medium text-muted-foreground">조</span></span>
                           {!readOnly && <div className="flex gap-1.5">
                             <Button variant="outline" size="sm" onClick={() => startEdit(log)} disabled={busy}>
                               <Pencil />수정
@@ -203,7 +203,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
       {!compact && (
         <div className="flex items-center justify-between bg-muted px-5 py-3 font-bold">
           <span>합계</span>
-          <span className="tabular">{grandQty}장 · {grandArea.toFixed(2)}m²</span>
+          <span className="tabular">{grandQty}조 · {grandArea.toFixed(2)}M²</span>
         </div>
       )}
     </div>

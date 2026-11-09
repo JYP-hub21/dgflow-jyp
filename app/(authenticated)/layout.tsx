@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { loginIdLocked } from '@/lib/auth/quick-login';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { unreceivedCount } from '@/lib/work-order/receipts';
 import Sidebar from '@/components/layout/Sidebar';
 import { CurrentUserProvider } from '@/components/layout/CurrentUser';
 import FileDropGuard from '@/components/layout/FileDropGuard';
@@ -31,6 +32,11 @@ export default async function AuthenticatedLayout({
       .from('dgflow_purchase_orders').select('id', { count: 'exact', head: true })
       .eq('assignee_id', user.id).eq('stage', 'submitted');
     if (count) badges['/purchase-orders?view=todo'] = count;
+  }
+  // 생산관리부가 아직 받았다고 확인하지 않은 작업의뢰서 — 새 일이 왔다는 표시 (2026-11-06 회의 "카톡처럼 주황 불")
+  if (hasPermission(user, 'production:view')) {
+    const count = await unreceivedCount(createServiceRoleClient());
+    if (count) badges['/work-orders'] = count;
   }
 
   return (

@@ -12,11 +12,17 @@ import Link from 'next/link';
 import Pagination from '@/components/ui/pagination';
 import { chipClass } from '@/components/ui/chip';
 import RemainingItems, { type RemainingGroup, type RemainingItem } from '@/components/production/RemainingItems';
+import ListSearch, { searchCondition } from '@/components/work-order/ListSearch';
+import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
+import { Badge } from '@/components/ui/badge';
+import { loadReceipts } from '@/lib/work-order/receipts';
+import { loadDeliveries } from '@/lib/production/delivery-store';
+import { deliveredByWorkOrder } from '@/lib/production/delivery';
 import { Factory, ScanLine, ClipboardList, Phone } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 
-export default async function ProductionPage({ searchParams }: { searchParams: Promise<{ page?: string; view?: string }> }) {
+export default async function ProductionPage({ searchParams }: { searchParams: Promise<{ page?: string; view?: string; q?: string }> }) {
   const params = await searchParams;
   const view = params.view === 'remaining' ? 'remaining' : params.view === 'outsource' ? 'outsource' : 'orders';
   const page = parseInt(params.page || '1');
@@ -67,7 +73,9 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
   const remainingItemCount = remainingGroups.reduce((s, g) => s + g.items.length, 0);
   const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
 
-  const { data: workOrders, count } = await supabase
+  const q = (params.q ?? '').trim();
+  const search = searchCondition(q);
+  let listQuery = supabase
     .from('dgflow_work_orders')
     .select(`
       *,
@@ -75,9 +83,19 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
       items:dgflow_work_order_items(quantity, produced_quantity)
     `, { count: 'exact' })
     .in('status', ['pending', 'in_progress'])
-    .eq('production_site', 'ochang')
+    .eq('production_site', 'ochang');
+  if (search) listQuery = listQuery.or(search);
+  const { data: workOrders, count } = await listQuery
     .order('created_at', { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1);
+
+  // 납품 수량 · 수신 확인 — 표가 생기기 전에는 빈 값으로 온다
+  const listIds = (workOrders || []).map(wo => wo.id as string);
+  const service = createServiceRoleClient();
+  const [{ logs: deliveries }, { storage: receiptStorage, receipts }] = await Promise.all([
+    loadDeliveries(service, listIds), loadReceipts(service, listIds),
+  ]);
+  const delivered = deliveredByWorkOrder(deliveries);
 
   // 외주로 준 진행 중 의뢰서 — 업체 · 담당자 · 발주서 올린 사람
   const { data: outsourced } = await supabase
@@ -103,7 +121,7 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
             : '오창공장에서 생산할 진행 중인 작업의뢰서입니다. 생산 입력에서 당일 생산 수량을 입력하세요.'}
         actions={
           <Link href="/production/report" className={buttonVariants({ variant: 'outline' })}>
-            <ClipboardList />일간 생산일지
+            <ClipboardList />생산일지
           </Link>
         }
       />
@@ -117,6 +135,8 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
           외주<span className="tabular opacity-80">{(outsourced || []).length}</span>
         </Link>
       </nav>
+
+      {view === 'orders' && <ListSearch action="/production" value={q} />}
 
       {view === 'remaining' ? <RemainingItems groups={remainingGroups} today={today} />
       : view === 'outsource' ? <OutsourceList rows={(outsourced || []).map(wo => ({
@@ -141,6 +161,10 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                 <Link href={`/work-orders/${wo.id}`} className="block">
                   <p className="font-bold">{wo.work_order_number}
                     <span className="ml-2 font-medium text-muted-foreground">{labels.customer ?? ''}</span></p>
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    <WorkOrderStatusBadge status={wo.status} totals={{ quantity: p.total, produced: p.done, delivered: delivered.get(wo.id) ?? 0 }} />
+                    {receiptStorage === 'db' && !receipts.has(wo.id) && <Badge variant="warning">수신 미확인</Badge>}
+                  </span>
                   <p className="truncate text-sm text-muted-foreground">{labels.site ?? '-'}</p>
                 </Link>
                 <ContactLine contact={contacts.get(wo.id) ?? null} />
@@ -167,6 +191,7 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                 <TableHead>거래처</TableHead>
                 <TableHead>현장</TableHead>
                 <TableHead>발주서 등록자</TableHead>
+                <TableHead>상태</TableHead>
                 <TableHead className="text-right">완료 / 의뢰</TableHead>
                 <TableHead className="w-52">진행률</TableHead>
                 <TableHead className="pr-5 text-right"></TableHead>
@@ -174,7 +199,7 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
             </TableHeader>
             <TableBody>
               {(!workOrders || workOrders.length === 0) ? (
-                <TableRow><TableCell colSpan={7} className="p-6"><Empty /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="p-6"><Empty /></TableCell></TableRow>
               ) : workOrders.map(wo => {
                 // ERP 에서 등록한 작업의뢰서는 주문이 없어 자신의 라벨을 쓴다
                 const labels = workOrderLabels(wo);
@@ -189,6 +214,12 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                     <TableCell className="font-medium">{labels.customer ?? '-'}</TableCell>
                     <TableCell className="max-w-[240px] truncate text-muted-foreground">{labels.site ?? '-'}</TableCell>
                     <TableCell><ContactLine contact={contacts.get(wo.id) ?? null} /></TableCell>
+                    <TableCell>
+                      <span className="flex flex-wrap items-center gap-1">
+                        <WorkOrderStatusBadge status={wo.status} totals={{ quantity: p.total, produced: p.done, delivered: delivered.get(wo.id) ?? 0 }} />
+                        {receiptStorage === 'db' && !receipts.has(wo.id) && <Badge variant="warning">수신 미확인</Badge>}
+                      </span>
+                    </TableCell>
                     <TableCell className="tabular text-right"><b>{p.done}</b><span className="text-muted-foreground"> / {p.total}</span></TableCell>
                     <TableCell><Progress value={p.percent} /></TableCell>
                     <TableCell className="pr-5 text-right">

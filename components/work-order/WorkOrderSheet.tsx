@@ -152,7 +152,7 @@ export default function WorkOrderSheet({ data }: { data: SheetData }) {
             <th style={{ ...th, width: '32%' }}>품명</th>
             <th style={{ ...th, width: '18%' }}>규격</th>
             <th style={{ ...th, width: '9%' }}>수량</th>
-            <th style={{ ...th, width: '11%' }}>면적</th>
+            <th style={{ ...th, width: '11%' }}>면적(M²)</th>
             <th style={{ ...th }}>비고</th>
           </tr>
         </thead>

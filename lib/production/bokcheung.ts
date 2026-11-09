@@ -9,15 +9,16 @@
  *  · 위 덩어리 = 1호기, 아래 덩어리 = 2호기. 덩어리마다 소계.
  *  · 수량외 "16조외52" = 앞의 크기 16조 + 다른 크기 52조 → 수량 68조. 사람이 적는다 (회사도 '외' 처리를 아직 정하는 중).
  *  · 제품 두께 = 재료 숫자의 합(5+12+5=22), AR = 간봉 자리에 Ar 이 있을 때.
- *  · 수량(평) K 열 = ㎡(M 열) × 10.89 — 실제로는 재(才) 단위다. 회사 수식 `=+M*N` 을 그대로 쓴다.
+ *  · 수량 K 열은 회사 양식에서 ㎡(M 열) × 10.89 인 평(재) 단위였다. 2026-11-06 회의에서 평 표기를 없애기로 해서
+ *    머리글을 수량(M²)으로 바꾸고 N 열을 1 로 둔다 — 회사 수식 `=+M*N` 은 그대로 살아 있다. 수량(매)도 수량(조)로 쓴다.
  *  · 맨 아래 종류별 합계는 종류 칸을 SUMIF 한다. B종(U3-2) 칸이 "U3" 를 센다 — 회사 수식 그대로.
  *  · 누계는 회사 파일에서 1월부터 5월까지 같은 값이 복사돼 있어(관리 안 됨) 시스템 기록의 올해 누계로 채운다.
  */
 import type { ProductionLogRow } from './daily-report';
 import { DEFAULT_LINES, lineName, type ProductionLine } from './lines';
 
-/** ㎡ → 재(才). 회사 양식 N 열의 값 (3.3 × 3.3) */
-export const JAE_PER_M2 = 10.89;
+/** 양식 N 열의 값 — 회사 파일은 평(재)으로 바꾸는 10.89 였고, 면적을 M² 로 통일해 1 이다 (2026-11-06 회의) */
+export const AREA_FACTOR = 1;
 
 /** 사람이 입력하는 두 칸 */
 export interface BokcheungEntry {
@@ -51,6 +52,23 @@ export interface ParsedProduct {
 }
 
 /**
+ * 재료 구성을 유리 · 간봉 겹으로 나눈다. 접합 유리의 괄호 안 + 는 겹이 아니다:
+ *   "8.76(4cl+0.76+4cl)접합+12A+5로이" → 3겹, "5로이+12단열(Ar.)+5CLh/s+12단열(Ar.)+5CL" → 5겹
+ */
+export function glassParts(composition: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const ch of composition) {
+    if (ch === '(' || ch === '（') depth++;
+    if (ch === ')' || ch === '）') depth = Math.max(0, depth - 1);
+    if (ch === '+' && depth === 0) { parts.push(current); current = ''; } else current += ch;
+  }
+  parts.push(current);
+  return parts.map(p => p.trim()).filter(Boolean);
+}
+
+/**
  * ERP 품명 → 복층생산일지 칸.
  *   "24T 5SKN176IIh/s+14단열(Ar.)+5CLh/s" → 재료 "5SKN176IIh/s+14단열(Ar.)+5CLh/s", 두께 24, AR
  *   "22T 5newGN+12A+5로이" → 두께 22, AR 아님 (12A 는 공기)
@@ -59,7 +77,7 @@ export function parseProductName(productName: string): ParsedProduct {
   const name = productName.trim();
   const head = name.match(/^(\d+(?:\.\d+)?)\s*T\s+(.*)$/i);
   const composition = (head ? head[2] : name).trim();
-  const parts = composition.split('+').map(p => p.trim()).filter(Boolean);
+  const parts = glassParts(composition);
   const insulated = parts.length >= 3;
   // 유리 · 간봉 · 유리 … 가 번갈아 온다 — 홀수 자리가 간봉
   const argon = insulated && parts.some((p, i) => i % 2 === 1 && /ar/i.test(p));

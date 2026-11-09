@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { format } from 'date-fns';
 import { validateSite } from '@/lib/work-order/site-server';
+import { invalidItems } from '@/lib/work-order/revise';
 
 /**
  * 사원이 화면에서 확인한 작업의뢰서를 저장한다.
@@ -50,26 +51,15 @@ export async function POST(request: NextRequest) {
   if (!payload.work_order_number?.trim()) {
     return NextResponse.json({ error: '의뢰번호를 입력하세요.' }, { status: 400 });
   }
-  if (!payload.items?.length) {
-    return NextResponse.json({ error: '품목이 비어 있습니다.' }, { status: 400 });
-  }
-
-  const bad = payload.items.find(
-    (i) => !i.product_name?.trim() || !i.width_mm || !i.height_mm || !i.quantity
-  );
-  if (bad) {
-    return NextResponse.json(
-      { error: '품명 · 규격 · 수량이 비어 있는 행이 있습니다.' },
-      { status: 400 }
-    );
-  }
+  const invalid = invalidItems(payload.items);
+  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
   const supabase = createServiceRoleClient();
   const workOrderNumber = payload.work_order_number.trim();
   const site = await validateSite(supabase, payload);
   if ('error' in site) return NextResponse.json({ error: site.error }, { status: 400 });
 
-  // 같은 의뢰서를 두 번 올리는 일이 잦다. 번호로 막는다.
+  // 같은 의뢰서를 두 번 올리는 일이 잦다. 번호로 막고 — 화면은 이 id 로 수정 확인 창을 연다 (2026-11-06)
   const { data: dup } = await supabase
     .from('dgflow_work_orders')
     .select('id')

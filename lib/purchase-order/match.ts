@@ -99,5 +99,5 @@ export const SUGGEST_MIN_SCORE = 0.5;
 /** 대조 결과 한 줄 요약 */
 export function checkSummary(r: CheckResult): string {
   if (r.ok) return r.multiple > 1 ? `규격 · 수량 일치 (품명 블록 ${r.multiple}개)` : '규격 · 수량 일치';
-  return `규격 ${r.diffs.length}가지 다름 — ERP 엑셀 ${r.package_total * r.multiple}장 / 작업의뢰서 ${r.work_order_total}장`;
+  return `규격 ${r.diffs.length}가지 다름 — ERP 엑셀 ${r.package_total * r.multiple}조 / 작업의뢰서 ${r.work_order_total}조`;
 }

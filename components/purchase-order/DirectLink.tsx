@@ -78,7 +78,7 @@ export default function PickExistingWorkOrder({ poId }: { poId: string }) {
                       {c.site_score >= 0.5 && <span className="ml-2 rounded-md bg-success-50 px-1.5 py-0.5 text-[11px] font-semibold text-success">현장명 유사</span>}
                       {c.customer_score >= 0.8 && <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">거래처 일치</span>}
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">{[c.customer, c.site].filter(Boolean).join(' · ') || '-'} · {c.total}장</p>
+                    <p className="truncate text-xs text-muted-foreground">{[c.customer, c.site].filter(Boolean).join(' · ') || '-'} · {c.total}조</p>
                   </div>
                   <Button size="sm" variant="outline" onClick={() => attach(c)} disabled={busyId !== null}>
                     {busyId === c.id ? <Loader2 className="animate-spin" /> : <Plus />}이 발주서에 연결

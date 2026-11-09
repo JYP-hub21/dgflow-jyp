@@ -95,9 +95,9 @@ export default function ProductionByDate({ logs, items, compact = false }: {
       {/* 1. 요약 */}
       <div className={cn('grid gap-px border-b bg-border', compact ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4')}>
         <Stat label="생산 일수" value={`${days.length}일`} sub={first === last ? dayLabel(first) : `${shortDate(first)} – ${shortDate(last)} · ${span}일간`} />
-        <Stat label="총 생산" value={`${total.toLocaleString()}장`} sub={`${area.toFixed(1)}㎡`} />
-        <Stat label="일평균 생산" value={`${Math.round(total / days.length).toLocaleString()}장`} sub="생산일 기준" />
-        <Stat label="최다 생산일" value={dayLabel(best.date)} sub={`${best.quantity.toLocaleString()}장 · ${best.itemCount}품목`} />
+        <Stat label="총 생산" value={`${total.toLocaleString()}조`} sub={`${area.toFixed(1)}M²`} />
+        <Stat label="일평균 생산" value={`${Math.round(total / days.length).toLocaleString()}조`} sub="생산일 기준" />
+        <Stat label="최다 생산일" value={dayLabel(best.date)} sub={`${best.quantity.toLocaleString()}조 · ${best.itemCount}품목`} />
       </div>
 
       {/* 2. 날마다 만든 수량 */}
@@ -138,7 +138,7 @@ export default function ProductionByDate({ logs, items, compact = false }: {
         <section key={m.month}>
           <div className="flex items-center justify-between border-y bg-muted/50 px-5 py-1.5 text-xs font-semibold text-muted-foreground">
             <span>{monthLabel(m.month)} · {m.days.length}일</span>
-            <span className="tabular">{m.quantity.toLocaleString()}장 · {m.area_m2.toFixed(1)}㎡</span>
+            <span className="tabular">{m.quantity.toLocaleString()}조 · {m.area_m2.toFixed(1)}M²</span>
           </div>
           <ul className="divide-y">
             {m.days.map(d => (
@@ -158,7 +158,7 @@ export default function ProductionByDate({ logs, items, compact = false }: {
                         {it?.remark && <p className="line-clamp-2 text-xs text-foreground/70 break-keep [overflow-wrap:anywhere]" title={it.remark}>{it.remark}</p>}
                       </div>
                       <span className="shrink-0 text-right">
-                        <b className="tabular text-base">{r.quantity}</b><span className="text-xs text-muted-foreground">장</span>
+                        <b className="tabular text-base">{r.quantity}</b><span className="text-xs text-muted-foreground">조</span>
                         <span className="block text-[11px] text-muted-foreground">{r.shift === 'night' ? '야간' : '주간'} · {lineName(lines, r.line)}</span>
                       </span>
                     </li>
@@ -197,7 +197,7 @@ function DayRow({ day, max, isOpen, onToggle, children }: {
         <span className="relative hidden h-2 flex-1 overflow-hidden rounded-full bg-muted sm:block">
           <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${Math.max(4, (day.quantity / max) * 100)}%`, background: BAR }} />
         </span>
-        <span className="tabular ml-auto w-16 shrink-0 text-right font-bold sm:ml-0">{day.quantity.toLocaleString()}장</span>
+        <span className="tabular ml-auto w-16 shrink-0 text-right font-bold sm:ml-0">{day.quantity.toLocaleString()}조</span>
         <span className="tabular w-14 shrink-0 text-right text-xs text-muted-foreground">{day.itemCount}품목</span>
       </button>
       {isOpen && <ul className="space-y-1 bg-muted/20 px-4 pb-3 pt-1 sm:pl-12 sm:pr-5">{children}</ul>}
@@ -212,7 +212,7 @@ function DayTip({ active, payload }: { active?: boolean; payload?: { payload: { 
     <div className="rounded-lg border bg-card px-3 py-2 text-xs shadow-md">
       <p className="font-bold text-foreground">{dayLabel(p.date)}</p>
       <p className="tabular text-muted-foreground">
-        {p.quantity ? <><b className="text-foreground">{p.quantity.toLocaleString()}장</b> · {p.items}품목</> : '생산 없음'}
+        {p.quantity ? <><b className="text-foreground">{p.quantity.toLocaleString()}조</b> · {p.items}품목</> : '생산 없음'}
       </p>
     </div>
   );

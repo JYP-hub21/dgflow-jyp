@@ -13,16 +13,17 @@ import { Badge } from '@/components/ui/badge';
 import Progress from '@/components/ui/progress';
 import Segmented from '@/components/ui/segmented';
 import PageHeader from '@/components/layout/PageHeader';
-import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus, ClipboardList, CalendarDays } from 'lucide-react';
+import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, ChevronUp, Settings2, Plus, ClipboardList, CalendarDays, Truck } from 'lucide-react';
 import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
 import ProductionByDate from '@/components/production/ProductionByDate';
+import DeliveryPanel from '@/components/production/DeliveryPanel';
 import QtyStepper from '@/components/production/QtyStepper';
 import RemarkText from '@/components/production/RemarkText';
 import LinesEditor from '@/components/production/LinesEditor';
 import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
-import { hasAnyPermission } from '@/lib/auth/role-guard';
+import { hasAnyPermission, hasPermission } from '@/lib/auth/role-guard';
 import { activeLines, lineName } from '@/lib/production/lines';
 import { blockTotals, itemNo, productionDaysByItem, sizeText } from '@/lib/production/item-view';
 import type { SiteContact } from '@/lib/production/contacts';
@@ -81,8 +82,10 @@ export default function ProductionInputPage() {
   const [logs, setLogs] = useState<ProductionLog[]>([]);
   /** "수정" 을 눌러 기록을 펼친 품목 */
   const [editItemId, setEditItemId] = useState<string | null>(null);
-  /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02) */
-  const [view, setView] = useState<'items' | 'dates'>('items');
+  /** 남은 품목에 한 번에 더할 장수 — 1장뿐 아니라 숫자를 바꿀 수 있다 (2026-11-06 회의) */
+  const [stepQty, setStepQty] = useState('1');
+  /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) · 납품 — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02) */
+  const [view, setView] = useState<'items' | 'dates' | 'delivery'>('items');
 
   useEffect(() => {
     supabase.from('dgflow_work_orders')
@@ -170,15 +173,17 @@ export default function ProductionInputPage() {
     });
   }
 
-  // 1장씩 채우기 — 남은 품목마다 칸에 1장을 더한다(잔여를 넘지 않게). 누를 때마다 1장씩 는다
-  // (2026-10-31 피드백 "전량 채우기 말고 전체 다 1장씩 채우기도"). 이것도 칸에만 채우고 저장은 따로 한다
-  function handleAllPlusOne() {
+  // n장씩 채우기 — 남은 품목마다 칸에 n장을 더한다(잔여를 넘지 않게). 누를 때마다 n장씩 는다
+  // (2026-10-31 피드백 "전량 채우기 말고 전체 다 1장씩 채우기도", 2026-11-06 "1장 말고 다른 숫자로도").
+  // 이것도 칸에만 채우고 저장은 따로 한다
+  function handleAllPlusStep() {
+    const step = Math.max(1, parseInt(stepQty) || 1);
     setQuantities(prev => {
       const next = { ...prev };
       for (const item of items) {
         const remaining = item.quantity - item.produced_quantity;
         if (remaining <= 0) continue;
-        next[item.id] = String(Math.min(remaining, (parseInt(prev[item.id]) || 0) + 1));
+        next[item.id] = String(Math.min(remaining, (parseInt(prev[item.id]) || 0) + step));
       }
       return next;
     });
@@ -218,12 +223,12 @@ export default function ProductionInputPage() {
               <span className="font-bold">{totalProduced}/{totalQty}</span>
               <span className="text-muted-foreground"> ({progress}%)</span>
             </p>
-            {totalInput > 0 && <p className="text-sm font-semibold text-brand-700">입력 {totalInput}장</p>}
+            {totalInput > 0 && <p className="text-sm font-semibold text-brand-700">입력 {totalInput}조</p>}
           </div>
         </div>
         <Button onClick={handleSaveAll} disabled={saving || !hasInput || overCount > 0} size="lg" className="mt-3 w-full">
           {saved ? <CheckCircle /> : <Save />}
-          {saving ? '저장 중…' : saved ? '저장했습니다' : `전체 저장${totalInput > 0 ? ` (${totalInput}장)` : ''}`}
+          {saving ? '저장 중…' : saved ? '저장했습니다' : `전체 저장${totalInput > 0 ? ` (${totalInput}조)` : ''}`}
         </Button>
       </div>
 
@@ -302,18 +307,25 @@ export default function ProductionInputPage() {
           <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
           <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
             count={productionDayCount ? `${productionDayCount}일` : undefined} />
+          <ViewTab active={view === 'delivery'} onClick={() => setView('delivery')} icon={Truck} label="납품 입력" />
         </div>
         {view === 'items' && (
         <CardHeader className="flex flex-col gap-3 border-b pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            생산 수량을 입력한 뒤 저장하세요. <b className="text-foreground">1장씩 입력</b>은 누를 때마다 남은 품목에 1장씩 더하고,{' '}
+            생산 수량을 입력한 뒤 저장하세요. <b className="text-foreground">조씩 입력</b>은 누를 때마다 남은 품목에 입력한 수량만큼 더하고,{' '}
             <b className="text-foreground">전량 입력</b>은 남은 수량을 모두 입력합니다. 입력란에만 반영되므로 확인 후 저장하세요.
           </p>
           {incompleteCount > 0 && (
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
-              <Button variant="outline" onClick={handleAllPlusOne} disabled={saving} className="w-full sm:w-auto">
-                <Plus />남은 {incompleteCount}건 1장씩 입력
-              </Button>
+              <div className="flex w-full sm:w-auto">
+                <Input aria-label="한 번에 입력할 수량" inputMode="numeric" value={stepQty} disabled={saving}
+                  onChange={e => setStepQty(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+                  onBlur={() => { if (!parseInt(stepQty)) setStepQty('1'); }}
+                  className="w-14 rounded-r-none border-r-0 text-center tabular" />
+                <Button variant="outline" onClick={handleAllPlusStep} disabled={saving} className="flex-1 rounded-l-none sm:flex-none">
+                  <Plus />조씩 입력 (남은 {incompleteCount}건)
+                </Button>
+              </div>
               <Button variant="outline" onClick={handleAllComplete} disabled={saving} className="w-full sm:w-auto">
                 <CheckCheck />남은 {incompleteCount}건 전량 입력
               </Button>
@@ -328,8 +340,15 @@ export default function ProductionInputPage() {
           </CardContent>
         )}
 
+        {view === 'delivery' && (
+          <CardContent className="p-0">
+            <DeliveryPanel workOrderId={workOrderId} items={items} defaultDate={localToday()}
+              canEdit={!!me && hasPermission(me, 'production:input')} />
+          </CardContent>
+        )}
+
         {/* 폰 — 품목당 카드 한 장 */}
-        <CardContent className={cn('p-3 md:hidden', view === 'dates' && 'hidden')}>
+        <CardContent className={cn('p-3 md:hidden', view !== 'items' && 'hidden')}>
           <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem}
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
@@ -351,7 +370,7 @@ export default function ProductionInputPage() {
                 <TableHead className="w-[210px] text-center">품명</TableHead>
                 <TableHead className="w-32 text-center">규격</TableHead>
                 <TableHead className="w-14 text-center">수량</TableHead>
-                <TableHead className="w-16 text-center">면적</TableHead>
+                <TableHead className="w-16 text-center">면적(M²)</TableHead>
                 <TableHead className="w-[20%] text-center">비고</TableHead>
                 <TableHead className="w-24 bg-brand-50 text-center">완료</TableHead>
                 <TableHead className="w-16 bg-brand-50 text-center">잔여</TableHead>
@@ -394,7 +413,7 @@ export default function ProductionInputPage() {
                         {/* 생산한 날 — 작은 달력만 (마우스를 올리면 날짜별 수량, 누르면 이 품목 기록이 펼쳐진다) */}
                         {days.length > 0 && (
                           <button type="button" onClick={() => setEditItemId(editing ? null : item.id)}
-                            title={`생산일 ${days.length}일\n` + days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}
+                            title={`생산일 ${days.length}일\n` + days.map(d => `${d.date}  ${d.quantity}조`).join('\n')}
                             aria-label={`생산일 ${days.length}일 보기`}
                             className="rounded p-0.5 text-muted-foreground/70 hover:bg-muted hover:text-brand-800">
                             <CalendarDays className="h-3.5 w-3.5" />
@@ -420,7 +439,7 @@ export default function ProductionInputPage() {
                           {editButton}
                         </div>
                       )}
-                      {over && <p className="mt-1 text-xs font-medium text-destructive">잔여 {remaining}장보다 많습니다</p>}
+                      {over && <p className="mt-1 text-xs font-medium text-destructive">잔여 {remaining}조보다 많습니다</p>}
                     </TableCell>
                   </TableRow>
                   {editing && (
@@ -528,7 +547,7 @@ function Summary({ label, value, tone }: { label: string; value: number; tone?: 
       <p className="text-xs font-semibold text-muted-foreground">{label}</p>
       <p className={cn('tabular mt-1 text-2xl font-bold tracking-tight',
         tone === 'success' ? 'text-success' : tone === 'strong' ? 'text-brand-800' : 'text-foreground')}>
-        {value}<span className="ml-0.5 text-sm font-medium text-muted-foreground">장</span>
+        {value}<span className="ml-0.5 text-sm font-medium text-muted-foreground">조</span>
       </p>
     </div>
   );

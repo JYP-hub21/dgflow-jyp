@@ -382,7 +382,7 @@ export function scanOrderSheet(
       ? joinLocation(loc?.header ?? '', remarkText)
       : remarkText;
 
-    if (q <= 0) rowNotes.push('수량을 읽지 못해 1장으로 뒀습니다.');
+    if (q <= 0) rowNotes.push('수량을 읽지 못해 1조로 뒀습니다.');
     if (locationSource === 'remark-column' && !verbatim) {
       rowNotes.push('비고 열이 비어 있어 위치를 읽지 못했습니다.');
     }

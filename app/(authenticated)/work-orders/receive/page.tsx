@@ -24,6 +24,8 @@ import { useFileDrop } from '@/components/ui/file-drop';
 import { numberRows } from '@/lib/work-order/numbering';
 import ProductionSitePicker, { type SiteValue } from '@/components/work-order/ProductionSitePicker';
 import PoPicker from '@/components/work-order/PoPicker';
+import RevisionDialog from '@/components/work-order/RevisionDialog';
+import type { RevisionPlan } from '@/lib/work-order/revise';
 import { cn } from '@/lib/utils';
 
 /**
@@ -120,6 +122,10 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   const [poId, setPoId] = useState('');
   /** 읽은 파일 — PDF(머리글) · 엑셀(품목) 둘 다 올렸는지 보여 준다 */
   const [loaded, setLoaded] = useState<{ pdf?: string; excel?: string }>({});
+  /** ?edit= 로 연 작업의뢰서 — 등록이 아니라 수정이다 (2026-11-06 회의) */
+  const [editId, setEditId] = useState<string | null>(null);
+  /** 수정 확인 창 — 같은 번호를 다시 올렸거나 화면에서 고쳤을 때 무엇이 바뀌는지 */
+  const [revision, setRevision] = useState<{ id: string; plan: RevisionPlan } | null>(null);
   // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
     onFiles: (files) => void handleFiles(files), accept: '.xlsx,.xls,.csv,.pdf', disabled: reading,
@@ -144,6 +150,40 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         }));
       })
       .catch(() => {});
+  }, []);
+
+  // ?edit= — 등록한 의뢰서를 표에 불러온다. 고친 뒤 저장하면 바뀐 줄만 적용한다
+  useEffect(() => {
+    const edit = new URLSearchParams(window.location.search).get('edit');
+    if (!edit) return;
+    // 늦게 온 응답이 사람이 고친 표를 덮어쓰지 않게 — 화면이 다시 그려지면 앞선 요청의 결과는 버린다
+    let stale = false;
+    fetch(`/api/work-orders/${edit}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (stale) return;
+        if (!j) { toast.error('작업의뢰서를 불러오지 못했습니다.'); return; }
+        setEditId(edit);
+        setHead({
+          work_order_number: j.head.work_order_number ?? '',
+          customer_label: j.head.customer_label ?? '',
+          site_label: j.head.site_label ?? '',
+          request_date: j.head.request_date ?? '',
+          delivery_date: j.head.delivery_date ?? '',
+        });
+        const items = j.items as { item_no: number | null; product_name: string; width_mm: number; height_mm: number; quantity: number; area_m2: number | null; remark: string | null }[];
+        setRows(items.map((item, i) => ({
+          no: item.item_no ?? '',
+          product_name: i === 0 || item.product_name !== items[i - 1].product_name ? item.product_name : '',
+          width_mm: item.width_mm,
+          height_mm: item.height_mm,
+          quantity: item.quantity,
+          area_m2: item.area_m2 ?? '',
+          remark: item.remark ?? '',
+        })));
+      })
+      .catch(() => toast.error('작업의뢰서를 불러오지 못했습니다.'));
+    return () => { stale = true; };
   }, []);
 
   /**
@@ -287,8 +327,9 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   const names = useMemo(() => resolveNames(rows), [rows]);
-  // 품목 번호 — 종이에 찍힌 NO 그대로 (줄을 지우거나 빈칸이 있어도 다른 줄 번호는 안 바뀐다)
-  const numbers = useMemo(() => numberRows(rows), [rows]);
+  // 품목 번호 — 종이에 찍힌 NO 그대로 (줄을 지우거나 빈칸이 있어도 다른 줄 번호는 안 바뀐다).
+  // 수정할 때는 ERP 처럼 줄이 빠지면 뒤 번호가 당겨진다 (2026-11-06 회의 "2 · 3 · 4번이 없어지면 5번이 2번")
+  const numbers = useMemo(() => (editId ? rows.map((_, i) => i + 1) : numberRows(rows)), [rows, editId]);
   const countedQty = rows.reduce((s, r) => s + (Number(r.quantity) || 0), 0);
   const countedArea = Math.round(rows.reduce((s, r) => s + areaOf(r), 0) * 100) / 100;
 
@@ -347,7 +388,8 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       prev.map((row, i) => {
         if (i !== idx) return row;
         if (key === 'product_name' || key === 'remark') return { ...row, [key]: value };
-        return { ...row, [key]: value === '' ? '' : Number(value) };
+        // 규격 · 수량을 고치면 면적을 다시 계산한다 (회의: 수량이 줄면 면적도 준다)
+        return { ...row, [key]: value === '' ? '' : Number(value), area_m2: '' };
       })
     );
   }
@@ -408,7 +450,49 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
     });
   }
 
+  /** 수정 내용을 받아 확인 창을 연다 */
+  async function previewRevision(id: string) {
+    const res = await fetch(`/api/work-orders/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: filledItems }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(json.error ?? '수정 내용을 확인하지 못했습니다.'); return; }
+    setRevision({ id, plan: json.plan as RevisionPlan });
+  }
+
+  async function applyRevision() {
+    if (!revision) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/work-orders/${revision.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apply: true,
+          head: { ...head, request_date: head.request_date || null, delivery_date: head.delivery_date || null },
+          items: filledItems,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(json.error ?? '수정하지 못했습니다.'); return; }
+      toast.success(`작업의뢰서 ${head.work_order_number} 를 수정했습니다.`);
+      setRevision(null);
+      if (me && hasPermission(me, 'production:view')) router.push(`/work-orders/${revision.id}`);
+      else if (editId) router.push('/work-orders/receive');
+      else onRegistered();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSave() {
+    if (editId) {
+      setSaving(true);
+      try { await previewRevision(editId); } finally { setSaving(false); }
+      return;
+    }
     if (site.site === 'outsource' && !site.partnerId) {
       toast.error('외주 업체를 선택하세요. 목록에 없으면 "업체 추가" 로 등록하세요.');
       return;
@@ -429,6 +513,11 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         }),
       });
       const json = await res.json();
+      // 같은 번호가 이미 있으면 수정본이다 — 바뀐 줄을 보여 주고 확인받는다 (새로 쌓이면 안 된다)
+      if (res.status === 409 && json.id) {
+        await previewRevision(json.id);
+        return;
+      }
       if (!res.ok) {
         toast.error(json.error ?? '저장하지 못했습니다.');
         return;
@@ -481,9 +570,12 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
-        title="작업의뢰서 등록"
-        description="ERP 에서 내려받은 작업의뢰서를 올리면 채워집니다. 엑셀과 PDF 를 같이 올리면 손댈 것이 없습니다."
-        actions={
+        back={editId ? { href: `/work-orders/${editId}`, label: '작업의뢰서로' } : undefined}
+        title={editId ? `작업의뢰서 ${head.work_order_number} 수정` : '작업의뢰서 등록'}
+        description={editId
+          ? '수정할 내용을 표에서 바꾸거나, 수정된 ERP 파일을 다시 올리세요. 저장 전에 바뀌는 내용을 확인할 수 있고 생산 기록은 유지됩니다.'
+          : 'ERP 에서 내려받은 작업의뢰서를 올리면 채워집니다. 엑셀과 PDF 를 같이 올리면 손댈 것이 없습니다. 이미 등록된 의뢰번호를 올리면 수정으로 처리합니다.'}
+        actions={!editId &&
           // 지난 것은 한 장씩 올리지 않고 ERP 목록 엑셀 하나로 한꺼번에
           <Link href="/work-orders/receive/import"
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-input bg-card px-4 text-sm font-semibold hover:bg-muted">
@@ -496,7 +588,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         <div className="rounded-xl border border-brand-600/30 bg-brand-50/70 px-4 py-3 text-sm">
           <p className="font-semibold text-brand-900">
             발주 {target.po.intake_number} · {[target.po.customer_name, target.po.site_name].filter(Boolean).join(' ')}
-            {target.pkg && <> — 포장 <b>{target.pkg.label}</b> ({target.pkg.total_quantity}장)</>}
+            {target.pkg && <> — 포장 <b>{target.pkg.label}</b> ({target.pkg.total_quantity}조)</>}
           </p>
           <p className="mt-0.5 text-muted-foreground">
             {target.pkg
@@ -552,7 +644,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       <Card>
         <CardHeader><StepTitle step={2}>의뢰 정보</StepTitle></CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="의뢰번호" placeholder="26-2286" value={head.work_order_number}
+          <Field label="의뢰번호" placeholder="26-2286" value={head.work_order_number} disabled={!!editId}
             onChange={(v) => setHead({ ...head, work_order_number: v })} />
           <Field label="업체명" value={head.customer_label}
             onChange={(v) => setHead({ ...head, customer_label: v })} />
@@ -562,21 +654,25 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             onChange={(v) => setHead({ ...head, request_date: v })} />
           <Field label="납품일자" type="date" value={head.delivery_date}
             onChange={(v) => setHead({ ...head, delivery_date: v })} />
-          <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-            <p className="text-[13px] font-semibold">연결할 발주서 <span className="font-normal text-muted-foreground">(선택)</span></p>
-            <PoPicker value={poId} onChange={setPoId} siteHint={head.site_label} customerHint={head.customer_label} />
-          </div>
-          <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
-            <p className="text-[13px] font-semibold">생산 공장</p>
-            <ProductionSitePicker value={site} onChange={setSite} />
-          </div>
+          {!editId && (
+            <>
+              <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+                <p className="text-[13px] font-semibold">연결할 발주서 <span className="font-normal text-muted-foreground">(선택)</span></p>
+                <PoPicker value={poId} onChange={setPoId} siteHint={head.site_label} customerHint={head.customer_label} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+                <p className="text-[13px] font-semibold">생산 공장</p>
+                <ProductionSitePicker value={site} onChange={setSite} />
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-3 border-b sm:flex-row sm:items-center sm:justify-between">
           <StepTitle step={3}>
-            품목 <span className="tabular font-normal text-muted-foreground">— {rows.length}행 · {countedQty.toLocaleString()}장 · {countedArea.toFixed(2)}㎡</span>
+            품목 <span className="tabular font-normal text-muted-foreground">— {rows.length}행 · {countedQty.toLocaleString()}조 · {countedArea.toFixed(2)}M²</span>
           </StepTitle>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={duplicateAll}>
@@ -596,7 +692,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
                 <TableHead className="w-28">가로</TableHead>
                 <TableHead className="w-28">세로</TableHead>
                 <TableHead className="w-24">수량</TableHead>
-                <TableHead className="w-28 text-right">면적</TableHead>
+                <TableHead className="w-28 text-right">면적(M²)</TableHead>
                 <TableHead className="min-w-64">비고</TableHead>
                 <TableHead className="w-14 pr-5" />
               </TableRow>
@@ -662,7 +758,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           <div className="grid gap-4 sm:grid-cols-2 max-w-md">
             <Field label="합계 수량" value={printedTotal.quantity}
               onChange={(v) => setPrintedTotal({ ...printedTotal, quantity: v })} />
-            <Field label="합계 면적" value={printedTotal.area_m2}
+            <Field label="합계 면적(M²)" value={printedTotal.area_m2}
               onChange={(v) => setPrintedTotal({ ...printedTotal, area_m2: v })} />
           </div>
           {check?.total && <TotalCheck check={check} counted={{ qty: countedQty, area: countedArea }} />}
@@ -674,14 +770,19 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/95 px-5 py-3.5 shadow-lg backdrop-blur">
           <p className="tabular text-sm">
             <b className="text-foreground">{head.work_order_number || '의뢰번호 없음'}</b>
-            <span className="text-muted-foreground"> · {countedQty.toLocaleString()}장 · {countedArea.toFixed(2)}㎡</span>
+            <span className="text-muted-foreground"> · {countedQty.toLocaleString()}조 · {countedArea.toFixed(2)}M²</span>
           </p>
           <Button onClick={handleSave} disabled={saving} size="lg" className="w-full sm:w-auto">
             <Save />
-            {saving ? '저장 중…' : '등록하고 생산실적 입력으로'}
+            {saving ? '저장 중…' : editId ? '수정 내용 확인' : '등록하고 생산실적 입력으로'}
           </Button>
         </div>
       </div>
+
+      {revision && (
+        <RevisionDialog number={head.work_order_number} plan={revision.plan} busy={saving}
+          onCancel={() => setRevision(null)} onApply={applyRevision} />
+      )}
     </div>
   );
 }
@@ -710,13 +811,13 @@ function FileSlot({ kind, name }: { kind: 'pdf' | 'excel'; name?: string }) {
   );
 }
 
-function Field({ label, value, onChange, type = 'text', placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string;
+function Field({ label, value, onChange, type = 'text', placeholder, disabled }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; disabled?: boolean;
 }) {
   return (
     <div className="space-y-1.5">
       <label className="text-[13px] font-semibold">{label}</label>
-      <Input type={type} value={value} placeholder={placeholder}
+      <Input type={type} value={value} placeholder={placeholder} disabled={disabled}
         onChange={(e) => onChange(e.target.value)} />
     </div>
   );
@@ -731,7 +832,7 @@ function BlockChecks({ check }: { check: ScanCheck }) {
           <TableHead>소계 구간</TableHead>
           <TableHead className="text-right">읽은 수량</TableHead>
           <TableHead className="text-right">의뢰서</TableHead>
-          <TableHead className="text-right">읽은 면적</TableHead>
+          <TableHead className="text-right">읽은 면적(M²)</TableHead>
           <TableHead className="text-right">의뢰서</TableHead>
         </TableRow>
       </TableHeader>

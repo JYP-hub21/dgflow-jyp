@@ -97,7 +97,7 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
               <div className="rounded-lg bg-muted/70 px-3 py-2 text-xs">
                 <p className="truncate font-semibold text-muted-foreground">소계 · {sub.product_name}</p>
                 <p className="tabular mt-0.5">
-                  {sub.count}품목 · 의뢰 <b>{sub.quantity}</b> · 완료 {sub.produced} · 남음 <b>{sub.quantity - sub.produced}</b> · {sub.area_m2.toFixed(2)}㎡
+                  {sub.count}품목 · 의뢰 <b>{sub.quantity}</b> · 완료 {sub.produced} · 남음 <b>{sub.quantity - sub.produced}</b> · {sub.area_m2.toFixed(2)}M²
                 </p>
               </div>
             )}
@@ -134,7 +134,7 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
                     <div className="mt-0.5 flex items-center justify-between gap-2 text-muted-foreground">
                       <span>{item.width_mm}×{item.height_mm}</span>
                       <span className="ml-auto flex items-center gap-1 font-semibold text-success">
-                        <Check className="h-4 w-4" /> {item.quantity}장 완료
+                        <Check className="h-4 w-4" /> {item.quantity}조 완료
                       </span>
                       <EditToggle editing={editItemId === item.id} onClick={() => toggleEdit(item.id)} />
                     </div>
@@ -181,7 +181,7 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
         </p>
       )}
       {days.length > 0 && (
-        <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground" title={days.map(d => `${d.date}  ${d.quantity}장`).join('\n')}>
+        <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground" title={days.map(d => `${d.date}  ${d.quantity}조`).join('\n')}>
           <CalendarDays className="h-3.5 w-3.5" />생산일 {days.length}일 · 일자별 기록은 수정에서 확인
         </div>
       )}
@@ -202,7 +202,7 @@ function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggl
 
       {over && (
         <div className="mt-2 text-sm font-medium text-destructive">
-          잔여 {remaining}장보다 많습니다.
+          잔여 {remaining}조보다 많습니다.
         </div>
       )}
 

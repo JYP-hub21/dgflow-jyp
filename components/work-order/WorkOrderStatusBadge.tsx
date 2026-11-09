@@ -1,14 +1,17 @@
 import { Badge } from '@/components/ui/badge';
+import { STAGE_LABELS, workOrderStage, type StageTotals, type WorkOrderStage } from '@/lib/work-order/stage';
 
-const STATUS = {
-  pending: { label: '대기', variant: 'secondary' },
-  in_progress: { label: '진행중', variant: 'info' },
-  completed: { label: '완료', variant: 'success' },
-} as const;
+const VARIANTS: Record<WorkOrderStage, 'secondary' | 'info' | 'warning' | 'success'> = {
+  waiting: 'secondary',
+  producing: 'info',
+  produced: 'warning',
+  delivering: 'info',
+  delivered: 'success',
+  done: 'success',
+};
 
-/** 작업의뢰서 상태 — 대기 회색 · 진행중 파랑 · 완료 초록 */
-export default function WorkOrderStatusBadge({ status }: { status: string }) {
-  const s = STATUS[status as keyof typeof STATUS];
-  if (!s) return <Badge variant="outline">{status}</Badge>;
-  return <Badge variant={s.variant}>{s.label}</Badge>;
+/** 작업의뢰서 상태 — 수량에서 계산한다: 대기 · 생산 중 · 생산 완료 · 납품 중 · 납품 완료 */
+export default function WorkOrderStatusBadge({ status, totals }: { status: string; totals: StageTotals }) {
+  const stage = workOrderStage(status, totals);
+  return <Badge variant={VARIANTS[stage]}>{STAGE_LABELS[stage]}</Badge>;
 }

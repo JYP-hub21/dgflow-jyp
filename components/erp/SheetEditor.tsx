@@ -76,7 +76,7 @@ export default function SheetEditor({
           {sheet.packaging_label}
           <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="font-normal text-muted-foreground">
-            시트명 &quot;{sheet.sheet_name}&quot; · {rows.length}행 · {total.toLocaleString()}장
+            시트명 &quot;{sheet.sheet_name}&quot; · {rows.length}행 · {total.toLocaleString()}조
           </span>
           {edited && <Badge variant="info">직접 고침</Badge>}
         </CardTitle>

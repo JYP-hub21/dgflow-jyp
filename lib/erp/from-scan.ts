@@ -72,7 +72,7 @@ export function packagingEvidenceFromScan(scan: OrderScan): string {
   if (scan.packages.length === 0) return '';
   const labels = scan.packages.map((p, i) => {
     const name = p.label?.trim() || `포장 ${i + 1}`;
-    return p.declared_quantity !== null ? `${name} ${p.declared_quantity}장` : name;
+    return p.declared_quantity !== null ? `${name} ${p.declared_quantity}조` : name;
   });
   return `발주서 합계 행 ${scan.packages.length}개 — ${labels.join(' / ')}`;
 }

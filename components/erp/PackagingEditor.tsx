@@ -234,7 +234,7 @@ export default function PackagingEditor({
             <Boxes className="h-4 w-4 text-muted-foreground" />
             포장 직접 짜기
             <span className="text-xs font-normal text-muted-foreground">
-              발주서 {rows.length}행 · {total.toLocaleString()}장
+              발주서 {rows.length}행 · {total.toLocaleString()}조
             </span>
           </CardTitle>
           <Button size="sm" variant="outline" onClick={onResetToAuto}>
@@ -263,7 +263,7 @@ export default function PackagingEditor({
                   className="h-8 w-32 border-0 px-1 text-sm font-semibold shadow-none hover:border-0 focus-visible:ring-0"
                 />
                 <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
-                  {pkg.rows.length}행 · {quantityOf(pkg.rows).toLocaleString()}장
+                  {pkg.rows.length}행 · {quantityOf(pkg.rows).toLocaleString()}조
                 </span>
                 <button
                   type="button"
@@ -282,7 +282,7 @@ export default function PackagingEditor({
 
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="tabular-nums text-muted-foreground">
-              배정 {assignedQuantity.toLocaleString()}장 / 전체 {total.toLocaleString()}장
+              배정 {assignedQuantity.toLocaleString()}조 / 전체 {total.toLocaleString()}조
             </span>
             {leftover.length > 0 ? (
               <button
@@ -361,7 +361,7 @@ export default function PackagingEditor({
             (카드가 overflow-hidden 이라 sticky 는 먹지 않는다) */}
         {selected.size > 0 && (
           <div className="fixed inset-x-4 bottom-4 z-40 flex flex-wrap items-center gap-2 rounded-xl border border-brand-600/40 bg-brand-50/95 p-3 shadow-xl backdrop-blur md:left-[calc(16rem+1.5rem)] md:right-6">
-            <Badge>{selected.size}행 · {quantityOf([...selected]).toLocaleString()}장 선택됨</Badge>
+            <Badge>{selected.size}행 · {quantityOf([...selected]).toLocaleString()}조 선택됨</Badge>
             <Button size="sm" onClick={packSelectedAsNew}>
               <Plus />새 포장으로 만들기
             </Button>

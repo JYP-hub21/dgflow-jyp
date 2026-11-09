@@ -77,9 +77,9 @@ export default function ReconcilePanel({ result }: { result: Reconciliation }) {
               </span>
               <span className="shrink-0 tabular-nums">
                 {line.declared === null ? (
-                  <span className="text-muted-foreground">기준 없음 · {line.actual}장</span>
+                  <span className="text-muted-foreground">기준 없음 · {line.actual}조</span>
                 ) : line.ok ? (
-                  <span className="flex items-center gap-1 font-semibold text-success">{line.actual}장 <Check className="h-4 w-4" /></span>
+                  <span className="flex items-center gap-1 font-semibold text-success">{line.actual}조 <Check className="h-4 w-4" /></span>
                 ) : (
                   <span className="font-bold">
                     발주서 {line.declared} ≠ 우리 {line.actual}

@@ -67,8 +67,8 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Stat label="작업의뢰서" value={groups.length} unit="건" />
           <Stat label="남은 품목" value={all.length} unit="건" />
-          <Stat label="남은 수량" value={remainingQty} unit="장" strong />
-          <Stat label="남은 면적" value={remainingArea.toFixed(2)} unit="m²" />
+          <Stat label="남은 수량" value={remainingQty} unit="조" strong />
+          <Stat label="남은 면적" value={remainingArea.toFixed(2)} unit="M²" />
         </CardContent>
       </Card>
       {untouched > 0 && (
@@ -112,7 +112,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                   납기 {g.delivery_date}{overdue && ' (지남)'}
                 </span>
               )}
-              <span className="tabular text-sm">남은 <b className="text-base">{groupQty}</b>장</span>
+              <span className="tabular text-sm">남은 <b className="text-base">{groupQty}</b>조</span>
               <Link href={`/production/${g.id}`} className={buttonVariants({ size: 'sm', className: 'w-full sm:w-auto' })}>
                 <Factory />생산 입력
               </Link>
@@ -131,7 +131,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                     <li className="flex items-center justify-between gap-3 bg-muted/60 px-5 py-1.5 text-xs">
                       <span className="min-w-0 truncate font-bold text-foreground">{item.product_name}</span>
                       <span className="tabular shrink-0 text-muted-foreground">
-                        {blockItems.length}품목 · 남음 {blockItems.reduce((s, x) => s + x.quantity - x.produced_quantity, 0)}장
+                        {blockItems.length}품목 · 남음 {blockItems.reduce((s, x) => s + x.quantity - x.produced_quantity, 0)}조
                       </span>
                     </li>
                   )}
@@ -151,7 +151,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
                       <span className="shrink-0 rounded-md bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">미착수</span>
                     )}
                     <span className="tabular w-14 shrink-0 text-right text-lg font-bold">
-                      {remaining}<span className="ml-0.5 text-sm font-medium text-muted-foreground">장</span>
+                      {remaining}<span className="ml-0.5 text-sm font-medium text-muted-foreground">조</span>
                     </span>
                   </li>
                   </Fragment>

@@ -1,7 +1,8 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
+import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { NextRequest, NextResponse } from 'next/server';
 
 // PATCH: 저장한 생산 기록 고치기 (수량·생산일자·주야간·호기)
@@ -24,7 +25,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
 
   const { data: log } = await supabase
     .from('dgflow_production_logs')
-    .select('id, work_order_item_id')
+    .select('id, work_order_id, work_order_item_id')
     .eq('id', id)
     .single();
   if (!log) return NextResponse.json({ error: '기록을 찾을 수 없습니다' }, { status: 404 });
@@ -39,7 +40,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
     const otherTotal = (others || []).reduce((s, l) => s + l.quantity_completed, 0);
     if (item && otherTotal + qty > item.quantity) {
       return NextResponse.json(
-        { error: `의뢰 ${item.quantity}장을 넘습니다 (다른 기록 ${otherTotal}장 + ${qty}장)` },
+        { error: `의뢰 ${item.quantity}조를 넘습니다 (다른 기록 ${otherTotal}조 + ${qty}조)` },
         { status: 400 },
       );
     }
@@ -61,6 +62,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   if (log.work_order_item_id) await syncProducedQuantity(supabase, log.work_order_item_id);
+  await syncWorkOrderStatus(createServiceRoleClient(), log.work_order_id);
   return NextResponse.json({ data });
 }
 
@@ -77,7 +79,7 @@ export async function DELETE(_request: NextRequest, ctx: RouteContext<'/api/prod
 
   const { data: log } = await supabase
     .from('dgflow_production_logs')
-    .select('work_order_item_id')
+    .select('work_order_id, work_order_item_id')
     .eq('id', id)
     .single();
   if (!log) return NextResponse.json({ error: '기록을 찾을 수 없습니다' }, { status: 404 });
@@ -86,5 +88,6 @@ export async function DELETE(_request: NextRequest, ctx: RouteContext<'/api/prod
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   if (log.work_order_item_id) await syncProducedQuantity(supabase, log.work_order_item_id);
+  await syncWorkOrderStatus(createServiceRoleClient(), log.work_order_id);
   return NextResponse.json({ ok: true });
 }

@@ -153,15 +153,15 @@ export default async function DashboardPage() {
 
       {/* 숫자 네 칸 */}
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Kpi label="오늘 생산" value={todayQty.toLocaleString()} unit="장" sub={`어제 ${yesterdayQty.toLocaleString()}장`} />
-        <Kpi label="이번 달 생산 면적" value={monthArea.toLocaleString(undefined, { maximumFractionDigits: 1 })} unit="㎡" sub={`이번 달 ${monthQty.toLocaleString()}장`} />
-        <Kpi label="진행 중 작업의뢰서" value={String(active.length)} unit="건" sub={`남은 수량 ${remaining.toLocaleString()}장`} />
+        <Kpi label="오늘 생산" value={todayQty.toLocaleString()} unit="조" sub={`어제 ${yesterdayQty.toLocaleString()}조`} />
+        <Kpi label="이번 달 생산 면적" value={monthArea.toLocaleString(undefined, { maximumFractionDigits: 1 })} unit="M²" sub={`이번 달 ${monthQty.toLocaleString()}조`} />
+        <Kpi label="진행 중 작업의뢰서" value={String(active.length)} unit="건" sub={`남은 수량 ${remaining.toLocaleString()}조`} />
         <Kpi label="처리 중 발주서" value={String(waiting)} unit="건" sub={`생산 중 ${producing}건`} />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {/* 최근 2주 생산 */}
-        <Panel className="xl:col-span-2" title="최근 2주 생산" sub={`${twoWeekQty.toLocaleString()}장`} right={<TrendLegend series={trendSeries} />}>
+        <Panel className="xl:col-span-2" title="최근 2주 생산" sub={`${twoWeekQty.toLocaleString()}조`} right={<TrendLegend series={trendSeries} />}>
           {twoWeekQty === 0
             ? <Empty text="최근 2주 동안 입력된 생산 실적이 없습니다." />
             : <ProductionTrend data={trend} series={trendSeries} />}
