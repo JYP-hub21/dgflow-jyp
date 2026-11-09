@@ -10,7 +10,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
-import { applySuggestion, rowRangesText, type AiPackagingRequest, type AiPackagingSuggestion } from '@/lib/erp/ai-packaging';
+import { applySuggestion, buildPrompt, rowRangesText, type AiPackagingRequest, type AiPackagingSuggestion } from '@/lib/erp/ai-packaging';
 
 // AI 가 발주서를 읽고 생각하는 데 30초–1분쯤 걸린다
 export const maxDuration = 300;
@@ -49,8 +49,12 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 업무지원부를 �
 
 ## 규칙
 - 사용자에게서 받은 "품목 행" 목록의 모든 행이 정확히 한 포장에 들어가야 한다. 한 행을 두 포장에 넣지 마라.
-  ranges 는 연속된 행 범위로 적되, 범위 안의 합계 · 머리글 행은 시스템이 알아서 뺀다.
-- 사용자 지시가 있으면 그 뜻을 우선한다. 지시가 발주서 내용과 어긋나거나, 시트 안 행 순서처럼 네가 정할 수 없는 것을
+  ranges 는 넓게 적는다: 포장 하나가 발주서에서 이어진 구간이면 그 구간의 첫 행부터 끝 행까지 **범위 하나**로 적는다.
+  사이에 낀 계 · 합계 · 빈 행 · 포장 표시 행을 피하려고 범위를 쪼개지 마라 — 시스템이 품목 행만 골라 담는다.
+  범위를 나누는 것은 다른 포장의 품목 행이 사이에 끼어 있을 때뿐이다.
+- 사용자 요청이 있으면 그 뜻을 우선한다. 사용자는 포장을 어떻게 할지 길게 · 말로 적을 수 있다
+  (예: "1~3호는 한 포장, 발코니는 따로 빼고 5동을 맨 앞에"). 행 번호 · 동 · 호 · 품명 · 층 무엇으로 말해도 그 뜻대로 행을 골라 묶는다.
+  이어서 고치는 요청이면 직전 제안을 바탕으로 고친다. 지시가 발주서 내용과 어긋나거나, 시트 안 행 순서처럼 네가 정할 수 없는 것을
   바꾸라는 것이면 따를 수 있는 만큼만 따르고 cautions 에 적는다.
 - 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다. 발주서 합계가 맞지 않아 보이는 것도 적는다.
   합계가 맞는 것처럼 문제없는 사실은 cautions 에 적지 않는다 — 사람이 볼 경고만 남긴다.
@@ -69,29 +73,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '발주서 내용이 비어 있습니다.' }, { status: 400 });
   }
 
-  const userText = [
-    `거래처: ${body.customer_name || '(못 읽음)'} / 현장: ${body.site_name || '(못 읽음)'} / 시트: ${body.sheet_name}`,
-    `품목 행 (이 행들을 빠짐없이 포장에 넣는다): ${rowRangesText(body.item_rows)}`,
-    body.instruction?.trim() ? `사용자 지시: ${body.instruction.trim().slice(0, 1000)}` : '사용자 지시: 없음',
-    '',
-    '발주서 시트 (한 줄 = 엑셀 한 행, "행번호| 칸 | 칸 …"):',
-    body.sheet_text,
-  ].join('\n');
+  const prompt = buildPrompt(body);
 
   const client = new Anthropic();
-  const ask = (text: string) => client.beta.messages.parse({
+  const ask = (askText: string) => client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
     // 안전 분류기가 드물게 거절하면 서버가 알아서 다른 모델로 다시 시도한다
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
     system: SYSTEM,
-    messages: [{ role: 'user', content: text }],
+    messages: [{
+      role: 'user',
+      content: [
+        // 발주서 원문은 이어서 고쳐도 같다 — 캐시해 두면 두 번째 요청부터 원문 읽는 값이 20분의 1로 준다
+        { type: 'text', text: prompt.sheet, cache_control: { type: 'ephemeral' } },
+        { type: 'text', text: askText },
+      ],
+    }],
     output_config: { effort: 'medium', format: betaZodOutputFormat(Suggestion) },
   });
 
   try {
-    const first = await ask(userText);
+    const first = await ask(prompt.ask);
     if (first.stop_reason === 'refusal') {
       return NextResponse.json({ error: 'AI 가 이 요청을 처리하지 않았습니다. 다시 시도하거나 직접 짜 주세요.' }, { status: 502 });
     }
@@ -99,7 +103,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'AI 답이 중간에 끊겼습니다. 발주서가 너무 길면 시트를 나눠 시도해 주세요.' }, { status: 502 });
     }
     let suggestion: AiPackagingSuggestion = first.parsed_output;
-    const usage = { input_tokens: first.usage.input_tokens, output_tokens: first.usage.output_tokens, model: first.model };
+    const usage = {
+      input_tokens: first.usage.input_tokens, output_tokens: first.usage.output_tokens,
+      cache_read: first.usage.cache_read_input_tokens ?? 0, cache_write: first.usage.cache_creation_input_tokens ?? 0,
+      model: first.model,
+    };
 
     // 스스로 검사 — 품목 행이 빠지거나 두 포장에 겹치면 그 행을 짚어 한 번 더 묻는다
     // (설명에는 "포장 2개" 라고 쓰고 목록에는 1개만 넣은 일이 있었다, 2026-11-09)
@@ -111,7 +119,7 @@ export async function POST(request: NextRequest) {
         check.duplicates.length > 0 && `두 포장에 겹친 행: ${rowRangesText(check.duplicates)}`,
       ].filter(Boolean).join('\n');
       const second = await ask([
-        userText, '',
+        prompt.ask, '',
         '## 첫 답 검사 결과',
         `첫 답: ${JSON.stringify(suggestion)}`,
         `문제:\n${problems}`,
@@ -119,6 +127,8 @@ export async function POST(request: NextRequest) {
       ].join('\n'));
       usage.input_tokens += second.usage.input_tokens;
       usage.output_tokens += second.usage.output_tokens;
+      usage.cache_read += second.usage.cache_read_input_tokens ?? 0;
+      usage.cache_write += second.usage.cache_creation_input_tokens ?? 0;
       retried = true;
       if (second.stop_reason !== 'refusal' && second.parsed_output) {
         const again = applySuggestion(second.parsed_output, body.item_rows);

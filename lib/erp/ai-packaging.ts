@@ -25,8 +25,13 @@ export interface AiPackagingSuggestion {
 }
 
 export interface AiUsage {
+  /** 캐시를 거치지 않은 입력 */
   input_tokens: number;
   output_tokens: number;
+  /** 캐시에서 읽은 입력 (원문을 다시 읽을 때 — 20분의 1 값) */
+  cache_read?: number;
+  /** 캐시에 처음 넣은 입력 (1.25배 값) */
+  cache_write?: number;
   model: string;
 }
 
@@ -39,8 +44,50 @@ export interface AiPackagingRequest {
   sheet_text: string;
   /** 우리 파서가 품목으로 읽은 행 (이 행들만 포장에 넣는다) */
   item_rows: number[];
-  /** 사람이 적은 지시 (선택) */
+  /** 이번에 사람이 적은 요청 (비우면 발주서대로) */
   instruction: string;
+  /** 앞서 한 요청들 — 오래된 것부터 (이어서 고칠 때) */
+  history?: string[];
+  /** 직전 제안 — 있으면 그걸 바탕으로 고친다 */
+  previous?: AiPackagingSuggestion | null;
+}
+
+/** 한 번에 적을 수 있는 요청 길이 — 장황하게 적어도 된다 */
+export const MAX_INSTRUCTION = 3000;
+
+/**
+ * AI 에게 보낼 글 두 덩어리.
+ * `sheet` 는 발주서 원문이라 이어서 고쳐도 그대로다 — 서버가 캐시해 두 번째부터 싸게 읽는다.
+ * `ask` 는 요청 부분 — 처음이면 요청 하나, 이어서 고칠 때는 앞선 요청 · 직전 제안 · 새 요청.
+ */
+export function buildPrompt(req: AiPackagingRequest): { sheet: string; ask: string } {
+  const sheet = [
+    `거래처: ${req.customer_name || '(못 읽음)'} / 현장: ${req.site_name || '(못 읽음)'} / 시트: ${req.sheet_name}`,
+    `품목 행 (이 행들을 빠짐없이 포장에 넣는다): ${rowRangesText(req.item_rows)}`,
+    '',
+    '발주서 시트 (한 줄 = 엑셀 한 행, "행번호| 칸 | 칸 …"):',
+    req.sheet_text,
+  ].join('\n');
+  const now = (req.instruction ?? '').trim().slice(0, MAX_INSTRUCTION);
+  if (!req.previous) {
+    return { sheet, ask: `## 사용자 요청\n${now || '없음 — 발주서 내용대로 제안한다.'}` };
+  }
+  const history = (req.history ?? []).map(h => h.trim()).filter(Boolean).slice(-10);
+  return {
+    sheet,
+    ask: [
+      '## 지금까지 사용자가 한 요청 (순서대로)',
+      ...(history.length > 0 ? history.map((h, i) => `${i + 1}) ${h.slice(0, MAX_INSTRUCTION)}`) : ['(없음 — 발주서 내용대로 제안했다)']),
+      '',
+      '## 직전 제안',
+      JSON.stringify(req.previous),
+      '',
+      '## 새 요청',
+      now || '(없음)',
+      '',
+      '직전 제안을 바탕으로 새 요청을 반영해 전체 답을 다시 써라. 앞선 요청도 계속 지키되, 새 요청과 부딪히면 새 요청을 따른다.',
+    ].join('\n'),
+  };
 }
 
 const MAX_ROWS = 3000;
@@ -134,8 +181,11 @@ export function normalizeLabel(label: string): string {
   return label.trim().replace(/(\d+)\s*~\s*(\d+)호/g, (m, a, b) => (Number(b) === Number(a) + 1 ? `${a},${b}호` : m));
 }
 
-/** 이번 요청 비용 어림 (Claude Opus 5.5: 입력 100만 토큰 $4 · 출력 $20, 1달러 1,400원으로 계산) */
-export function estimateKrw(usage: Pick<AiUsage, 'input_tokens' | 'output_tokens'>): number {
-  const usd = usage.input_tokens / 1_000_000 * 4 + usage.output_tokens / 1_000_000 * 20;
+/**
+ * 이번 요청 비용 어림 — Claude Opus 5.5 100만 토큰당 입력 $4 · 캐시 쓰기 $5 · 캐시 읽기 $0.20 · 출력 $20,
+ * 1달러 1,400원으로 계산.
+ */
+export function estimateKrw(usage: Pick<AiUsage, 'input_tokens' | 'output_tokens' | 'cache_read' | 'cache_write'>): number {
+  const usd = (usage.input_tokens * 4 + (usage.cache_write ?? 0) * 5 + (usage.cache_read ?? 0) * 0.2 + usage.output_tokens * 20) / 1_000_000;
   return Math.round(usd * 1400);
 }
