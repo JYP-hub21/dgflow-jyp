@@ -1,27 +1,48 @@
 /**
- * AI 포장 제안 — 발주서를 AI 가 읽고 포장(= ERP 시트 = 작업의뢰서 한 장)과 시트 순서를 제안한다 (2026-11-09).
+ * DG 프리즘 — 발주서 규격정리 전문가 AI (2026-11-09, 2.0).
  *
- * 왜: 포장 지시는 거래처 · 작성자마다 적는 방식이 달라 규칙(packaging-note.ts)이 못 읽는 발주서가 계속 들어온다.
- * 사람이 말로 적은 뜻("3동부터 싣게", "1~3호 같이")도 규칙으로는 못 받는다.
+ * 사용자: "발주서 규격정리에 한해서는 내가 만든 AI 가 전문가여야 해 — 어떤 요구사항이나 명령이든 다 들어줄 수 있어야지."
+ * 그래서 포장만 짜던 1.0 에서 할 수 있는 일을 넓혔다. AI 는 계획(JSON)만 내고, 적용은 이 파일과 기존 규칙이 한다.
  *
- * 지키는 것 (규격정리 묶음은 매번 사람이 정한다 — 추천은 하되 확정은 사람이 누른다):
- *  · AI 답은 **제안**으로만 띄운다. 사람이 "이 제안으로 직접 짜기" 를 눌러야 포장 편집으로 넘어간다.
- *  · AI 는 행을 어느 포장에 넣을지와 포장 순서만 정한다. 시트 안 행 순서 · 합치기 · 위치 문자열은
- *    실물 ERP 와 대조해 맞춘 기존 규칙(buildErpUpload)이 그대로 만든다.
+ *  · answer      — 질문에 답한다 ("3동은 몇 장이에요?"). 미리보기는 그대로 둔다.
+ *  · load_sheets — 다른 차수 시트가 필요하면(“1차와 2차 합쳐서”) 그 시트들을 불러 달라고 한다. 화면이 불러온 뒤 같은 요청을 다시 보낸다.
+ *  · arrange     — 포장(행 범위) · 시트 순서 · 포장 안 행 순서(ERP 규칙 / 발주서 순서) · 이번에 뺄 행 ·
+ *                  위치 글자 고치기 · 규격정리 우측 사내 품명을 정한다.
+ *
+ * 지키는 것:
+ *  · 가로 · 세로 · 수량 같은 숫자는 AI 가 바꾸지 못한다 — 숫자는 발주서에서 읽은 그대로다(유리를 잘못 자르면 안 된다).
+ *  · 같은 규격 합치기 · 위치 조립 · 기본 행 순서는 실물 ERP 와 대조해 맞춘 기존 규칙(buildErpUpload)이 한다.
  *  · 한 행은 한 포장에만. 겹치거나 빠진 행은 숨기지 않고 알린다(빠진 행은 `_미배정` 시트로 간다).
  *
  * 이 파일은 화면 · 서버가 같이 쓰는 순수 함수만 둔다. AI 호출은 app/api/erp/ai-packaging/route.ts.
  */
 import type { ManualPackage } from './packaging-rule';
 import { newPackageId } from './packaging-rule';
+import { keyerFor, keysText, splitKey } from './multi-sheet';
 
-/** AI 가 돌려주는 모양 — 서버의 zod 스키마와 같다 */
-export interface AiPackagingSuggestion {
-  /** 발주서를 어떻게 이해했는지 — 근거가 된 문구 */
+/** 행 범위 — 어느 시트의 몇 행부터 몇 행까지 (양끝 포함) */
+export interface RowRange { sheet: string; from: number; to: number }
+
+export type AiAction = 'arrange' | 'answer' | 'load_sheets';
+
+/** AI 가 돌려주는 계획 — 서버의 zod 스키마와 같다 */
+export interface AiPlan {
+  action: AiAction;
+  /** 사용자에게 하는 답 — 질문이면 답, 작업이면 무엇을 했는지 */
+  reply: string;
+  /** 발주서를 어떻게 이해했는지 — 근거가 된 행 · 문구 */
   understanding: string;
-  /** 나눈 포장 수 — 목록을 다 채웠는지 검사하는 데 쓴다 (예전 답에는 없다) */
-  package_count?: number;
-  packages: { label: string; ranges: { from: number; to: number }[]; reason: string }[];
+  /** load_sheets 일 때 불러올 시트(합칠 시트 전부). 아니면 지금 시트 그대로 */
+  sheets: string[];
+  /** packages 에 넣을 포장 수 — 목록을 다 채웠는지 검사한다 */
+  package_count: number;
+  packages: { label: string; ranges: RowRange[]; reason: string; row_order: 'erp' | 'source' }[];
+  /** 이번 ERP 엑셀에서 뺄 품목 행 (사람이 빼 달라고 한 것) */
+  exclude: (RowRange & { reason: string })[];
+  /** 위치 글자 고치기 — ranges 가 비면 전체 */
+  location_edits: { find: string; replace: string; ranges: RowRange[] }[];
+  /** 규격정리 우측 품명(사내 · ERP 품목명) 제안 */
+  product_names: { from: string; to: string }[];
   /** 사람이 확인할 것 */
   cautions: string[];
 }
@@ -37,21 +58,31 @@ export interface AiUsage {
   model: string;
 }
 
+/** 불러온 시트 하나 */
+export interface AiSheetInput {
+  name: string;
+  /** sheetTextForAi 결과 */
+  text: string;
+  /** 우리 파서가 품목으로 읽은 엑셀 행 */
+  item_rows: number[];
+}
+
 /** 서버에 보내는 것 */
 export interface AiPackagingRequest {
-  sheet_name: string;
   site_name: string;
   customer_name: string;
-  /** sheetTextForAi 결과 */
-  sheet_text: string;
-  /** 우리 파서가 품목으로 읽은 행 (이 행들만 포장에 넣는다) */
-  item_rows: number[];
+  /** 지금 불러온 시트들 (하나 이상) */
+  sheets: AiSheetInput[];
+  /** 파일의 모든 시트 — 다른 차수를 불러 달라고 할 수 있게 */
+  available_sheets: { name: string; rows: number }[];
+  /** 지금 미리보기에 보이는 포장과 그 방식 */
+  current: { mode: string; packages: { label: string; ranges: RowRange[] }[] } | null;
   /** 이번에 사람이 적은 요청 (비우면 발주서대로) */
   instruction: string;
   /** 앞서 한 요청들 — 오래된 것부터 (이어서 고칠 때) */
   history?: string[];
-  /** 직전 제안 — 있으면 그걸 바탕으로 고친다 */
-  previous?: AiPackagingSuggestion | null;
+  /** 직전 계획 — 있으면 그걸 바탕으로 고친다 */
+  previous?: AiPlan | null;
 }
 
 /** 한 번에 적을 수 있는 요청 길이 — 장황하게 적어도 된다 */
@@ -59,35 +90,49 @@ export const MAX_INSTRUCTION = 3000;
 
 /**
  * AI 에게 보낼 글 두 덩어리.
- * `sheet` 는 발주서 원문이라 이어서 고쳐도 그대로다 — 서버가 캐시해 두 번째부터 싸게 읽는다.
- * `ask` 는 요청 부분 — 처음이면 요청 하나, 이어서 고칠 때는 앞선 요청 · 직전 제안 · 새 요청.
+ * `sheet` 는 발주서 원문(불러온 시트 전부)이라 이어서 고쳐도 그대로다 — 서버가 캐시해 두 번째부터 싸게 읽는다.
+ * `ask` 는 지금 화면 상태 · 요청 부분.
  */
 export function buildPrompt(req: AiPackagingRequest): { sheet: string; ask: string } {
   const sheet = [
-    `거래처: ${req.customer_name || '(못 읽음)'} / 현장: ${req.site_name || '(못 읽음)'} / 시트: ${req.sheet_name}`,
-    `품목 행 (이 행들을 빠짐없이 포장에 넣는다): ${rowRangesText(req.item_rows)}`,
+    `거래처: ${req.customer_name || '(못 읽음)'} / 현장: ${req.site_name || '(못 읽음)'}`,
+    `파일의 모든 시트: ${req.available_sheets.map(s => `${s.name}(${s.rows}행)`).join(', ')}`,
+    `지금 불러온 시트: ${req.sheets.map(s => s.name).join(', ')}`,
     '',
-    '발주서 시트 (한 줄 = 엑셀 한 행, "행번호| 칸 | 칸 …"):',
-    req.sheet_text,
+    ...req.sheets.flatMap(s => [
+      `### 시트 "${s.name}" — 품목 행(이 행들을 빠짐없이 포장에 넣거나 뺀다): ${rowRangesText(s.item_rows)}`,
+      '(한 줄 = 엑셀 한 행, "행번호| 칸 | 칸 …")',
+      s.text,
+      '',
+    ]),
   ].join('\n');
+
   const now = (req.instruction ?? '').trim().slice(0, MAX_INSTRUCTION);
+  const current = req.current && req.current.packages.length > 0
+    ? [
+        `## 지금 미리보기의 포장 (${req.current.mode})`,
+        ...req.current.packages.map((p, i) => `${i + 1}) ${p.label}: ${p.ranges.map(r => `${r.sheet} ${r.from}-${r.to}`).join(', ')}`),
+        '',
+      ]
+    : [];
   if (!req.previous) {
-    return { sheet, ask: `## 사용자 요청\n${now || '없음 — 발주서 내용대로 제안한다.'}` };
+    return { sheet, ask: [...current, `## 사용자 요청`, now || '없음 — 발주서 내용대로 포장을 짠다.'].join('\n') };
   }
   const history = (req.history ?? []).map(h => h.trim()).filter(Boolean).slice(-10);
   return {
     sheet,
     ask: [
+      ...current,
       '## 지금까지 사용자가 한 요청 (순서대로)',
-      ...(history.length > 0 ? history.map((h, i) => `${i + 1}) ${h.slice(0, MAX_INSTRUCTION)}`) : ['(없음 — 발주서 내용대로 제안했다)']),
+      ...(history.length > 0 ? history.map((h, i) => `${i + 1}) ${h.slice(0, MAX_INSTRUCTION)}`) : ['(없음 — 발주서 내용대로 짰다)']),
       '',
-      '## 직전 제안',
+      '## 직전 계획',
       JSON.stringify(req.previous),
       '',
       '## 새 요청',
       now || '(없음)',
       '',
-      '직전 제안을 바탕으로 새 요청을 반영해 전체 답을 다시 써라. 앞선 요청도 계속 지키되, 새 요청과 부딪히면 새 요청을 따른다.',
+      '직전 계획을 바탕으로 새 요청을 반영해 전체 답을 다시 써라. 앞선 요청도 계속 지키되, 새 요청과 부딪히면 새 요청을 따른다.',
     ].join('\n'),
   };
 }
@@ -129,50 +174,127 @@ export function rowRangesText(rows: number[]): string {
   return parts.join(', ');
 }
 
-export interface AppliedSuggestion {
+/** 행 열쇠 묶음 → 시트별 연속 범위 (AI 에게 지금 포장을 알려 줄 때) */
+export function keysToRanges(keys: number[], sheetNames: string[]): RowRange[] {
+  const bySheet = new Map<number, number[]>();
+  for (const k of keys) {
+    const { index, row } = splitKey(k);
+    bySheet.set(index, [...(bySheet.get(index) ?? []), row]);
+  }
+  const out: RowRange[] = [];
+  for (const [index, rows] of [...bySheet.entries()].sort((a, b) => a[0] - b[0])) {
+    const sorted = [...new Set(rows)].sort((a, b) => a - b);
+    for (let i = 0; i < sorted.length; i++) {
+      const from = sorted[i];
+      while (i + 1 < sorted.length && sorted[i + 1] === sorted[i] + 1) i++;
+      out.push({ sheet: sheetNames[index] ?? '', from, to: sorted[i] });
+    }
+  }
+  return out;
+}
+
+export interface AppliedPlan {
   packages: ManualPackage[];
+  /** 사람이 빼 달라고 한 품목 행 (열쇠) */
+  excluded: number[];
+  /** 발주서 순서를 그대로 둘 행 (열쇠) */
+  sourceOrder: number[];
+  /** 위치 고치기 — keys 가 null 이면 전체 */
+  locationEdits: { find: string; replace: string; keys: number[] | null }[];
+  /** 발주서 품명 → 사내 품명 */
+  productNames: Record<string, string>;
   /** 두 포장에 동시에 들어간 행 — 앞 포장에 남겼다 */
   duplicates: number[];
-  /** 어느 포장에도 안 들어간 품목 행 */
+  /** 어느 포장에도, 뺀 목록에도 없는 품목 행 */
   unassigned: number[];
   /** 행이 하나도 없어 뺀 포장 이름 */
   emptyLabels: string[];
+  /** 지금 불러오지 않은 시트를 가리킨 범위 */
+  unknownSheets: string[];
 }
 
 /**
- * AI 제안을 포장 편집이 쓰는 꼴로 바꾼다. 범위 안에서 **우리가 품목으로 읽은 행만** 담는다
- * (AI 가 합계 행 · 머리글까지 범위에 넣어도 그 행은 품목이 아니라 빠진다).
+ * AI 계획을 화면이 쓰는 꼴(행 열쇠)로 바꾼다. 범위 안에서 **우리가 품목으로 읽은 행만** 담는다
+ * (AI 가 합계 행 · 머리글까지 범위에 넣어도 그 행은 품목이 아니라 빠진다). 뺀 행은 포장보다 앞선다.
  */
-export function applySuggestion(suggestion: AiPackagingSuggestion, itemRows: number[]): AppliedSuggestion {
-  const items = new Set(itemRows);
+export function applyPlan(plan: Pick<AiPlan, 'packages' | 'exclude' | 'location_edits' | 'product_names'>, sheets: Pick<AiSheetInput, 'name' | 'item_rows'>[]): AppliedPlan {
+  const names = sheets.map(s => s.name);
+  const keyer = keyerFor(names);
+  const itemKeys: number[] = sheets.flatMap(s => s.item_rows.map(r => keyer(s.name, r)).filter((k): k is number => k !== null));
+  const items = new Set(itemKeys);
+  const unknown = new Set<string>();
+  const expand = (ranges: RowRange[]): number[] => {
+    const out: number[] = [];
+    for (const r of ranges) {
+      const from = Math.floor(Math.min(r.from, r.to));
+      const to = Math.max(r.from, r.to);
+      if (keyer(r.sheet, from) === null) { unknown.add(r.sheet); continue; }
+      for (let row = from; row <= to; row++) {
+        const k = keyer(r.sheet, row)!;
+        if (items.has(k)) out.push(k);
+      }
+    }
+    return out;
+  };
+
+  const excluded = new Set(expand(plan.exclude ?? []));
   const taken = new Set<number>();
   const duplicates = new Set<number>();
   const packages: ManualPackage[] = [];
   const emptyLabels: string[] = [];
+  const sourceOrder: number[] = [];
 
-  suggestion.packages.forEach((p, i) => {
+  (plan.packages ?? []).forEach((p, i) => {
     const rows: number[] = [];
-    for (const r of p.ranges) {
-      const from = Math.min(r.from, r.to);
-      const to = Math.max(r.from, r.to);
-      for (let row = Math.floor(from); row <= to; row++) {
-        if (!items.has(row)) continue;
-        if (taken.has(row)) { if (!rows.includes(row)) duplicates.add(row); continue; }
-        taken.add(row);
-        rows.push(row);
-      }
+    for (const k of expand(p.ranges)) {
+      if (excluded.has(k) || rows.includes(k)) continue;
+      if (taken.has(k)) { duplicates.add(k); continue; }
+      taken.add(k);
+      rows.push(k);
     }
     const label = normalizeLabel(p.label) || `포장 ${i + 1}`;
     if (rows.length === 0) { emptyLabels.push(label); return; }
     packages.push({ id: newPackageId(), label, rows: rows.sort((a, b) => a - b) });
+    if (p.row_order === 'source') sourceOrder.push(...rows);
   });
+
+  const productNames: Record<string, string> = {};
+  for (const n of plan.product_names ?? []) {
+    const from = (n.from ?? '').trim();
+    const to = (n.to ?? '').trim();
+    if (from && to && from !== to) productNames[from] = to;
+  }
 
   return {
     packages,
+    excluded: [...excluded].sort((a, b) => a - b),
+    sourceOrder,
+    locationEdits: (plan.location_edits ?? [])
+      .filter(e => (e.find ?? '') !== '' && e.find !== e.replace)
+      .map(e => ({ find: e.find, replace: e.replace ?? '', keys: (e.ranges ?? []).length > 0 ? expand(e.ranges) : null })),
+    productNames,
     duplicates: [...duplicates].sort((a, b) => a - b),
-    unassigned: itemRows.filter(r => !taken.has(r)).sort((a, b) => a - b),
+    unassigned: itemKeys.filter(k => !taken.has(k) && !excluded.has(k)).sort((a, b) => a - b),
     emptyLabels,
+    unknownSheets: [...unknown],
   };
+}
+
+/** 위치 고치기를 ERP 행 위치에 적용한다 — 줄이 고치기 범위의 발주서 행을 하나라도 담고 있으면 */
+export function editLocation(
+  location: string, sourceRows: number[] | undefined, edits: AppliedPlan['locationEdits'],
+): string {
+  let out = location;
+  for (const e of edits) {
+    if (e.keys && !(sourceRows ?? []).some(k => e.keys!.includes(k))) continue;
+    out = out.split(e.find).join(e.replace).replace(/\s{2,}/g, ' ').trim();
+  }
+  return out;
+}
+
+/** 열쇠 묶음을 사람이 읽을 글로 (시트가 여럿이면 시트 이름을 붙인다) */
+export function keysLabel(keys: number[], sheetNames: string[]): string {
+  return keysText(keys, sheetNames);
 }
 
 /**

@@ -30,7 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown } from 'lucide-react';
+import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { chipClass, chipCountClass } from '@/components/ui/chip';
 import StepTitle from '@/components/ui/step-title';
@@ -59,7 +59,8 @@ import ReconcilePanel from './ReconcilePanel';
 import SheetEditor from './SheetEditor';
 import ColumnMapper from './ColumnMapper';
 import DgPrismPanel from './DgPrismPanel';
-import { sheetTextForAi, type AiPackagingRequest } from '@/lib/erp/ai-packaging';
+import { editLocation, keysToRanges, sheetTextForAi, type AiPackagingRequest, type AiPlan, type AppliedPlan } from '@/lib/erp/ai-packaging';
+import { mergeScans, splitKey } from '@/lib/erp/multi-sheet';
 
 interface Meta {
   customer_name: string;
@@ -111,7 +112,11 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   const workbookRef = useRef<XLSX.WorkBook | null>(null);
   const [hasFile, setHasFile] = useState(false);
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
-  const [activeSheet, setActiveSheet] = useState('');
+  /** 지금 변환하는 시트 — 여러 차수를 합칠 수 있다 (2026-11-09 "1차와 2차 한번에 합쳐서") */
+  const [activeSheets, setActiveSheets] = useState<string[]>([]);
+  const activeSheet = activeSheets.join(' + ');
+  /** 시트를 눌러 여러 개 고르는 모드 */
+  const [multiSheet, setMultiSheet] = useState(false);
   const [meta, setMeta] = useState<Meta | null>(null);
 
   const [scan, setScan] = useState<OrderScan | null>(null);
@@ -136,8 +141,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   /** 사원이 직접 짠 포장. splitMode === 'manual' 일 때만 쓴다 */
   const [manualPackages, setManualPackages] = useState<ManualPackage[]>([]);
-  /** DG 프리즘(AI)이 짠 포장 — 사람이 요청을 보내 받은 것. splitMode === 'ai' 일 때 쓴다 */
-  const [aiPackages, setAiPackages] = useState<ManualPackage[] | null>(null);
+  /** DG 프리즘(AI)이 짠 계획 — 사람이 요청을 보내 받은 것. splitMode === 'ai' 일 때 쓴다 */
+  const [aiPlan, setAiPlan] = useState<AppliedPlan | null>(null);
   const [aiSummary, setAiSummary] = useState('');
   const [rules, setRules] = useState<PackagingRule[]>([]);
   const [ruleNotes, setRuleNotes] = useState<string[]>([]);
@@ -219,7 +224,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
       workbookRef.current = wb;
       setHasFile(true);
       setSheets(wb.SheetNames.map(name => ({ name, rows: rowCountOf(wb.Sheets[name]) })));
-      setActiveSheet('');
+      setActiveSheets([]);
       if (wb.SheetNames.length === 1) only = wb.SheetNames[0];
     } catch {
       setError('엑셀 파일을 읽지 못했습니다. .xlsx 파일인지 확인해 주세요.');
@@ -227,11 +232,11 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
       setBusy(false);
     }
     // 시트가 하나뿐이면 고를 것이 없다 — 바로 변환한다 (흥화·계룡 발주서가 그랬다)
-    if (only) run(only, {}, null, true);
+    if (only) run([only], {}, null, true);
   }
 
   function resetResult() {
-    setAiPackages(null);
+    setAiPlan(null);
     setScan(null);
     setMeta(null);
     setDetection(null);
@@ -241,55 +246,62 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     setAppliedProfile(null);
   }
 
-  /** 시트를 읽는다. 열 지정이 바뀌면 같은 경로로 다시 읽는다. */
+  /**
+   * 시트를 읽는다. 열 지정이 바뀌면 같은 경로로 다시 읽는다.
+   * 시트를 여럿 주면 시트마다 읽어 하나로 합친다 (lib/erp/multi-sheet.ts) — 아래 단계는 그대로 쓴다.
+   */
   const run = useCallback(
     (
-      sheetName: string,
+      sheetNames: string[],
       overrides: Partial<ScanColumns>,
       locationSource: OrderScan['location_source'] | null,
       useProfile: boolean,
     ) => {
       const wb = workbookRef.current;
-      if (!wb) return;
+      if (!wb || sheetNames.length === 0) return;
       setBusy(true);
       setError('');
       try {
-        const ws = wb.Sheets[sheetName];
+        const firstWs = wb.Sheets[sheetNames[0]];
 
-        // 1) 먼저 자동으로 읽어 거래처·지문을 얻는다
-        const probe = scanOrderSheet(ws);
-        const matrix = sheetMatrix(ws);
+        // 1) 먼저 자동으로 읽어 거래처·지문을 얻는다 (여럿이면 첫 시트로)
+        const probe = scanOrderSheet(firstWs);
+        const matrix = sheetMatrix(firstWs);
         const sig = signatureFromRow(matrix[probe.header_row - 1]);
-        const info = readMeta(ws);
+        const info = readMeta(firstWs);
 
         // 2) 저장된 양식 프로파일이 있으면 적용한다
         const profile = useProfile
           ? matchProfile(profiles, { signature: sig, customer: info.customer_name, site: info.site_name })
           : appliedProfile;
-
-        let merged = scanOrderSheet(ws, {
-          ...toOverrides(profile),
-          columns: { ...toOverrides(profile).columns, ...overrides },
-          location_source: locationSource ?? toOverrides(profile).location_source,
-        });
         let usedProfile = profile;
 
         // 안전장치 — 저장된 프로파일을 적용했는데 품목이 오히려 줄면 그 프로파일은 이 파일에 안 맞는다.
         // 조용히 빈 결과를 내보내면 사원이 "이 발주서는 안 읽히나 보다" 하고 넘어가게 된다.
-        const itemsOf = (s: OrderScan) => s.rows.filter(r => r.kind === 'item').length;
-        if (profile && itemsOf(merged) === 0 && itemsOf(probe) > 0) {
-          merged = scanOrderSheet(ws, { columns: overrides, location_source: locationSource ?? undefined });
-          merged.notes.unshift(
-            `저장된 양식 "${profile.name}" 을 적용하니 품목이 하나도 읽히지 않아 자동 판정으로 되돌렸습니다. ` +
-              '그 양식이 이 발주서와 맞지 않습니다.',
-          );
-          usedProfile = null;
-        }
+        const itemsOf = (x: OrderScan) => x.rows.filter(r => r.kind === 'item').length;
+        const scanOne = (ws: XLSX.WorkSheet): OrderScan => {
+          let one = scanOrderSheet(ws, {
+            ...toOverrides(profile),
+            columns: { ...toOverrides(profile).columns, ...overrides },
+            location_source: locationSource ?? toOverrides(profile).location_source,
+          });
+          if (profile && itemsOf(one) === 0 && itemsOf(scanOrderSheet(ws)) > 0) {
+            one = scanOrderSheet(ws, { columns: overrides, location_source: locationSource ?? undefined });
+            one.notes.unshift(
+              `저장된 양식 "${profile.name}" 을 적용하니 품목이 하나도 읽히지 않아 자동 판정으로 되돌렸습니다. ` +
+                '그 양식이 이 발주서와 맞지 않습니다.',
+            );
+            usedProfile = null;
+          }
+          return one;
+        };
+        const parts = sheetNames.map(name => ({ name, scan: scanOne(wb.Sheets[name]) }));
+        const merged = mergeScans(parts);
 
-        // 3) 포장 단위 — 발주서 합계 행이 먼저, 없으면 상단 지시문·동·호
+        // 3) 포장 단위 — 발주서 합계 행이 먼저, 없으면 상단 지시문·동·호 (여럿이면 모든 시트의 지시문을 함께 본다)
         const parsedRows = rowsFromScan(merged);
-        const hints = hintsFromWorksheet(ws);
-        const found = detectPackaging(hints.topLines, hints.markerCells, parsedRows);
+        const hints = sheetNames.map(n => hintsFromWorksheet(wb.Sheets[n]));
+        const found = detectPackaging(hints.flatMap(h => h.topLines), hints.flatMap(h => h.markerCells), parsedRows);
 
         const fromSheet = packagesFromScan(merged);
         const mode: SplitMode = fromSheet.length > 0
@@ -298,22 +310,21 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             ? 'detected'
             : 'single';
 
-        // 열 지정 화면에 보여 줄 글자들도 여기서 한 번에 뽑는다
-        // (따로 useMemo 로 두면 그때마다 시트를 다시 훑게 된다)
+        // 열 지정 화면에 보여 줄 글자들도 여기서 한 번에 뽑는다 (첫 시트)
         const rowText = (excelRow: number) =>
           (matrix[excelRow - 1] ?? []).map(c => String(c ?? '').replace(/\s+/g, ' ').trim());
-        const firstItem = merged.rows.find(r => r.kind === 'item')?.excel_row ?? 0;
+        const firstItem = parts[0].scan.rows.find(r => r.kind === 'item')?.excel_row ?? 0;
 
         setScan(merged);
         setMeta(info);
         setDetection(found);
         setSplitMode(mode);
-        setAiPackages(null);
+        setAiPlan(null);
         setColumnOverrides(overrides);
         setLocationOverride(locationSource);
         setAppliedProfile(usedProfile);
-        setActiveSheet(sheetName);
-        setHeaderCells(rowText(merged.header_row));
+        setActiveSheets(sheetNames);
+        setHeaderCells(rowText(parts[0].scan.header_row));
         setSampleCells(firstItem > 0 ? rowText(firstItem) : []);
         setSignature(sig);
         setEdits({});
@@ -333,9 +344,17 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   const groupsOf = useCallback((mode: SplitMode): PackagingGroup[] => {
     if (!scan) return [];
     if (mode === 'manual') return toPackagingGroups(manualPackages);
-    if (mode === 'ai') return toPackagingGroups(aiPackages ?? []);
+    if (mode === 'ai') return toPackagingGroups(aiPlan?.packages ?? []);
     return groupsFor(scan, rows, detection, mode);
-  }, [scan, rows, detection, manualPackages, aiPackages]);
+  }, [scan, rows, detection, manualPackages, aiPlan]);
+
+  /** DG 프리즘 방식일 때 — 사람이 빼 달라고 한 수량 (검산에 더해 맞춘다) */
+  const aiActive = splitMode === 'ai' && !!aiPlan;
+  const excludedQty = useMemo(() => {
+    if (!aiActive || !aiPlan) return 0;
+    const ex = new Set(aiPlan.excluded);
+    return rows.reduce((sum, r) => (r.source_row !== undefined && ex.has(r.source_row) ? sum + r.quantity : sum), 0);
+  }, [aiActive, aiPlan, rows]);
 
   const autoBuild: ErpUploadBuild | null = useMemo(() => {
     if (!scan) return null;
@@ -346,8 +365,25 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           : splitMode === 'single' ? 'fallback-single'
             : 'derived';
     const ownOrder = splitMode === 'manual' || splitMode === 'ai';
-    return buildErpUpload(rows, groups, source, ownOrder ? [] : (detection?.dongOrder ?? []));
-  }, [scan, rows, detection, splitMode, groupsOf]);
+    if (!(splitMode === 'ai' && aiPlan)) {
+      return buildErpUpload(rows, groups, source, ownOrder ? [] : (detection?.dongOrder ?? []));
+    }
+    // DG 프리즘 계획: 뺄 품목을 빼고, 발주서 순서를 지킬 행에 표시하고, 위치 글자를 고친다 (숫자는 건드리지 않는다)
+    const ex = new Set(aiPlan.excluded);
+    const keep = new Set(aiPlan.sourceOrder);
+    const rowsIn = rows
+      .filter(r => r.source_row === undefined || !ex.has(r.source_row))
+      .map(r => (r.source_row !== undefined && keep.has(r.source_row) ? { ...r, keep_source_order: true } : r));
+    const out = buildErpUpload(rowsIn, groups, source, []);
+    if (aiPlan.locationEdits.length === 0) return out;
+    return {
+      ...out,
+      sheets: out.sheets.map(sh => ({
+        ...sh,
+        rows: sh.rows.map(r => ({ ...r, location: editLocation(r.location, r.source_rows, aiPlan.locationEdits) })),
+      })),
+    };
+  }, [scan, rows, detection, splitMode, groupsOf, aiPlan]);
 
   /** 사람이 고친 행을 반영한 최종 결과 — 다운로드도 이걸 쓴다 */
   const build: ErpUploadBuild | null = useMemo(() => {
@@ -367,12 +403,12 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   const reconciliation = useMemo(
     () =>
       scan
-        ? reconcile(scan, build?.total_quantity ?? null, {
+        ? reconcile(scan, build ? build.total_quantity + excludedQty : null, {
             // 발주서 합계 행으로 나눴을 때만 스캔이 읽은 포장과 화면의 포장이 같다
             includePackages: splitMode === 'sheet-total',
           })
         : null,
-    [scan, build, splitMode],
+    [scan, build, splitMode, excludedQty],
   );
 
   /**
@@ -402,29 +438,63 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     setOpenSheet(0);
   }
 
-  /** AI 포장 제안에 보낼 내용 — 지금 고른 시트의 원문과 우리가 품목으로 읽은 행 */
+  /**
+   * DG 프리즘에 보낼 내용 — 불러온 시트 전부의 원문 · 품목 행, 파일의 모든 시트 이름,
+   * 지금 미리보기의 포장(방식 · 행 범위). 그래야 "1차와 2차 합쳐서", "3동 포장 둘을 합쳐" 같은 요청을 알아듣는다.
+   */
   function aiRequest(instruction: string): AiPackagingRequest | null {
-    const ws = workbookRef.current?.Sheets[activeSheet];
-    if (!ws) return null;
-    const itemRows = rows.map(r => r.source_row).filter((r): r is number => r !== undefined);
-    if (itemRows.length === 0) return null;
+    const wb = workbookRef.current;
+    if (!wb || activeSheets.length === 0) return null;
+    const keys = rows.map(r => r.source_row).filter((r): r is number => r !== undefined);
+    const sheetsIn = activeSheets.map((name, i) => ({
+      name,
+      text: sheetTextForAi(sheetMatrix(wb.Sheets[name])),
+      item_rows: keys.map(splitKey).filter(k => k.index === i).map(k => k.row),
+    }));
+    if (sheetsIn.every(x => x.item_rows.length === 0)) return null;
+    const groups = groupsOf(splitMode);
+    const packages = groups.length > 0
+      ? groups.map(g => ({
+          label: g.label,
+          ranges: keysToRanges(filterByPackaging(rows, g).map(r => r.source_row).filter((r): r is number => r !== undefined), activeSheets),
+        }))
+      : [{ label: '전체', ranges: keysToRanges(keys, activeSheets) }];
     return {
-      sheet_name: activeSheet,
       site_name: meta?.site_name ?? '',
       customer_name: meta?.customer_name ?? '',
-      sheet_text: sheetTextForAi(sheetMatrix(ws)),
-      item_rows: itemRows,
+      sheets: sheetsIn,
+      available_sheets: sheets.map(x => ({ name: x.name, rows: x.rows })),
+      current: { mode: SPLIT_LABEL[splitMode], packages },
       instruction,
     };
   }
 
-  /** DG 프리즘 답을 미리보기에 반영한다 — 사람이 요청을 보내 받은 것이라 바로 그 포장 방식으로 바꾼다 */
-  function showAiPackages(packages: ManualPackage[], summary: string) {
-    setAiPackages(packages);
-    setAiSummary(summary);
+  /** DG 프리즘 계획을 미리보기에 반영한다 — 사람이 요청을 보내 받은 것이라 바로 그 포장 방식으로 바꾼다 */
+  function showAiPlan(applied: AppliedPlan, plan: AiPlan) {
+    setAiPlan(applied);
+    const first = plan.reply.split(/(?<=[.다요])\s/)[0] ?? '';
+    setAiSummary(first.length > 140 ? `${first.slice(0, 140)}…` : first);
     setSplitMode('ai');
     setEdits({});
     setOpenSheet(0);
+  }
+
+  /** DG 프리즘이 다른 시트가 필요하다고 할 때 — 그 시트들을 파일 순서대로 불러온다 */
+  function loadSheetsForAi(names: string[]): boolean {
+    const order = sheets.map(x => x.name);
+    const picked = order.filter(n => names.some(w => w.replace(/\s/g, '') === n.replace(/\s/g, '')));
+    if (picked.length === 0 || picked.length !== new Set(names).size) return false;
+    if (picked.length > 1) setMultiSheet(true);
+    run(picked, {}, null, true);
+    return true;
+  }
+
+  /** 시트 칩을 눌렀을 때 — 여러 차수 합치기 모드면 더하거나 빼고, 아니면 그 시트 하나로 */
+  function pickSheet(name: string) {
+    if (!multiSheet) { run([name], {}, null, true); return; }
+    const on = activeSheets.includes(name);
+    const next = sheets.map(x => x.name).filter(n => (n === name ? !on : activeSheets.includes(n)));
+    if (next.length > 0) run(next, {}, null, true);
   }
 
   async function savePackagingRule(name: string) {
@@ -468,7 +538,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
       const supabase = createClient();
       const made = [
         { kind: 'erp' as const, blob: erpUploadBlob(build), file_name: erpUploadFileName(meta?.site_name || '', activeSheet) },
-        { kind: 'spec' as const, blob: specSheetBlob(scan, build), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
+        { kind: 'spec' as const, blob: specSheetBlob(scan, build, aiActive ? aiPlan?.productNames : undefined), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
       ];
       const files = [];
       for (const m of made) {
@@ -549,7 +619,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   const packagingEvidence = !scan
     ? ''
     : splitMode === 'ai'
-      ? `DG 프리즘이 짠 포장 ${aiPackages?.length ?? 0}개 — ${aiSummary}`
+      ? `DG 프리즘이 짠 포장 ${aiPlan?.packages.length ?? 0}개${aiPlan && aiPlan.excluded.length > 0 ? ` · 뺀 품목 ${aiPlan.excluded.length}행` : ''} — ${aiSummary}`
     : splitMode === 'manual'
       ? `사원이 직접 짠 포장 ${manualPackages.filter(p => p.rows.length > 0).length}개`
       : splitMode === 'sheet-total'
@@ -617,22 +687,41 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
             {sheets.length > 0 && (
               <div>
-                <p className="mb-2 text-sm font-semibold">
-                  차수 시트 선택 <span className="font-normal text-muted-foreground">— 한 번에 한 차수씩 변환합니다</span>
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {sheets.map(s => (
-                    <button
-                      key={s.name}
-                      onClick={() => run(s.name, {}, null, true)}
-                      disabled={busy}
-                      className={chipClass(activeSheet === s.name)}
-                    >
-                      {s.name}
-                      <span className={chipCountClass(activeSheet === s.name)}>{s.rows}행</span>
-                    </button>
-                  ))}
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">
+                    차수 시트 선택 <span className="font-normal text-muted-foreground">
+                      {multiSheet ? '— 합칠 시트를 모두 누르세요' : '— 누른 시트를 변환합니다'}
+                    </span>
+                  </p>
+                  <button type="button" onClick={() => {
+                    const next = !multiSheet;
+                    setMultiSheet(next);
+                    if (!next && activeSheets.length > 1) run([activeSheets[0]], {}, null, true);
+                  }} disabled={busy}
+                    className={chipClass(multiSheet, 'h-8 text-xs')}>
+                    <Layers className="h-3.5 w-3.5" />여러 차수 합치기
+                  </button>
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {sheets.map(s => {
+                    const on = activeSheets.includes(s.name);
+                    return (
+                      <button
+                        key={s.name}
+                        onClick={() => pickSheet(s.name)}
+                        disabled={busy}
+                        className={chipClass(on)}
+                      >
+                        {multiSheet && <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[10px] leading-none', on ? 'border-white bg-white text-brand-900' : 'border-input')}>{on ? '✓' : ''}</span>}
+                        {s.name}
+                        <span className={chipCountClass(on)}>{s.rows}행</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {activeSheets.length > 1 && (
+                  <p className="mt-2 text-xs font-medium text-brand-800">{activeSheets.join(' + ')} 를 합쳐 한 번에 변환하고 있어요</p>
+                )}
               </div>
             )}
 
@@ -644,8 +733,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           </CardContent>
         </Card>
 
-        <DgPrismPanel ready={!!scan && rows.length > 0} sheetKey={`${fileName}|${activeSheet}`} buildRequest={aiRequest} rows={rows}
-          active={splitMode === 'ai' && !!aiPackages} onResult={showAiPackages} onEdit={() => changeSplit('manual')} />
+        <DgPrismPanel ready={!!scan && rows.length > 0} sheetKey={`${fileName}|${activeSheet}`} sheetNames={activeSheets}
+          buildRequest={aiRequest} rows={rows} active={aiActive}
+          onResult={showAiPlan} onLoadSheets={loadSheetsForAi} onEdit={() => changeSplit('manual')} />
       </div>
 
       {/* 발주서를 놓기 전 — 다음 단계가 무엇인지 미리 보여 준다 */}
@@ -667,9 +757,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             defaultName={[meta?.customer_name, meta?.site_name].filter(Boolean).join(' ') || fileName}
             reconcileOk={reconciliation.ok}
             onChangeColumn={(key, value) =>
-              run(activeSheet, { ...columnOverrides, [key]: value }, locationOverride, false)
+              run(activeSheets, { ...columnOverrides, [key]: value }, locationOverride, false)
             }
-            onChangeLocationSource={value => run(activeSheet, columnOverrides, value, false)}
+            onChangeLocationSource={value => run(activeSheets, columnOverrides, value, false)}
             onSaveProfile={saveProfile}
           />
 
@@ -691,7 +781,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 <Button
                   variant="outline"
                   size="lg"
-                  onClick={() => save(specSheetBlob(scan, build), specSheetFileName(meta?.site_name || '', activeSheet))}
+                  onClick={() => save(specSheetBlob(scan, build, aiActive ? aiPlan?.productNames : undefined), specSheetFileName(meta?.site_name || '', activeSheet))}
                   title="발주서 순서(좌) + ERP 순서(우) 2단 구조. 품명만 ERP 품목명으로 바꾸시면 됩니다"
                 >
                   <FileSpreadsheet />
@@ -735,7 +825,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {((aiPackages ? ['ai'] : []).concat(['sheet-total', 'detected', 'by-dong', 'by-unit', 'single', 'manual']) as SplitMode[]).map(mode => {
+                  {((aiPlan ? ['ai'] : []).concat(['sheet-total', 'detected', 'by-dong', 'by-unit', 'single', 'manual']) as SplitMode[]).map(mode => {
                     const count =
                       mode === 'single' ? 1
                         : mode === 'manual' ? Math.max(manualPackages.length, 1)

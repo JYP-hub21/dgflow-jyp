@@ -81,6 +81,9 @@ export interface ScanRow {
   keep_source_order: boolean;
   /** 이 행에만 걸린 확인 사항 */
   notes: string[];
+  /** 여러 시트를 합쳤을 때 — 원래 시트 이름 · 그 시트의 엑셀 행 (lib/erp/multi-sheet.ts) */
+  sheet_name?: string;
+  sheet_row?: number;
 }
 
 export interface ScanBlock {

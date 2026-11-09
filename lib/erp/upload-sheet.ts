@@ -34,6 +34,8 @@ export interface ErpUploadRow {
   product_name: string;
   /** 이 한 줄로 합쳐진 발주서 행 수 */
   merged_from: number;
+  /** 합쳐진 발주서 행(열쇠) — DG 프리즘의 위치 고치기가 어느 줄에 걸리는지 찾을 때 쓴다 */
+  source_rows?: number[];
   /** 사람이 확인해야 하는 점 */
   review: string[];
 }
@@ -237,6 +239,7 @@ function buildSheet(
       quantity: item.quantity,
       product_name: item.product_name,
       merged_from: item.sources.length,
+      source_rows: item.sources.map(s => s.source_row).filter((n): n is number => n !== undefined),
       review: rowReview,
     };
   });

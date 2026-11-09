@@ -46,7 +46,11 @@ const HEADER = ['위치', '규', '격', '수량', '평', '', '위치', '규', '�
  * @param scan   발주서 구조 스캔 — 좌측 블록(발주서 순서)의 근거
  * @param build  ERP 빌드 결과 — 우측 블록(ERP 순서)의 근거
  */
-export function buildSpecSheetWorkbook(scan: OrderScan, build: ErpUploadBuild): XLSX.WorkBook {
+export function buildSpecSheetWorkbook(
+  scan: OrderScan, build: ErpUploadBuild,
+  /** 발주서 품명 → 사내(ERP) 품명. 있으면 우측 품명 칸에 넣는다 (DG 프리즘 제안, 사람이 확인) */
+  productNames: Record<string, string> = {},
+): XLSX.WorkBook {
   const wb = XLSX.utils.book_new();
   const aoa: (string | number | null)[][] = [];
 
@@ -73,7 +77,7 @@ export function buildSpecSheetWorkbook(scan: OrderScan, build: ErpUploadBuild): 
       }));
 
     // 품명 머리글 — 사람이 ERP 품목명으로 바꿔야 하는 칸이다
-    aoa.push([null, block.product_name, null, null, null, null, null, block.product_name]);
+    aoa.push([null, block.product_name, null, null, null, null, null, productNames[block.product_name] || block.product_name]);
     aoa.push([...HEADER]);
 
     const depth = Math.max(left.length, right.length);
@@ -123,8 +127,8 @@ function assembled(r: { location_dong: string; location_line: string; location_t
     .join(' ');
 }
 
-export function specSheetBlob(scan: OrderScan, build: ErpUploadBuild): Blob {
-  const buf = XLSX.write(buildSpecSheetWorkbook(scan, build), {
+export function specSheetBlob(scan: OrderScan, build: ErpUploadBuild, productNames: Record<string, string> = {}): Blob {
+  const buf = XLSX.write(buildSpecSheetWorkbook(scan, build, productNames), {
     type: 'array',
     bookType: 'xlsx',
   }) as ArrayBuffer;

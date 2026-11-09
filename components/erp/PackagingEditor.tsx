@@ -430,11 +430,11 @@ export default function PackagingEditor({
                         checked={isSelected}
                         readOnly
                         tabIndex={-1}
-                        aria-label={`${n}행 선택`}
+                        aria-label={`${row.source_label ?? n}행 선택`}
                         className="pointer-events-none h-4 w-4 accent-brand-800"
                       />
                     </td>
-                    <td className="px-2 py-1.5 text-[13px] tabular-nums text-muted-foreground">{n}행</td>
+                    <td className="px-2 py-1.5 text-[13px] tabular-nums text-muted-foreground">{row.source_label ?? n}행</td>
                     <td className="px-2 py-1.5 text-[13px]">
                       {locationOf(row) || <span className="text-muted-foreground">(위치 없음)</span>}
                     </td>

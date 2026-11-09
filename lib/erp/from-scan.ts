@@ -23,6 +23,7 @@ export function rowsFromScan(scan: OrderScan): WorkOrderSourceItem[] {
       location_room: r.location_room || null,
       location_text: r.location_text || null,
       source_row: r.excel_row,
+      ...(r.sheet_name ? { source_label: `${r.sheet_name} ${r.sheet_row}` } : {}),
       keep_source_order: r.keep_source_order,
     }));
 }

@@ -1,5 +1,7 @@
 /**
- * AI 포장 제안 API — 발주서 글을 Claude 에게 보내고, 포장(행 범위) · 순서 제안을 정해 둔 모양(JSON)으로 받는다.
+ * DG 프리즘 API — 발주서 규격정리 전문가 (2.0, 2026-11-09).
+ * 발주서 글(불러온 시트 전부)과 요청을 Claude 에게 보내고, 정해 둔 모양(JSON)의 계획을 받는다.
+ * 계획의 종류 · 적용 규칙은 lib/erp/ai-packaging.ts.
  *
  * API 키는 서버 환경변수 ANTHROPIC_API_KEY 에만 둔다 (브라우저로 절대 보내지 않는다 · 저장소에 올리지 않는다).
  * 키가 없으면 503 으로 알리고 화면은 AI 없이 그대로 쓴다.
@@ -10,60 +12,90 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
-import { applySuggestion, buildPrompt, rowRangesText, type AiPackagingRequest, type AiPackagingSuggestion } from '@/lib/erp/ai-packaging';
+import { applyPlan, buildPrompt, type AiPackagingRequest, type AiPlan } from '@/lib/erp/ai-packaging';
 
-// AI 가 발주서를 읽고 생각하는 데 30초–1분쯤 걸린다
+// 발주서를 읽고 깊게 생각하는 데 30초–1분 반쯤 걸린다
 export const maxDuration = 300;
 
 const MODEL = 'claude-opus-5-5';
 
-const Suggestion = z.object({
-  understanding: z.string().describe('이 발주서의 포장 · 순서를 어떻게 이해했는지 2–4문장. 근거가 된 행 번호와 문구를 적는다.'),
-  package_count: z.number().describe('packages 배열에 넣을 포장 개수. understanding 에서 말한 포장 수와 같아야 한다'),
-  packages: z.array(z.object({
-    label: z.string().describe('포장 이름. 동·호가 있으면 "3동 1~3호" · "3동 4,5호" 꼴(호가 3개 이상 이어질 때만 ~, 아니면 콤마), 합계 행에 라벨이 있으면 그 라벨'),
-    ranges: z.array(z.object({
-      from: z.number().describe('시작 행 번호 (엑셀 행, 포함)'),
-      to: z.number().describe('끝 행 번호 (엑셀 행, 포함)'),
-    })).describe('이 포장에 들어갈 품목 행 범위들'),
-    reason: z.string().describe('이렇게 묶은 근거 한 줄 (발주서 몇 행의 어떤 문구, 또는 사용자 지시)'),
-  })).describe('ERP 시트 순서대로 — 첫 포장이 첫 시트'),
-  cautions: z.array(z.string()).describe('사람이 확인해야 할 것만. 문제없이 맞는 것(합계 일치 등)은 적지 않는다. 없으면 빈 배열'),
+const Range = z.object({
+  sheet: z.string().describe('시트 이름 (지금 불러온 시트 중 하나)'),
+  from: z.number().describe('시작 엑셀 행 (포함)'),
+  to: z.number().describe('끝 엑셀 행 (포함)'),
 });
 
-const SYSTEM = `너는 유리 가공 회사 동일유리의 업무지원부를 돕는다. 거래처가 보낸 유리 발주서(엑셀 시트)를 읽고,
-회사 ERP 에 올릴 엑셀을 어떻게 나눌지(포장)와 어떤 순서로 둘지 제안한다.
+const Plan = z.object({
+  action: z.enum(['arrange', 'answer', 'load_sheets']).describe('arrange = 포장을 짜거나 고친다 · answer = 질문에만 답한다 · load_sheets = 다른 시트를 불러와야 한다'),
+  reply: z.string().describe('사용자에게 하는 답. 질문이면 답, 작업이면 무엇을 어떻게 했는지 2–5문장 존댓말'),
+  understanding: z.string().describe('발주서를 어떻게 이해했는지 — 근거가 된 시트 · 행 · 문구. 존댓말'),
+  sheets: z.array(z.string()).describe('load_sheets 면 불러올 시트 전부(합칠 시트 모두). 아니면 지금 불러온 시트 그대로'),
+  package_count: z.number().describe('packages 에 넣을 포장 수 (arrange 가 아니면 0)'),
+  packages: z.array(z.object({
+    label: z.string().describe('포장 이름 = ERP 시트 이름. 동·호가 있으면 "3동 1~3호" · "3동 4,5호"(호가 3개 이상 이어질 때만 ~), 합계 행 라벨이 있으면 그 라벨'),
+    ranges: z.array(Range).describe('이 포장에 들어갈 행 범위 — 이어진 구간은 첫 행–끝 행 하나로 넓게'),
+    reason: z.string().describe('이렇게 묶은 근거 한 줄 (존댓말)'),
+    row_order: z.enum(['erp', 'source']).describe('포장 안 행 순서: erp = 회사 ERP 규칙(기본) · source = 발주서에 적힌 순서 그대로'),
+  })).describe('싣는 순서대로 — 첫 포장이 첫 시트. arrange 가 아니면 빈 배열'),
+  exclude: z.array(Range.extend({ reason: z.string() })).describe('사용자가 빼 달라고 한 품목 행. 없으면 빈 배열'),
+  location_edits: z.array(z.object({
+    find: z.string().describe('위치 글자에서 찾을 말'),
+    replace: z.string().describe('바꿀 말 (지우려면 빈 글자)'),
+    ranges: z.array(Range).describe('고칠 행 범위. 전체면 빈 배열'),
+  })).describe('위치(ERP 첫 칸) 글자 고치기 요청이 있을 때만. 없으면 빈 배열'),
+  product_names: z.array(z.object({ from: z.string(), to: z.string() }))
+    .describe('규격정리 우측 품명(사내 · ERP 품목명) — 발주서 품명 → 사내 품명. 요청이 있거나 확실할 때만. 없으면 빈 배열'),
+  cautions: z.array(z.string()).describe('사람이 확인해야 할 것만 (존댓말). 문제없는 사실은 적지 않는다'),
+});
 
-## ERP 업로드 엑셀
-- 시트 1장 = 포장 1개 = 작업의뢰서 1장. 현장에 실을 때 한 묶음이다.
-- 시트 순서 = 현장에 싣는 순서. 발주서 상단에 "동순서 3-4-2-1-5" 처럼 적혀 있으면 그 동 순서로 시트를 둔다.
-  순서 지시가 없으면 발주서에 나온 순서를 따른다.
-- 시트 안의 행 순서 · 같은 규격 합치기 · 위치 문자열은 시스템 규칙이 만든다. 너는 정하지 않는다.
+const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격정리 전문가 "DG 프리즘"**이다. 업무지원부 직원이 거래처 발주서(엑셀)를
+회사 ERP(바이투)에 올릴 엑셀로 바꾸는 일을 돕는다. 이 일에 대해서는 어떤 요청이든 알아듣고, 할 수 있는 것은 하고,
+할 수 없는 것은 왜 안 되는지와 대신 할 방법을 말한다.
 
-## 포장 단위를 찾는 근거 (앞의 것일수록 정확하다)
-1. 품목 사이의 "N동 x,y호 같이 포장" 같은 표시 행 — 그 포장 묶음의 마지막 다음 줄에 놓여 묶음을 닫는다.
-2. 상단 포장 지시문 — 예: "1,3,4동( 1,2,3호 포장,4,5호 포장),2동(…)". 같은 상단에 "※ 7차 주문서별 포장요망 (동순서 3-4-2-1-5)"
-   처럼 "포장" 이 들어간 다른 줄이 있을 수 있다. 그 줄은 동순서이지 포장 단위가 아니다.
-3. 회색 합계 행 — 가로 · 세로 없이 수량만 있는 행은 포장 끝이다. 그 행에 라벨(예: "A-구간 합계")이 있으면 포장 이름으로 쓴다.
-   가로 칸에 "계" 가 있는 행은 품명 블록의 끝이지 포장 끝이 아니다. "총 계" 는 시트 총계다.
-4. 위 근거가 없으면 동 · 호 조합으로 나눈다. 그것도 없으면 한 포장으로 둔다.
+## 업무 흐름
+발주서 → 규격정리 → ERP 업로드 엑셀 → (회사 ERP) → 작업의뢰서. 우리 시스템이 앞의 셋을 만든다.
+- ERP 업로드 엑셀은 4열(위치 | 규 | 격 | 수량). **시트 1장 = 포장 1개 = 작업의뢰서 1장** = 현장에 한 번에 싣는 묶음이다.
+  시트 순서 = 현장에 싣는 순서다. 발주서 상단 "동순서 3-4-2-1-5" 가 있으면 그 동 순서로 둔다.
+- 규격정리 엑셀: 좌 = 발주서 순서 그대로, 우 = ERP 순서. 우측 품명 칸은 사내 품명으로 바꾸는 칸이다(사람이 하던 유일한 판단).
+  평 열은 실제로 재(才, 303mm×303mm)다.
 
-## 규칙
-- 사용자에게서 받은 "품목 행" 목록의 모든 행이 정확히 한 포장에 들어가야 한다. 한 행을 두 포장에 넣지 마라.
-- packages 목록에는 나눈 포장을 **하나도 빠짐없이 전부** 넣는다. 먼저 package_count 에 포장 수를 적고, 그 수만큼 목록을 채운다.
-  ranges 는 넓게 적는다: 포장 하나가 발주서에서 이어진 구간이면 그 구간의 첫 행부터 끝 행까지 **범위 하나**로 적는다.
-  사이에 낀 계 · 합계 · 빈 행 · 포장 표시 행을 피하려고 범위를 쪼개지 마라 — 시스템이 품목 행만 골라 담는다.
-  범위를 나누는 것은 다른 포장의 품목 행이 사이에 끼어 있을 때뿐이다.
-- 사용자 요청이 있으면 그 뜻을 우선한다. 사용자는 포장을 어떻게 할지 길게 · 말로 적을 수 있다
-  (예: "1~3호는 한 포장, 발코니는 따로 빼고 5동을 맨 앞에"). 행 번호 · 동 · 호 · 품명 · 층 무엇으로 말해도 그 뜻대로 행을 골라 묶는다.
-  이어서 고치는 요청이면 직전 제안을 바탕으로 고친다. 지시가 발주서 내용과 어긋나거나, 시트 안 행 순서처럼 네가 정할 수 없는 것을
-  바꾸라는 것이면 따를 수 있는 만큼만 따르고 cautions 에 적는다.
-- 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다. 발주서 합계가 맞지 않아 보이는 것도 적는다.
-  합계가 맞는 것처럼 문제없는 사실은 cautions 에 적지 않는다 — 사람이 볼 경고만 남긴다.
-- 너는 지금 고른 **시트(차수) 하나만** 받는다. 다른 시트를 합치거나 함께 처리하라는 요청이면 따를 수 없다고 짧게 알리고,
-  받은 시트로 할 수 있는 만큼만 짠다.
-- 할 수 없는 요청은 무엇이 안 되는지와 대신 할 수 있는 방법을 함께 적는다.
-- 모든 글(understanding · reason · cautions)은 한국어 **존댓말(~요, ~습니다)** 로, 짧고 분명하게 쓴다. "~다 · ~한다" 같은 반말 투는 쓰지 않는다.`;
+## 시스템이 자동으로 하는 것 (너는 정하지 않는다)
+- 포장 안 행 순서(기본): 품명 블록은 발주서에 나온 순서, 블록 안은 세로 내림차순 → 가로 내림차순. 우미형은 外 블록 → 內 블록 → 발코니·하향식피난구.
+  위치에 "우스텝-1, 우스텝-2" 같은 연번이 붙은 블록은 발주서 순서를 그대로 둔다.
+  사용자가 "발주서 순서대로" 를 원하면 그 포장의 row_order 를 source 로 하면 된다.
+- 같은 품명 + 같은 규격은 위치가 서로 다를 때만 한 줄로 합쳐 수량을 더한다(여러 호를 1~3호로 묶음). 위치가 완전히 같은 두 줄은 합치지 않는다.
+- 위치 문자열: 우미형 "{동}동 {호} {타입} {층}F {실명}({內/外})" (호가 3개 이상 이어지면 ~, 아니면 콤마, 타입 접미는 알파벳순),
+  합친 호들의 실명은 포괄하는 쪽. KCC형(비고에 위치가 완성돼 있음)은 비고 원문 + "구조마감" 접두 + 비고에 빠진 내판 폭.
+- **가로 · 세로 · 수량 숫자는 발주서에서 읽은 그대로다. 너는 숫자를 바꾸지 못한다.** 숫자를 바꿔 달라는 요청에는
+  "미리보기 표에서 직접 고칠 수 있다" 고 안내한다.
+
+## 포장 단위를 찾는 근거 (앞의 것일수록 정확)
+1. 품목 사이의 "N동 x,y호 같이 포장" 표시 행 — 그 묶음의 마지막 다음 줄에 놓여 묶음을 닫는다.
+2. 상단 포장 지시문 "1,3,4동( 1,2,3호 포장,4,5호 포장),2동(…)". 같은 상단의 "※ 7차 주문서별 포장요망 (동순서 3-4-2-1-5)" 은 동순서지 포장 단위가 아니다.
+3. 회색 합계 행 — 가로 · 세로 없이 수량만 있는 행은 포장 끝("※ 회색 합계 단위로 포장" 지시). 그 행의 라벨(예: "A-구간 합계")이 포장 이름이다.
+   가로 칸에 "계" 가 있는 행은 품명 블록 끝이지 포장 끝이 아니다. "총 계" 는 시트 총계다.
+4. 근거가 없으면 동 · 호 조합으로 나누고, 그것도 없으면 한 포장으로 둔다.
+"동별, 라인별 포장" 같은 모호한 말은 해석을 reply 에 밝히고 다른 해석은 cautions 에 적는다.
+
+## 사내 품명 (규격정리 우측) — 알려진 예
+- 5GN+12Ar+5DURA MAX → 22T 5newGN+12AR.+5로이
+- 5CL+12Ar+5DURA MAX → 22T 5CL+12Ar.+5로이
+- 5GN+12Air+5DURA MAX → 22T 5newGN+12A+5로이
+경향: 앞에 총두께 "22T"(유리 + 간봉 두께 합), Ar(아르곤) → AR./Ar., Air(공기) → A, DURA MAX → 로이, GN → newGN.
+계약 기준이라 회사마다 다를 수 있다 — 사용자가 요청했거나 위 예와 같은 경우만 product_names 에 넣고, 추정이면 cautions 에 "추정" 이라고 적는다.
+
+## 할 일 고르기 (action)
+- 질문(몇 장? 어디가 이상해? 왜 이렇게 나눴어?)이면 **answer** — reply 에 답하고 packages 는 비운다. 숫자 질문은 발주서 글에서 직접 세어 답한다.
+- 지금 불러온 시트에 없는 시트가 필요하면("1차와 2차를 합쳐서", "3차도 같이") **load_sheets** — sheets 에 함께 다룰 시트를 **전부** 적는다.
+  시스템이 그 시트들을 불러온 뒤 같은 요청을 다시 보낸다. 이미 그 시트들이 다 불러와져 있으면 load_sheets 를 쓰지 말고 바로 arrange 한다.
+- 포장을 짜거나 고치는 요청이면 **arrange** — 지금 불러온 시트의 **모든 품목 행**을 packages 또는 exclude 에 정확히 한 번씩 넣는다.
+  먼저 package_count 에 포장 수를 적고 그만큼 packages 를 채운다. 여러 시트를 합치면 한 포장에 여러 시트의 범위를 넣을 수 있다.
+  ranges 는 넓게 — 이어진 구간은 첫 행–끝 행 하나로 적는다(사이의 계 · 합계 · 빈 행 · 표시 행은 시스템이 뺀다).
+  요청이 직전 계획 · 지금 미리보기의 일부만 바꾸는 것이면 나머지는 그대로 둔다.
+- "○○ 빼 줘" 는 exclude, "위치에서 ○○ 지워 줘 / 바꿔 줘" 는 location_edits, "품명 바꿔 줘" 는 product_names.
+
+## 말투
+reply · understanding · reason · cautions 는 모두 한국어 존댓말(~요, ~습니다)로, 짧고 분명하게 쓴다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
@@ -74,16 +106,15 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => null)) as AiPackagingRequest | null;
-  if (!body?.sheet_text || !Array.isArray(body.item_rows) || body.item_rows.length === 0) {
+  if (!body?.sheets?.length || body.sheets.every(s => !s.text || s.item_rows.length === 0)) {
     return NextResponse.json({ error: '발주서 내용이 비어 있습니다.' }, { status: 400 });
   }
-
   const prompt = buildPrompt(body);
 
   const client = new Anthropic();
-  const ask = (askText: string, effort: 'medium' | 'high' = 'medium') => client.beta.messages.parse({
+  const ask = (askText: string) => client.beta.messages.parse({
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: 20000,
     // 안전 분류기가 드물게 거절하면 서버가 알아서 다른 모델로 다시 시도한다
     betas: ['server-side-fallback-2026-07-01'],
     fallbacks: 'default',
@@ -96,58 +127,58 @@ export async function POST(request: NextRequest) {
         { type: 'text', text: askText },
       ],
     }],
-    output_config: { effort, format: betaZodOutputFormat(Suggestion) },
+    // 전문가 답이 먼저다 — 깊게 생각하게 한다 (2026-11-09 "내가 만든 AI 가 전문가여야 해")
+    output_config: { effort: 'high', format: betaZodOutputFormat(Plan) },
   });
 
   try {
     const first = await ask(prompt.ask);
     if (first.stop_reason === 'refusal') {
-      return NextResponse.json({ error: 'AI 가 이 요청을 처리하지 않았습니다. 다시 시도하거나 직접 짜 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'DG 프리즘이 이 요청을 처리하지 않았습니다. 다시 시도하거나 직접 짜 주세요.' }, { status: 502 });
     }
     if (first.stop_reason === 'max_tokens' || !first.parsed_output) {
-      return NextResponse.json({ error: 'AI 답이 중간에 끊겼습니다. 발주서가 너무 길면 시트를 나눠 시도해 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'DG 프리즘의 답이 중간에 끊겼습니다. 발주서가 너무 길면 시트를 나눠 시도해 주세요.' }, { status: 502 });
     }
-    let suggestion: AiPackagingSuggestion = first.parsed_output;
+    let plan: AiPlan = first.parsed_output;
     const usage = {
       input_tokens: first.usage.input_tokens, output_tokens: first.usage.output_tokens,
       cache_read: first.usage.cache_read_input_tokens ?? 0, cache_write: first.usage.cache_creation_input_tokens ?? 0,
       model: first.model,
     };
 
-    // 스스로 검사 — 품목 행이 빠지거나 두 포장에 겹치거나, 말한 포장 수와 목록 수가 다르면 한 번 더 묻는다.
-    // (설명에는 포장 여러 개라고 쓰고 목록에는 1개만 넣은 일이 두 번 있었다, 2026-11-09)
-    // 다시 물을 때는 틀린 첫 답을 통째로 보여 주지 않는다 — 그 답에 끌려가 같은 실수를 되풀이했다. 더 깊게 생각하게(high) 묻는다.
-    const badness = (sg: AiPackagingSuggestion) => {
-      const c = applySuggestion(sg, body.item_rows);
-      const countGap = typeof sg.package_count === 'number' && sg.package_count !== sg.packages.length ? 1 : 0;
-      return { c, countGap, score: c.unassigned.length + c.duplicates.length + countGap * 1000 };
-    };
-    const first1 = badness(suggestion);
-    let retried = false;
-    if (first1.score > 0) {
+    // 스스로 검사 — 포장을 짠 답이면 품목 행이 빠지거나 겹치거나, 말한 포장 수와 목록 수가 다르면 한 번 더 묻는다.
+    // (설명에는 포장 여러 개라고 쓰고 목록에는 1개만 넣은 일이 두 번 있었다) 틀린 답을 통째로 보여 주지 않는다 — 그 답에 끌려간다.
+    const badness = (p: AiPlan) => {
+      if (p.action !== 'arrange') return { score: 0, problems: [] as string[] };
+      const c = applyPlan(p, body.sheets);
       const problems = [
-        first1.countGap > 0 && `포장이 ${suggestion.package_count}개라고 했지만 packages 목록에는 ${suggestion.packages.length}개(${suggestion.packages.map(x => x.label).join(', ')})만 넣었다.`,
-        first1.c.unassigned.length > 0 && `어느 포장에도 안 들어간 품목 행 ${first1.c.unassigned.length}개: ${rowRangesText(first1.c.unassigned)}`,
-        first1.c.duplicates.length > 0 && `두 포장에 겹친 행: ${rowRangesText(first1.c.duplicates)}`,
-      ].filter(Boolean).join('\n');
+        p.package_count !== p.packages.length && `포장이 ${p.package_count}개라고 했지만 packages 목록에는 ${p.packages.length}개만 넣었습니다.`,
+        c.unassigned.length > 0 && `어느 포장에도 · 뺀 목록에도 없는 품목 행 ${c.unassigned.length}개가 있습니다.`,
+        c.duplicates.length > 0 && `두 포장에 겹친 행이 ${c.duplicates.length}개 있습니다.`,
+        c.unknownSheets.length > 0 && `불러오지 않은 시트(${c.unknownSheets.join(', ')})를 가리켰습니다. 그 시트가 필요하면 load_sheets 를 쓰세요.`,
+      ].filter((x): x is string => !!x);
+      return { score: c.unassigned.length + c.duplicates.length + (p.package_count !== p.packages.length ? 1000 : 0) + c.unknownSheets.length * 1000, problems };
+    };
+    const firstCheck = badness(plan);
+    let retried = false;
+    if (firstCheck.score > 0) {
       const second = await ask([
         prompt.ask, '',
         '## 첫 답에서 틀린 점',
-        problems,
-        '처음부터 다시 판단해, 나눈 포장을 packages 목록에 하나도 빠짐없이 전부 넣어라. 모든 품목 행이 정확히 한 포장에 들어가야 하고, package_count 와 목록 개수가 같아야 한다.',
-      ].join('\n'), 'high');
+        ...firstCheck.problems,
+        '처음부터 다시 판단해 전체 답을 다시 써라. 불러온 시트의 모든 품목 행이 packages 또는 exclude 에 정확히 한 번씩 들어가야 하고, package_count 와 목록 개수가 같아야 한다.',
+      ].join('\n'));
       usage.input_tokens += second.usage.input_tokens;
       usage.output_tokens += second.usage.output_tokens;
       usage.cache_read += second.usage.cache_read_input_tokens ?? 0;
       usage.cache_write += second.usage.cache_creation_input_tokens ?? 0;
       retried = true;
-      // 고친 답이 더 나을 때만 바꾼다
-      if (second.stop_reason !== 'refusal' && second.parsed_output && badness(second.parsed_output).score < first1.score) {
-        suggestion = second.parsed_output;
+      if (second.stop_reason !== 'refusal' && second.parsed_output && badness(second.parsed_output).score < firstCheck.score) {
+        plan = second.parsed_output;
       }
     }
 
-    return NextResponse.json({ suggestion, usage, retried });
+    return NextResponse.json({ plan, usage, retried });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
       return NextResponse.json({ error: 'AI 키가 맞지 않습니다. ANTHROPIC_API_KEY 를 확인해 주세요.' }, { status: 502 });
