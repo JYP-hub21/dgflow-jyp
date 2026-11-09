@@ -154,6 +154,8 @@ export const MENU_ITEMS: MenuItem[] = [
     hint: '들어온 작업의뢰서 보기' },
   { label: '생산 현황', href: '/production', icon: 'Factory', permission: 'production:view', group: 'production',
     hint: '생산 수량 입력 · 진행률' },
+  { label: '납품', href: '/deliveries', icon: 'Truck', permission: 'production:view', group: 'production',
+    hint: '납품 수량 입력 · 미납 확인' },
   { label: '생산일지', href: '/production/report', icon: 'ClipboardList', permission: 'production:view', group: 'production',
     hint: '날짜별 생산 집계 · 엑셀' },
 

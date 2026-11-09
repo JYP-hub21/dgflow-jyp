@@ -20,3 +20,23 @@ export async function loadDeliveries(supabase: SupabaseClient, workOrderIds: str
   }
   return { storage: 'db', logs: (data ?? []) as DeliveryLog[] };
 }
+
+/** 기간의 납품 기록 — 납품 메뉴의 날짜별 기록 · 그래프 */
+export async function loadDeliveriesBetween(supabase: SupabaseClient, from: string, to: string): Promise<{
+  storage: EntriesStorage;
+  logs: DeliveryLog[];
+}> {
+  const { data, error } = await supabase
+    .from(DELIVERY_TABLE)
+    .select('id, work_order_id, work_order_item_id, delivery_date, quantity, area_m2, note')
+    .gte('delivery_date', from)
+    .lte('delivery_date', to)
+    .order('delivery_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (error) {
+    if (isMissingTable(error)) return { storage: 'none', logs: [] };
+    throw new Error(error.message);
+  }
+  return { storage: 'db', logs: (data ?? []) as DeliveryLog[] };
+}

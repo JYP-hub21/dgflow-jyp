@@ -18,7 +18,7 @@ describe('사원별 기능 권한', () => {
 
   it('메뉴는 권한이 있는 것만 보이고, 대시보드는 누구나 보며 첫 화면이다 (2026-10-30)', () => {
     const staff = { role: 'staff' as const, permissions: ['production:view'] };
-    expect(getMenuFor(staff).map(m => m.href)).toEqual(['/dashboard', '/work-orders', '/production', '/production/report']);
+    expect(getMenuFor(staff).map(m => m.href)).toEqual(['/dashboard', '/work-orders', '/production', '/deliveries', '/production/report']);
     expect(homePathFor(staff)).toBe('/dashboard');
     const nobody = { role: 'staff' as const, permissions: [] };
     expect(getMenuFor(nobody).map(m => m.href)).toEqual(['/dashboard']);

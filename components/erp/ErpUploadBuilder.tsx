@@ -57,6 +57,8 @@ import { reconcile, reconcileSummary } from '@/lib/erp/reconcile';
 import ReconcilePanel from './ReconcilePanel';
 import SheetEditor from './SheetEditor';
 import ColumnMapper from './ColumnMapper';
+import AiPackagingPanel from './AiPackagingPanel';
+import { sheetTextForAi, type AiPackagingRequest } from '@/lib/erp/ai-packaging';
 
 interface Meta {
   customer_name: string;
@@ -387,6 +389,32 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     setSplitMode('manual');
     setEdits({});
     setOpenSheet(0);
+  }
+
+  /** AI 포장 제안에 보낼 내용 — 지금 고른 시트의 원문과 우리가 품목으로 읽은 행 */
+  function aiRequest(instruction: string): AiPackagingRequest | null {
+    const ws = workbookRef.current?.Sheets[activeSheet];
+    if (!ws) return null;
+    const itemRows = rows.map(r => r.source_row).filter((r): r is number => r !== undefined);
+    if (itemRows.length === 0) return null;
+    return {
+      sheet_name: activeSheet,
+      site_name: meta?.site_name ?? '',
+      customer_name: meta?.customer_name ?? '',
+      sheet_text: sheetTextForAi(sheetMatrix(ws)),
+      item_rows: itemRows,
+      instruction,
+    };
+  }
+
+  /** AI 제안을 사람이 받아들였다 — 직접 짜기로 가져와 고칠 수 있게 한다 */
+  function applyAiPackages(packages: ManualPackage[]) {
+    setManualPackages(packages);
+    setRuleNotes([]);
+    setSplitMode('manual');
+    setEdits({});
+    setOpenSheet(0);
+    toast.success(`AI 제안 ${packages.length}장을 직접 짜기로 가져왔습니다. 확인하고 고쳐 주세요.`);
   }
 
   async function savePackagingRule(name: string) {
@@ -725,6 +753,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     )}
                   </div>
                 )}
+
+                <AiPackagingPanel key={activeSheet} buildRequest={aiRequest} rows={rows} onApply={applyAiPackages} />
               </div>
 
               {/* 확인 필요 사항 —

@@ -82,8 +82,11 @@ DB 테이블(`dgflow_orders`, `dgflow_notifications` 등)과 `types/order-status
 - **작업의뢰서 수정 · 삭제:** 같은 의뢰번호를 다시 올리거나 상세 화면의 수정을 누르면 `planRevision` (`lib/work-order/revise.ts`)이
   품목을 품명 · 규격 · 비고 → 품명 · 규격 → 번호 순서로 짝지어 바뀐 줄만 적용한다. 줄을 지우고 새로 넣지 않는다 — 생산 기록이 CASCADE 로 지워진다.
   생산 기록이 있는 품목은 문서에서 빠져도 지우지 않고 수량만 생산분으로 줄인다
-- **납품 입력:** 생산 입력 화면의 납품 입력 탭 (`DeliveryPanel`, `/api/deliveries`, 표 `dgflow_delivery_logs`). 날짜는 납품일 기준.
-  재고가 함께 나갈 수 있어 생산 수량을 넘어도 막지 않고 표시만 한다. 전량 납품하면 status 가 completed 가 되어 생산 현황에서 빠진다
+- **납품 (사이드바 생산관리부 '납품', `/deliveries`, 2026-11-09 사용자 "이 탭에 차라리 납품탭을 하나"):** 위 요약(납품할 의뢰서 · 바로 나갈 수 있는
+  수량 = 생산했는데 안 나간 것 · 오늘 · 이번 달) → '납품할 것'(진행 중 의뢰서 전부 — 오창 · 외주, 바로 나갈 것이 있는 의뢰서가 위, 그다음 납기순, 검색)
+  · '납품 기록'(달마다 날짜별 막대 그래프 + 날짜 → 의뢰서별 합계). 입력은 `/deliveries/[id]` (`DeliveryPanel`, `/api/deliveries`, 표 `dgflow_delivery_logs`).
+  생산 입력 화면의 납품 탭은 없앴고 탭 줄 오른쪽 링크 · 작업의뢰서 화면 버튼이 이리로 온다. 계산은 `lib/production/delivery.ts` (`deliveryTodo` 등).
+  날짜는 납품일 기준. 재고가 함께 나갈 수 있어 생산 수량을 넘어도 막지 않고 표시만 한다. 전량 납품하면 status 가 completed 가 되어 생산 현황 · 납품할 것에서 빠진다
 - **작업의뢰서 상태:** 대기 · 생산 중 · 생산 완료 · 납품 중 · 납품 완료는 수량에서 계산한다 (`lib/work-order/stage.ts`). 생산 · 납품 기록이 바뀌면 `syncWorkOrderStatus`
 - **수신 확인:** 생산관리부가 누르면 시각 · 이름이 남고 고치지 않는다 (`dgflow_work_order_receipts`). 안 누른 건수가 사이드바 작업의뢰서 옆에 뜬다
 - **단위:** 수량은 조(재단만 장), 면적은 M² (2026-11-06 회의 — 평 표기 없앰). 복층생산일지 N 열은 10.89 가 아니라 1 이다
@@ -220,6 +223,17 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
   지난 기록이 그 번호를 쓴다. 안 쓰게 된 호기도 그 호기 기록을 고칠 때는 고를 수 있다.
 - 호기 이름은 생산 입력 · 생산 기록 · 생산일지 기간 화면 · 작업의뢰서 상세 · 대시보드 막대(호기 수만큼 쌓음)에 같이 나온다.
 - **2026-10-30 현재 운영 DB 에 표가 없다** — 없으면 1호기 · 2호기로 동작하고 편집 창은 저장을 막고 알린다.
+
+### AI 포장 제안 (2026-11-09 사용자 "지금 만든 것 + AI 가 알아서 이해해서 우리 뜻이 담기게 정렬")
+ERP 업로드 화면 '포장 분리 방식' 칸 안의 **AI 포장 제안**(`components/erp/AiPackagingPanel.tsx`). 시트 원문(`sheetTextForAi` — 한 줄 = 엑셀 한 행)과
+우리 파서가 품목으로 읽은 행, 사람이 적은 지시(선택)를 `POST /api/erp/ai-packaging` 로 보내면 Claude(`claude-opus-5-5`, structured outputs)가
+포장(행 범위) · 시트 순서 · 근거 · 확인할 것을 정해 둔 모양으로 돌려준다.
+- **제안만 한다** — 규격정리 묶음은 사람이 정한다는 원칙. "이 제안으로 직접 짜기" 를 눌러야 직접 짜기(포장 편집)로 넘어가고 거기서 고친다.
+- AI 는 **어느 행이 어느 포장인지와 포장 순서만** 정한다. 시트 안 행 순서 · 합치기 · 위치 문자열은 기존 규칙(`buildErpUpload`)이 그대로 만든다.
+- 받은 답 검사(`applySuggestion`, `lib/erp/ai-packaging.ts`): 범위 안의 **품목 행만** 담고, 겹친 행은 앞 포장에 남기고, 빠진 행 · 빈 포장을 알린다.
+- 화면에 이번 요청의 토큰 수와 원화 어림(Opus 5.5 단가 · 1달러 1,400원)을 보여 준다.
+- 키: 서버 환경변수 `ANTHROPIC_API_KEY` (지금은 사용자 개인 Console 키로 로컬 시험). 없으면 503 으로 알리고 AI 없이 그대로 쓴다.
+  **Vercel 에 키를 넣기 전에는 운영에서 이 버튼은 '키가 없다' 로만 나온다.** 회사가 Claude Team 을 구독하면 좌석당 월 API 크레딧이 나온다.
 
 ### 우리 ERP 변환기는 선택이다 (2026-11-02 사용자 "써도 그만 안 써도 그만, 수기로 정리하는 경우가 더 많을 수 있다")
 발주 건이 다음 단계로 넘어가는 데 변환기를 쓰도록 강제하지 않는다.
@@ -403,8 +417,10 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
 - **서버 (Server Component/API):** `createServerSupabaseClient()` — 쿠키 기반 세션
 - **서버 관리자 권한:** `createServiceRoleClient()` — RLS 우회, 사용자 조회, 작업의뢰서 생성 등
 
-### 테스트 (299건)
+### 테스트 (307건)
 - `__tests__/erp-list.test.ts` (8건): ERP 작업의뢰서 목록 엑셀 — 칸 찾기 · 묶기 · 날짜 · 면적 · 건너뛸 줄 · 넣을 상태 · 실물 399건 · 5,180줄
+- `__tests__/delivery.test.ts` (4건): 납품 메뉴 — 달 범위 · 날마다 한 점 · 날짜 → 의뢰서별 · 미납과 바로 나갈 수량
+- `__tests__/ai-packaging.test.ts` (4건): AI 포장 제안 — 보내는 글 · 행 범위 글 · 받은 답 검사(품목 행만 · 겹침 · 빠짐 · 빈 포장) · 비용 어림
 - `__tests__/permissions.test.ts` (6건): 사원별 권한 · 메뉴 · 대시보드는 누구나 · 함께 주는 권한
 - `__tests__/departments.test.ts` (14건): 부서 순서 · 부서 칸 읽기 · 덩어리 권한(자기 구역만) · 켜지는 메뉴 · 머리글 이름표 · 빠른 로그인 켜짐 조건
 - `__tests__/bokcheung.test.ts` (19건): 품명 → 재료 · 두께 · AR · 줄 묶기 · 대표 크기 · 종류별 합계 · **회사 5/16 시트와 칸마다 대조** · 16줄 넘는 날 · 기간 날짜별 시트(누계 · 해 바뀜 · 시트 이름) · 호기를 더한 날(셋째 덩어리 · 합계 범위)
@@ -453,7 +469,8 @@ ERP 가 뽑아 준 **작업의뢰서 목록 엑셀**(한 줄 = 품목 하나: �
   (Management API 사용. 인자 없으면 supabase/migrations 전체를 순서대로 실행)
   이 PC에는 psql/docker가 없어 `supabase db query --linked` 는 쓸 수 없다.
 - **환경변수:** `.env.local`에 NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN(마이그레이션 실행용)
+  SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ACCESS_TOKEN(마이그레이션 실행용, 지금 이 PC 에는 없다 — 표는 사용자가 SQL Editor 로 만든다),
+  ANTHROPIC_API_KEY(AI 포장 제안 — 서버에서만 읽는다. 값은 절대 출력 · 커밋하지 않는다)
 - **주의:** 마이그레이션을 Management API로 적용했으므로
   `supabase_migrations.schema_migrations` 이력 테이블이 없다. 정식 CLI 경로로
   전환하려면 이력을 먼저 채워야 충돌하지 않는다.

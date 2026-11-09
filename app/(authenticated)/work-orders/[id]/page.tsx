@@ -19,14 +19,14 @@ import RemarkText from '@/components/production/RemarkText';
 import Link from 'next/link';
 import { workOrderLabels } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import Progress from '@/components/ui/progress';
 import PageHeader from '@/components/layout/PageHeader';
 import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
-import { Factory, Scissors, FileText, CheckCircle } from 'lucide-react';
+import { Factory, Scissors, FileText, CheckCircle, Truck } from 'lucide-react';
 
 export default async function WorkOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -152,6 +152,9 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
             </Link>
             <Link href={`/cutting/${id}`} className={buttonVariants({ variant: 'outline' })}>
               <Scissors />재단 입력
+            </Link>
+            <Link href={`/deliveries/${id}`} className={buttonVariants({ variant: 'outline' })}>
+              <Truck />납품 입력
             </Link>
             <Link href={`/production/${id}`} className={buttonVariants({ size: 'lg' })}>
               <Factory />생산 입력
@@ -290,6 +293,9 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">날짜별 납품 <span className="font-normal text-muted-foreground">{totalDelivered} / {totalQty}조</span></CardTitle>
+              <CardAction>
+                <Link href={`/deliveries/${id}`} className={buttonVariants({ variant: 'outline', size: 'sm' })}><Truck />납품 입력</Link>
+              </CardAction>
             </CardHeader>
             <CardContent>
               {deliveryDays.length === 0 ? <EmptyBox text="납품 기록이 없습니다" /> : (

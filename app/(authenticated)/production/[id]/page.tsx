@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
@@ -17,13 +18,12 @@ import { Save, CheckCircle, CheckCheck, SlidersHorizontal, Sun, Moon, Pencil, Ch
 import ProductionCards from '@/components/production/ProductionCards';
 import ProductionLogList, { type ProductionLog } from '@/components/production/ProductionLogList';
 import ProductionByDate from '@/components/production/ProductionByDate';
-import DeliveryPanel from '@/components/production/DeliveryPanel';
 import QtyStepper from '@/components/production/QtyStepper';
 import RemarkText from '@/components/production/RemarkText';
 import LinesEditor from '@/components/production/LinesEditor';
 import { useProductionLines } from '@/components/production/useProductionLines';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
-import { hasAnyPermission, hasPermission } from '@/lib/auth/role-guard';
+import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { activeLines, lineName } from '@/lib/production/lines';
 import { blockTotals, itemNo, productionDaysByItem, sizeText } from '@/lib/production/item-view';
 import type { SiteContact } from '@/lib/production/contacts';
@@ -84,8 +84,9 @@ export default function ProductionInputPage() {
   const [editItemId, setEditItemId] = useState<string | null>(null);
   /** 남은 품목에 한 번에 더할 장수 — 1장뿐 아니라 숫자를 바꿀 수 있다 (2026-11-06 회의) */
   const [stepQty, setStepQty] = useState('1');
-  /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) · 납품 — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02) */
-  const [view, setView] = useState<'items' | 'dates' | 'delivery'>('items');
+  /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02).
+   *  납품 입력은 2026-11-09 사이드바 '납품' 메뉴(/deliveries)로 옮겼다 — 탭 줄 오른쪽 링크로 간다 */
+  const [view, setView] = useState<'items' | 'dates'>('items');
 
   useEffect(() => {
     supabase.from('dgflow_work_orders')
@@ -307,7 +308,10 @@ export default function ProductionInputPage() {
           <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
           <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
             count={productionDayCount ? `${productionDayCount}일` : undefined} />
-          <ViewTab active={view === 'delivery'} onClick={() => setView('delivery')} icon={Truck} label="납품 입력" />
+          <Link href={`/deliveries/${workOrderId}`}
+            className="ml-auto flex items-center gap-1.5 px-2 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
+            <Truck className="h-4 w-4" />납품 입력
+          </Link>
         </div>
         {view === 'items' && (
         <CardHeader className="flex flex-col gap-3 border-b pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -340,12 +344,6 @@ export default function ProductionInputPage() {
           </CardContent>
         )}
 
-        {view === 'delivery' && (
-          <CardContent className="p-0">
-            <DeliveryPanel workOrderId={workOrderId} items={items} defaultDate={localToday()}
-              canEdit={!!me && hasPermission(me, 'production:input')} />
-          </CardContent>
-        )}
 
         {/* 폰 — 품목당 카드 한 장 */}
         <CardContent className={cn('p-3 md:hidden', view !== 'items' && 'hidden')}>
