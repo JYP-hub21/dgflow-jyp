@@ -189,9 +189,9 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   /**
    * 올린 파일들을 **엑셀 먼저, PDF 나중에** 순서대로 처리한다.
    *
-   * 동시에 돌리면 둘 다 비어 있던 시점의 `rows` 를 보고 각자 품목을 채워
-   * 나중에 끝난 쪽이 이긴다 — 실제로 PDF 가 엑셀 13행을 17행으로 덮었다.
-   * 품목은 비고가 온전한 엑셀이 우선이고, PDF 는 엑셀이 없을 때만 품목을 채운다.
+   * 기본은 PDF 하나다(머리글 + 품목이 다 있다, 2026-11-09). 엑셀은 안내하지 않지만 올리면 지금처럼 읽는다 —
+   * 동시에 돌리면 둘 다 비어 있던 시점의 `rows` 를 보고 각자 품목을 채워 나중에 끝난 쪽이 이기므로 순서를 고정하고,
+   * 엑셀이 있으면 품목은 엑셀 것을 쓴다(PDF 와 같은 값이다).
    */
   async function handleFiles(files: File[]) {
     const isPdf = (f: File) => f.name.toLowerCase().endsWith('.pdf');
@@ -214,11 +214,8 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   /**
-   * PDF 로 머리글을 채운다.
-   *
-   * 엑셀에는 의뢰번호 · 업체명 · 현장명 · 날짜가 실리지 않는다. 그 다섯 칸이 PDF 에 있다.
-   * PDF 에 품목도 있지만 **비고가 폭에 잘려** 들어오므로 (26-2090 의 17행이 `…84A 발`)
-   * 표가 비어 있을 때만 쓰고, 그때는 비고를 확인하라고 알린다.
+   * PDF 로 머리글과 품목을 채운다 — ERP 가 뽑은 PDF 는 글자가 박혀 있어 그대로 읽힌다.
+   * 엑셀을 먼저 읽었으면 품목은 엑셀 것을 두고 머리글만 채운다.
    */
   async function handlePdf(file: File, opts: { fillItems: boolean }) {
     try {
@@ -243,6 +240,11 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       }));
 
       const filled = Object.values(h).filter(Boolean).length;
+      // 글자는 있는데 작업의뢰서 모양이 아니다 — 다른 PDF 를 올렸을 때
+      if (filled === 0 && parsed.items.length === 0) {
+        toast.error('작업의뢰서 내용을 찾지 못했어요. ERP에서 뽑은 작업의뢰서 PDF가 맞는지 확인해 주세요.');
+        return;
+      }
 
       if (opts.fillItems && parsed.items.length > 0) {
         setRows(
@@ -265,11 +267,12 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           area_m2: parsed.printed_total ? String(parsed.printed_total.area_m2) : '',
         });
         setFromExcel(true);
-        toast.warning('PDF의 비고는 일부 누락될 수 있습니다. 엑셀 파일도 함께 업로드하세요.');
       }
 
       setLoaded(l => ({ ...l, pdf: file.name }));
-      toast.success(`의뢰 정보 ${filled}칸을 채웠습니다.`);
+      toast.success(opts.fillItems && parsed.items.length > 0
+        ? `의뢰 정보 ${filled}칸과 품목 ${parsed.items.length}행을 읽었습니다.`
+        : `의뢰 정보 ${filled}칸을 채웠습니다.`);
     } catch {
       toast.error('PDF 를 읽지 못했습니다.');
     }
@@ -606,29 +609,28 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             <div className="flex flex-col items-center gap-1 text-center">
               <span className="flex items-center gap-2 text-base font-bold">
                 <Upload className="h-5 w-5 text-brand-800" />
-                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 파일 2개 업로드'}
+                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 PDF 올리기'}
               </span>
               <span className="text-sm text-muted-foreground">
-                <b className="text-foreground">PDF와 엑셀을 모두 업로드해야 모든 항목이 자동 입력됩니다.</b> 클릭하여 선택하거나 파일을 끌어다 놓으세요. 두 파일을 한 번에 선택할 수 있습니다.
+                <b className="text-foreground">ERP에서 뽑은 작업의뢰서 PDF 하나면</b> 의뢰번호 · 업체명 · 현장명 · 날짜와 품목 · 규격 · 수량 · 비고가 모두 채워집니다.
+                클릭하여 선택하거나 파일을 끌어다 놓으세요.
               </span>
             </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="mx-auto mt-4 max-w-md">
               <FileSlot kind="pdf" name={loaded.pdf} />
-              <FileSlot kind="excel" name={loaded.excel} />
             </div>
             {(loaded.pdf || loaded.excel) && (
-              <p className={cn('mt-3 text-center text-sm font-semibold', loaded.pdf && loaded.excel ? 'text-success' : 'text-foreground')}>
-                {loaded.pdf && loaded.excel
-                  ? '두 파일을 모두 읽었습니다. 아래 내용을 확인한 뒤 등록하세요.'
-                  : loaded.pdf
-                    ? '엑셀 파일도 업로드하세요. 품목과 비고가 정확하게 입력됩니다.'
-                    : 'PDF 파일도 업로드하세요. 의뢰번호 · 업체명 · 현장명 · 날짜가 입력됩니다.'}
+              <p className={cn('mt-3 text-center text-sm font-semibold', loaded.pdf ? 'text-success' : 'text-foreground')}>
+                {loaded.pdf
+                  ? 'PDF를 읽었습니다. 아래 내용을 확인한 뒤 등록하세요.'
+                  : '품목을 읽었습니다. 의뢰번호 · 업체명 · 현장명 · 날짜는 직접 입력하거나 작업의뢰서 PDF를 올려 주세요.'}
+                {loaded.excel && <span className="block text-xs font-normal text-muted-foreground">엑셀 {loaded.excel} 도 읽었습니다 — 품목은 엑셀 기준</span>}
               </p>
             )}
-            <input type="file" accept=".xlsx,.xls,.csv,.pdf" multiple className="hidden"
+            <input type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden"
               disabled={reading}
               onChange={(e) => {
-                // 엑셀과 PDF 를 한 번에 올려도 되게 한다
+                // PDF 하나가 기본. 엑셀도 받는다(안내는 안 한다) — 같이 올려도 된다
                 handleFiles(Array.from(e.target.files ?? []));
                 e.target.value = '';
               }} />
@@ -802,7 +804,7 @@ function FileSlot({ kind, name }: { kind: 'pdf' | 'excel'; name?: string }) {
           <span className={pdf ? 'text-destructive' : 'text-success'}>{pdf ? 'PDF' : '엑셀'}</span>
           <span className="text-xs font-normal text-muted-foreground">{pdf ? '.pdf' : '.xlsx · .xls · .csv'}</span>
         </p>
-        <p className="text-sm text-foreground/80">{pdf ? '의뢰번호 · 업체명 · 현장명 · 날짜' : '품목 · 규격 · 수량 · 비고'} 자동 입력</p>
+        <p className="text-sm text-foreground/80">{pdf ? '의뢰 정보 · 품목 · 규격 · 수량 · 비고' : '품목 · 규격 · 수량 · 비고'} 자동 입력</p>
         <p className={cn('mt-1 flex items-center gap-1 truncate text-xs', name ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
           {name ? <><CircleCheck className="h-3.5 w-3.5 shrink-0 text-success" />{name}</> : '미업로드'}
         </p>

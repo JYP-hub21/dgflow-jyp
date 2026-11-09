@@ -6,7 +6,8 @@ import { parseWorkOrderPdfText } from '@/lib/work-order/pdf';
 /**
  * ERP 작업의뢰서 PDF 에서 글자를 읽는다. 외부 호출 없이 서버에서 처리한다.
  *
- * 엑셀에는 머리글(의뢰번호 · 업체명 · 현장명 · 날짜)이 실리지 않아 이 PDF 가 채운다.
+ * ERP 가 뽑은 PDF 는 글자가 데이터로 박혀 있어 변환 없이 그대로 읽는다 — 머리글(의뢰번호 · 업체명 · 현장명 · 날짜)과
+ * 품목 · 규격 · 수량 · 면적 · 비고가 모두 들어 있다(2026-11-09 실물 5쌍 167줄을 엑셀과 칸마다 대조해 전부 같음).
  * `unpdf` 를 서버에서 쓰는 이유는 pdf.js 워커를 브라우저 번들에 끌어들이지 않으려는 것이다.
  */
 
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
     // 글자가 없으면 종이를 스캔한 PDF 다 — 그림뿐이라 읽을 수 없다
     if (text.replace(/\s/g, '').length < 50) {
       return NextResponse.json(
-        { error: '글자가 없는 PDF 입니다 (스캔본). 의뢰 정보를 직접 입력해 주세요.' },
+        { error: '글자가 박혀 있지 않은 PDF예요 (스캔본 · 사진). ERP에서 작업의뢰서를 PDF로 다시 뽑아 올려 주세요. 안 되면 아래 표에 직접 입력하세요.' },
         { status: 422 }
       );
     }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { AlertTriangle, Loader2, MessageSquareText, PencilRuler, RotateCcw, Send, Sparkles, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -103,20 +103,17 @@ export default function DgPrismPanel({ ready, sheetKey, buildRequest, rows, acti
 
   return (
     <section aria-label="DG 프리즘"
-      className="relative flex flex-col overflow-hidden rounded-xl border border-brand-600/25 bg-gradient-to-br from-brand-50 via-card to-card shadow-sm">
-      {/* 프리즘을 지난 빛 — 위쪽 가는 무지개 띠 */}
-      <div aria-hidden className="h-1 w-full bg-gradient-to-r from-brand-600 via-sky-400 to-emerald-400" />
+      className="relative flex flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
       <div className="flex flex-1 flex-col gap-4 p-5">
-        <header className="flex items-start gap-3">
+        {/* 머리 — 2026-11-09 "생긴 게 아쉽다 · 문양이 저게 뭐니": 무지개 띠 · 진한 배경 · 빛줄기를 걷어 내고 단정하게 */}
+        <header className="flex items-center gap-3">
           <PrismMark />
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-lg font-bold tracking-tight text-foreground">
+            <p className="flex items-center gap-1.5 text-[17px] font-bold tracking-tight text-foreground">
               DG 프리즘
-              <span className="rounded-full bg-brand-800 px-2 py-0.5 text-[11px] font-bold tracking-wide text-white">AI</span>
+              <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-600/20">AI</span>
             </p>
-            <p className="break-keep text-sm text-muted-foreground">
-              동일유리 AI 포장 도우미 — 발주서를 읽고, 말로 적은 요청대로 포장과 싣는 순서를 짜 드려요.
-            </p>
+            <p className="break-keep text-[13px] text-muted-foreground">발주서를 읽고, 말로 적은 요청대로 포장과 싣는 순서를 짜 드려요</p>
           </div>
         </header>
 
@@ -259,16 +256,20 @@ function summaryOf(s: AiPackagingSuggestion): string {
   return first.length > 140 ? `${first.slice(0, 140)}…` : first;
 }
 
-/** 프리즘 표시 — 빛 한 줄기가 들어가 여러 색으로 나뉘어 나온다 */
+/** 프리즘 표시 — 단정한 삼각 프리즘 하나. 색은 파랑에서 청록으로 번지는 빛 */
 function PrismMark() {
+  const id = useId();
   return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-900 shadow-sm">
-      <svg viewBox="0 0 40 40" className="h-8 w-8" aria-hidden>
-        <path d="M2 21 L15 19" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M20 7 L30 29 L10 29 Z" fill="rgba(255,255,255,0.12)" stroke="#fff" strokeWidth="1.8" strokeLinejoin="round" />
-        <path d="M24 20 L38 15" stroke="#60a5fa" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M25 22 L38 21" stroke="#34d399" strokeWidth="1.8" strokeLinecap="round" />
-        <path d="M26 24 L38 27" stroke="#fbbf24" strokeWidth="1.8" strokeLinecap="round" />
+    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 ring-1 ring-inset ring-brand-600/15">
+      <svg viewBox="0 0 24 24" className="h-[22px] w-[22px]" aria-hidden>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#3182F6" />
+            <stop offset="1" stopColor="#14B8A6" />
+          </linearGradient>
+        </defs>
+        <path d="M12 3 L21 19.5 H3 Z" fill={`url(#${id})`} stroke={`url(#${id})`} strokeWidth="1.6" strokeLinejoin="round" />
+        <path d="M12 10 L15.4 16.3 H8.6 Z" fill="#fff" fillOpacity="0.85" />
       </svg>
     </span>
   );
