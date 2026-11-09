@@ -30,7 +30,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Upload, Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save } from 'lucide-react';
+import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { chipClass, chipCountClass } from '@/components/ui/chip';
 import StepTitle from '@/components/ui/step-title';
 import type { SheetInfo } from '@/lib/parser/excel-order';
@@ -57,7 +58,7 @@ import { reconcile, reconcileSummary } from '@/lib/erp/reconcile';
 import ReconcilePanel from './ReconcilePanel';
 import SheetEditor from './SheetEditor';
 import ColumnMapper from './ColumnMapper';
-import AiPackagingPanel from './AiPackagingPanel';
+import DgPrismPanel from './DgPrismPanel';
 import { sheetTextForAi, type AiPackagingRequest } from '@/lib/erp/ai-packaging';
 
 interface Meta {
@@ -72,9 +73,10 @@ interface Meta {
  * 포장 단위는 발주서를 주는 사람과 건물 형태에 따라 달라진다.
  * 자동으로 찾은 것을 기본으로 두되, 사람이 바꿀 수 있어야 한다.
  */
-type SplitMode = 'sheet-total' | 'detected' | 'by-dong' | 'by-unit' | 'single' | 'manual';
+type SplitMode = 'ai' | 'sheet-total' | 'detected' | 'by-dong' | 'by-unit' | 'single' | 'manual';
 
 const SPLIT_LABEL: Record<SplitMode, string> = {
+  ai: 'DG 프리즘',
   'sheet-total': '발주서 합계 행 단위',
   detected: '발주서 포장 지시문',
   'by-dong': '동별로 나누기',
@@ -134,6 +136,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   /** 사원이 직접 짠 포장. splitMode === 'manual' 일 때만 쓴다 */
   const [manualPackages, setManualPackages] = useState<ManualPackage[]>([]);
+  /** DG 프리즘(AI)이 짠 포장 — 사람이 요청을 보내 받은 것. splitMode === 'ai' 일 때 쓴다 */
+  const [aiPackages, setAiPackages] = useState<ManualPackage[] | null>(null);
+  const [aiSummary, setAiSummary] = useState('');
   const [rules, setRules] = useState<PackagingRule[]>([]);
   const [ruleNotes, setRuleNotes] = useState<string[]>([]);
 
@@ -226,6 +231,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   }
 
   function resetResult() {
+    setAiPackages(null);
     setScan(null);
     setMeta(null);
     setDetection(null);
@@ -302,6 +308,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         setMeta(info);
         setDetection(found);
         setSplitMode(mode);
+        setAiPackages(null);
         setColumnOverrides(overrides);
         setLocationOverride(locationSource);
         setAppliedProfile(usedProfile);
@@ -322,18 +329,25 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   const rows: WorkOrderSourceItem[] = useMemo(() => (scan ? rowsFromScan(scan) : []), [scan]);
 
+  /** 방식마다 포장 묶음 — 사람이 짠 것 · DG 프리즘이 짠 것은 그 순서가 곧 시트 순서다 */
+  const groupsOf = useCallback((mode: SplitMode): PackagingGroup[] => {
+    if (!scan) return [];
+    if (mode === 'manual') return toPackagingGroups(manualPackages);
+    if (mode === 'ai') return toPackagingGroups(aiPackages ?? []);
+    return groupsFor(scan, rows, detection, mode);
+  }, [scan, rows, detection, manualPackages, aiPackages]);
+
   const autoBuild: ErpUploadBuild | null = useMemo(() => {
     if (!scan) return null;
-    const groups = splitMode === 'manual'
-      ? toPackagingGroups(manualPackages)
-      : groupsFor(scan, rows, detection, splitMode);
+    const groups = groupsOf(splitMode);
     const source =
       splitMode === 'sheet-total' ? 'instruction'
         : splitMode === 'detected' ? (detection?.source ?? 'fallback-single')
           : splitMode === 'single' ? 'fallback-single'
             : 'derived';
-    return buildErpUpload(rows, groups, source, splitMode === 'manual' ? [] : (detection?.dongOrder ?? []));
-  }, [scan, rows, detection, splitMode, manualPackages]);
+    const ownOrder = splitMode === 'manual' || splitMode === 'ai';
+    return buildErpUpload(rows, groups, source, ownOrder ? [] : (detection?.dongOrder ?? []));
+  }, [scan, rows, detection, splitMode, groupsOf]);
 
   /** 사람이 고친 행을 반영한 최종 결과 — 다운로드도 이걸 쓴다 */
   const build: ErpUploadBuild | null = useMemo(() => {
@@ -369,10 +383,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    */
   function changeSplit(mode: SplitMode) {
     if (mode === 'manual' && scan) {
-      const from = splitMode === 'manual'
-        ? toPackagingGroups(manualPackages)
-        : groupsFor(scan, rows, detection, splitMode);
-      setManualPackages(seedFromGroups(rows, from, filterByPackaging));
+      setManualPackages(seedFromGroups(rows, groupsOf(splitMode), filterByPackaging));
       setRuleNotes([]);
     }
     setSplitMode(mode);
@@ -407,14 +418,13 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     };
   }
 
-  /** AI 제안을 사람이 받아들였다 — 직접 짜기로 가져와 고칠 수 있게 한다 */
-  function applyAiPackages(packages: ManualPackage[]) {
-    setManualPackages(packages);
-    setRuleNotes([]);
-    setSplitMode('manual');
+  /** DG 프리즘 답을 미리보기에 반영한다 — 사람이 요청을 보내 받은 것이라 바로 그 포장 방식으로 바꾼다 */
+  function showAiPackages(packages: ManualPackage[], summary: string) {
+    setAiPackages(packages);
+    setAiSummary(summary);
+    setSplitMode('ai');
     setEdits({});
     setOpenSheet(0);
-    toast.success(`AI 제안 ${packages.length}장을 직접 짜기로 가져왔습니다. 확인하고 고쳐 주세요.`);
   }
 
   async function savePackagingRule(name: string) {
@@ -538,6 +548,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   /** 포장을 무엇을 근거로 나눴는지 한 줄로 */
   const packagingEvidence = !scan
     ? ''
+    : splitMode === 'ai'
+      ? `DG 프리즘이 짠 포장 ${aiPackages?.length ?? 0}개 — ${aiSummary}`
     : splitMode === 'manual'
       ? `사원이 직접 짠 포장 ${manualPackages.filter(p => p.rows.length > 0).length}개`
       : splitMode === 'sheet-total'
@@ -548,85 +560,96 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   return (
     <div className="space-y-6">
-      {/* 1. 파일 선택 */}
-      <Card>
-        <CardHeader>
-          <StepTitle step={1}>발주서 올리기</StepTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {purchaseOrder && (
-            <div className="space-y-2 rounded-xl border border-brand-600/30 bg-brand-50/70 px-4 py-3">
-              <p className="flex items-center gap-2 text-sm font-semibold text-brand-900">
-                <Inbox className="h-4 w-4" />발주 {purchaseOrder.intake_number} · {purchaseOrder.label}
-                <span className="font-normal text-muted-foreground">— 만든 결과를 이 건에 저장합니다</span>
+      {/* 1. 발주서 놓기 + DG 프리즘 — 처음부터 나란히 (2026-11-09 "AI 가 처음부터 강조되게") */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card className="gap-4">
+          <CardHeader>
+            <StepTitle step={1}>발주서 놓기</StepTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {purchaseOrder && (
+              <div className="space-y-2 rounded-xl border border-brand-600/30 bg-brand-50/70 px-4 py-3">
+                <p className="flex items-center gap-2 text-sm font-semibold text-brand-900">
+                  <Inbox className="h-4 w-4" />발주 {purchaseOrder.intake_number} · {purchaseOrder.label}
+                  <span className="font-normal text-muted-foreground">— 만든 결과를 이 건에 저장합니다</span>
+                </p>
+                {purchaseOrder.files.length > 1 && (
+                  <div className="flex flex-wrap gap-2">
+                    {purchaseOrder.files.map(f => (
+                      <button key={f.id} type="button" disabled={busy || !!fetching}
+                        onClick={() => openPurchaseOrderFile(f)} className={chipClass(fileName === f.file_name)}>
+                        <FileSpreadsheet className="h-4 w-4" />{f.file_name}
+                        <span className={chipCountClass(fileName === f.file_name)}>{formatBytes(f.size_bytes)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {fetching && (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />발주서를 받는 중 ({fetching.done}/{fetching.total})
+                  </p>
+                )}
+              </div>
+            )}
+            <label {...dropProps} className={cn(
+              'group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-9 text-center transition-colors',
+              dragging ? 'border-success bg-success-50'
+                : fileName ? 'border-success/60 bg-success-50/70'
+                  : 'border-success/50 bg-success-50/40 hover:border-success hover:bg-success-50',
+            )}>
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success text-white shadow-sm transition-transform group-hover:scale-105">
+                {fileName ? <CheckCircle2 className="h-7 w-7" /> : <FileSpreadsheet className="h-7 w-7" />}
+              </span>
+              <span className="break-keep text-lg font-bold text-foreground">
+                {dragging ? '여기에 놓으세요' : fileName || <>규격정리가 필요한 발주서 <span className="text-success">EXCEL</span> 놓기</>}
+              </span>
+              <span className="break-keep text-sm text-muted-foreground">
+                {fileName ? '다른 발주서로 바꾸려면 다시 누르거나 끌어다 놓으세요' : '눌러서 고르거나 이 상자에 끌어다 놓으세요 · xlsx · xls · csv'}
+              </span>
+              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
+            </label>
+
+            {error && (
+              <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-sm font-medium text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}
               </p>
-              {purchaseOrder.files.length > 1 && (
+            )}
+
+            {sheets.length > 0 && (
+              <div>
+                <p className="mb-2 text-sm font-semibold">
+                  차수 시트 선택 <span className="font-normal text-muted-foreground">— 한 번에 한 차수씩 변환합니다</span>
+                </p>
                 <div className="flex flex-wrap gap-2">
-                  {purchaseOrder.files.map(f => (
-                    <button key={f.id} type="button" disabled={busy || !!fetching}
-                      onClick={() => openPurchaseOrderFile(f)} className={chipClass(fileName === f.file_name)}>
-                      <FileSpreadsheet className="h-4 w-4" />{f.file_name}
-                      <span className={chipCountClass(fileName === f.file_name)}>{formatBytes(f.size_bytes)}</span>
+                  {sheets.map(s => (
+                    <button
+                      key={s.name}
+                      onClick={() => run(s.name, {}, null, true)}
+                      disabled={busy}
+                      className={chipClass(activeSheet === s.name)}
+                    >
+                      {s.name}
+                      <span className={chipCountClass(activeSheet === s.name)}>{s.rows}행</span>
                     </button>
                   ))}
                 </div>
-              )}
-              {fetching && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />발주서를 받는 중 ({fetching.done}/{fetching.total})
-                </p>
-              )}
-            </div>
-          )}
-          <label {...dropProps} className={`group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors hover:border-brand-600 hover:bg-brand-50 ${
-            dragging ? 'border-brand-600 bg-brand-50' : fileName ? 'border-brand-600/50 bg-brand-50/50' : 'border-input bg-muted/30'
-          }`}>
-            <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-800 transition-colors group-hover:bg-brand-800 group-hover:text-white">
-              {fileName ? <FileSpreadsheet className="h-6 w-6" /> : <Upload className="h-6 w-6" />}
-            </span>
-            <span className="text-[15px] font-semibold text-foreground">
-              {dragging ? '여기에 놓으세요' : fileName || '발주서 엑셀 파일을 선택하세요'}
-            </span>
-            <span className="text-sm text-muted-foreground">
-              {fileName ? '다른 파일을 올리려면 다시 누르거나 끌어다 놓으세요' : '눌러서 고르거나 파일을 이 상자에 끌어다 놓으세요 (xlsx · xls · csv)'}
-            </span>
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
-          </label>
-
-          {error && (
-            <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-sm font-medium text-destructive">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{error}
-            </p>
-          )}
-
-          {sheets.length > 0 && (
-            <div>
-              <p className="mb-2 text-sm font-semibold">
-                차수 시트 선택 <span className="font-normal text-muted-foreground">— 한 번에 한 차수씩 변환합니다</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {sheets.map(s => (
-                  <button
-                    key={s.name}
-                    onClick={() => run(s.name, {}, null, true)}
-                    disabled={busy}
-                    className={chipClass(activeSheet === s.name)}
-                  >
-                    {s.name}
-                    <span className={chipCountClass(activeSheet === s.name)}>{s.rows}행</span>
-                  </button>
-                ))}
               </div>
-            </div>
-          )}
+            )}
 
-          {busy && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> 처리 중…
-            </p>
-          )}
-        </CardContent>
-      </Card>
+            {busy && (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> 처리 중…
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <DgPrismPanel ready={!!scan && rows.length > 0} sheetKey={`${fileName}|${activeSheet}`} buildRequest={aiRequest} rows={rows}
+          active={splitMode === 'ai' && !!aiPackages} onResult={showAiPackages} onEdit={() => changeSplit('manual')} />
+      </div>
+
+      {/* 발주서를 놓기 전 — 다음 단계가 무엇인지 미리 보여 준다 */}
+      {!scan && <FlowPreview />}
 
       {scan && build && reconciliation && (
         <>
@@ -712,18 +735,19 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   </p>
                 )}
                 <div className="flex flex-wrap gap-2">
-                  {(['sheet-total', 'detected', 'by-dong', 'by-unit', 'single', 'manual'] as SplitMode[]).map(mode => {
+                  {((aiPackages ? ['ai'] : []).concat(['sheet-total', 'detected', 'by-dong', 'by-unit', 'single', 'manual']) as SplitMode[]).map(mode => {
                     const count =
                       mode === 'single' ? 1
                         : mode === 'manual' ? Math.max(manualPackages.length, 1)
-                          : groupsFor(scan, rows, detection, mode).length;
+                          : groupsOf(mode).length;
                     return (
                       <button
                         key={mode}
                         onClick={() => changeSplit(mode)}
                         disabled={count === 0}
-                        className={chipClass(splitMode === mode)}
+                        className={chipClass(splitMode === mode, mode === 'ai' && splitMode !== 'ai' ? 'border-brand-600/50 text-brand-800' : undefined)}
                       >
+                        {mode === 'ai' && <Sparkles className="h-3.5 w-3.5" />}
                         {SPLIT_LABEL[mode]}
                         {count > 0 && <span className={chipCountClass(splitMode === mode)}>{count}장</span>}
                       </button>
@@ -753,8 +777,6 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     )}
                   </div>
                 )}
-
-                <AiPackagingPanel key={activeSheet} buildRequest={aiRequest} rows={rows} onApply={applyAiPackages} />
               </div>
 
               {/* 확인 필요 사항 —
@@ -864,6 +886,28 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           {build.unassigned.length > 0 && <UnassignedTable build={build} />}
         </>
       )}
+    </div>
+  );
+}
+
+/** 발주서를 놓기 전 화면 — 놓고 나면 무엇이 나오는지 */
+function FlowPreview() {
+  const steps = [
+    { icon: ScanSearch, title: '검산', text: '발주서에 적힌 계 · 합계와 우리가 읽은 수량을 대조해 잘못 읽은 곳을 바로 짚어요.' },
+    { icon: Boxes, title: '포장 나누기', text: '시트 한 장 = 포장 하나 = 작업의뢰서 한 장. 발주서 지시 · DG 프리즘 · 직접 짜기 중에서 골라요.' },
+    { icon: FileDown, title: 'ERP 엑셀 · 규격정리 받기', text: '위치 · 가로 · 세로 · 수량 양식의 ERP 업로드 엑셀과 규격정리 엑셀을 내려받아요.' },
+  ];
+  return (
+    <div className="grid gap-3 md:grid-cols-3">
+      {steps.map((st, i) => (
+        <div key={st.title} className="flex gap-3 rounded-xl border border-dashed bg-card/60 p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground"><st.icon className="h-[18px] w-[18px]" /></span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground"><span className="tabular mr-1 text-muted-foreground">{i + 2}</span>{st.title}</p>
+            <p className="mt-0.5 break-keep text-xs leading-relaxed text-muted-foreground">{st.text}</p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -19,6 +19,8 @@ import { newPackageId } from './packaging-rule';
 export interface AiPackagingSuggestion {
   /** 발주서를 어떻게 이해했는지 — 근거가 된 문구 */
   understanding: string;
+  /** 나눈 포장 수 — 목록을 다 채웠는지 검사하는 데 쓴다 (예전 답에는 없다) */
+  package_count?: number;
   packages: { label: string; ranges: { from: number; to: number }[]; reason: string }[];
   /** 사람이 확인할 것 */
   cautions: string[];

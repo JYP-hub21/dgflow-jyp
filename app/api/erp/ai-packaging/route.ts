@@ -19,6 +19,7 @@ const MODEL = 'claude-opus-5-5';
 
 const Suggestion = z.object({
   understanding: z.string().describe('이 발주서의 포장 · 순서를 어떻게 이해했는지 2–4문장. 근거가 된 행 번호와 문구를 적는다.'),
+  package_count: z.number().describe('packages 배열에 넣을 포장 개수. understanding 에서 말한 포장 수와 같아야 한다'),
   packages: z.array(z.object({
     label: z.string().describe('포장 이름. 동·호가 있으면 "3동 1~3호" · "3동 4,5호" 꼴(호가 3개 이상 이어질 때만 ~, 아니면 콤마), 합계 행에 라벨이 있으면 그 라벨'),
     ranges: z.array(z.object({
@@ -49,6 +50,7 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 업무지원부를 �
 
 ## 규칙
 - 사용자에게서 받은 "품목 행" 목록의 모든 행이 정확히 한 포장에 들어가야 한다. 한 행을 두 포장에 넣지 마라.
+- packages 목록에는 나눈 포장을 **하나도 빠짐없이 전부** 넣는다. 먼저 package_count 에 포장 수를 적고, 그 수만큼 목록을 채운다.
   ranges 는 넓게 적는다: 포장 하나가 발주서에서 이어진 구간이면 그 구간의 첫 행부터 끝 행까지 **범위 하나**로 적는다.
   사이에 낀 계 · 합계 · 빈 행 · 포장 표시 행을 피하려고 범위를 쪼개지 마라 — 시스템이 품목 행만 골라 담는다.
   범위를 나누는 것은 다른 포장의 품목 행이 사이에 끼어 있을 때뿐이다.
@@ -76,7 +78,7 @@ export async function POST(request: NextRequest) {
   const prompt = buildPrompt(body);
 
   const client = new Anthropic();
-  const ask = (askText: string) => client.beta.messages.parse({
+  const ask = (askText: string, effort: 'medium' | 'high' = 'medium') => client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
     // 안전 분류기가 드물게 거절하면 서버가 알아서 다른 모델로 다시 시도한다
@@ -91,7 +93,7 @@ export async function POST(request: NextRequest) {
         { type: 'text', text: askText },
       ],
     }],
-    output_config: { effort: 'medium', format: betaZodOutputFormat(Suggestion) },
+    output_config: { effort, format: betaZodOutputFormat(Suggestion) },
   });
 
   try {
@@ -109,33 +111,36 @@ export async function POST(request: NextRequest) {
       model: first.model,
     };
 
-    // 스스로 검사 — 품목 행이 빠지거나 두 포장에 겹치면 그 행을 짚어 한 번 더 묻는다
-    // (설명에는 "포장 2개" 라고 쓰고 목록에는 1개만 넣은 일이 있었다, 2026-11-09)
-    const check = applySuggestion(suggestion, body.item_rows);
+    // 스스로 검사 — 품목 행이 빠지거나 두 포장에 겹치거나, 말한 포장 수와 목록 수가 다르면 한 번 더 묻는다.
+    // (설명에는 포장 여러 개라고 쓰고 목록에는 1개만 넣은 일이 두 번 있었다, 2026-11-09)
+    // 다시 물을 때는 틀린 첫 답을 통째로 보여 주지 않는다 — 그 답에 끌려가 같은 실수를 되풀이했다. 더 깊게 생각하게(high) 묻는다.
+    const badness = (sg: AiPackagingSuggestion) => {
+      const c = applySuggestion(sg, body.item_rows);
+      const countGap = typeof sg.package_count === 'number' && sg.package_count !== sg.packages.length ? 1 : 0;
+      return { c, countGap, score: c.unassigned.length + c.duplicates.length + countGap * 1000 };
+    };
+    const first1 = badness(suggestion);
     let retried = false;
-    if (check.unassigned.length > 0 || check.duplicates.length > 0) {
+    if (first1.score > 0) {
       const problems = [
-        check.unassigned.length > 0 && `어느 포장에도 안 들어간 품목 행: ${rowRangesText(check.unassigned)}`,
-        check.duplicates.length > 0 && `두 포장에 겹친 행: ${rowRangesText(check.duplicates)}`,
+        first1.countGap > 0 && `포장이 ${suggestion.package_count}개라고 했지만 packages 목록에는 ${suggestion.packages.length}개(${suggestion.packages.map(x => x.label).join(', ')})만 넣었다.`,
+        first1.c.unassigned.length > 0 && `어느 포장에도 안 들어간 품목 행 ${first1.c.unassigned.length}개: ${rowRangesText(first1.c.unassigned)}`,
+        first1.c.duplicates.length > 0 && `두 포장에 겹친 행: ${rowRangesText(first1.c.duplicates)}`,
       ].filter(Boolean).join('\n');
       const second = await ask([
         prompt.ask, '',
-        '## 첫 답 검사 결과',
-        `첫 답: ${JSON.stringify(suggestion)}`,
-        `문제:\n${problems}`,
-        '모든 품목 행이 정확히 한 포장에 들어가게 고쳐서 전체 답을 다시 써라. understanding 의 설명과 packages 목록이 서로 맞아야 한다.',
-      ].join('\n'));
+        '## 첫 답에서 틀린 점',
+        problems,
+        '처음부터 다시 판단해, 나눈 포장을 packages 목록에 하나도 빠짐없이 전부 넣어라. 모든 품목 행이 정확히 한 포장에 들어가야 하고, package_count 와 목록 개수가 같아야 한다.',
+      ].join('\n'), 'high');
       usage.input_tokens += second.usage.input_tokens;
       usage.output_tokens += second.usage.output_tokens;
       usage.cache_read += second.usage.cache_read_input_tokens ?? 0;
       usage.cache_write += second.usage.cache_creation_input_tokens ?? 0;
       retried = true;
-      if (second.stop_reason !== 'refusal' && second.parsed_output) {
-        const again = applySuggestion(second.parsed_output, body.item_rows);
-        // 고친 답이 더 나을 때만 바꾼다
-        if (again.unassigned.length + again.duplicates.length < check.unassigned.length + check.duplicates.length) {
-          suggestion = second.parsed_output;
-        }
+      // 고친 답이 더 나을 때만 바꾼다
+      if (second.stop_reason !== 'refusal' && second.parsed_output && badness(second.parsed_output).score < first1.score) {
+        suggestion = second.parsed_output;
       }
     }
 
