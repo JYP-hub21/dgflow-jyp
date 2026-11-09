@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
+import { needsReceipt } from '@/lib/work-order/receipts';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST: 생산실적 입력
@@ -14,6 +15,14 @@ export async function POST(request: NextRequest) {
   }
 
   const { work_order_id, work_order_item_id, quantity_completed, production_date, log_type, shift, line_number, remark } = await request.json();
+
+  // 생산관리부가 받았다고 확인한 의뢰서에만 생산을 넣는다 (화면도 막지만 서버에서 한 번 더)
+  if (work_order_id && await needsReceipt(createServiceRoleClient(), work_order_id)) {
+    return NextResponse.json({
+      error: '수신 확인 전인 작업의뢰서입니다. 생산관리부가 받았다고 확인한 뒤에 생산을 입력할 수 있습니다.',
+      code: 'RECEIPT_REQUIRED',
+    }, { status: 409 });
+  }
 
   const supabase = await createServerSupabaseClient();
 

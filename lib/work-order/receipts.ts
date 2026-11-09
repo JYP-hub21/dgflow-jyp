@@ -53,6 +53,21 @@ export async function unreceivedCount(supabase: SupabaseClient): Promise<number>
   return Math.max(0, (total ?? 0) - (received ?? 0));
 }
 
+/**
+ * 생산을 넣기 전에 수신 확인이 필요한가 — 오창공장 의뢰서인데 아직 안 눌렀으면 true (2026-11-09 사용자
+ * "수신 확인을 안 눌러도 생산 입력이 되는 건 말이 안 된다, 눌러야만 할 수 있게").
+ * 외주 의뢰서는 수신 확인 칸이 없어 막지 않는다. 표가 없거나 읽지 못하면 막지 않는다(입력이 멈추면 안 된다).
+ */
+export async function needsReceipt(supabase: SupabaseClient, workOrderId: string): Promise<boolean> {
+  const [{ data: wo }, rc] = await Promise.all([
+    supabase.from('dgflow_work_orders').select('production_site').eq('id', workOrderId).maybeSingle(),
+    supabase.from(RECEIPTS_TABLE).select('work_order_id').eq('work_order_id', workOrderId).limit(1),
+  ]);
+  if (rc.error || !wo) return false;
+  if ((wo as { production_site?: string }).production_site === 'outsource') return false;
+  return (rc.data ?? []).length === 0;
+}
+
 /** 한국 시간으로 "2026-11-06 14:20" */
 export function formatKst(iso: string): string {
   const t = new Date(new Date(iso).getTime() + 9 * 3600_000).toISOString();

@@ -31,6 +31,7 @@ import { SITE_SELECT, toWorkOrderSite } from '@/lib/work-order/site';
 import { CONTACT_EDITORS } from '@/lib/work-order/site-server';
 import ContactCard from '@/components/work-order/ContactCard';
 import SiteBadge from '@/components/work-order/SiteBadge';
+import ReceiptButton from '@/components/work-order/ReceiptButton';
 
 interface WorkOrderItem {
   id: string;
@@ -87,6 +88,8 @@ export default function ProductionInputPage() {
   /** 품목별(입력) · 날짜별(언제 무엇을 만들었나) — 한 의뢰서를 한 달씩 만들 때 날짜로 본다 (2026-11-02).
    *  납품 입력은 2026-11-09 사이드바 '납품' 메뉴(/deliveries)로 옮겼다 — 탭 줄 오른쪽 링크로 간다 */
   const [view, setView] = useState<'items' | 'dates'>('items');
+  /** 수신 확인 전이면 생산을 못 넣는다 (2026-11-09) — 서버도 같은 판정으로 막는다 */
+  const [receiptNeeded, setReceiptNeeded] = useState(false);
 
   useEffect(() => {
     supabase.from('dgflow_work_orders')
@@ -96,6 +99,8 @@ export default function ProductionInputPage() {
     loadItems();
     loadLogs();
     loadContact();
+    fetch(`/api/work-orders/${workOrderId}/receipt`).then(r => (r.ok ? r.json() : null))
+      .then(b => setReceiptNeeded(!!b?.required)).catch(() => {});
   }, [workOrderId]);
 
   /** 공사 담당자 — 발주서 올린 사람, 없으면 그 현장에 정해 둔 담당자 (lib/production/contacts.ts) */
@@ -125,8 +130,10 @@ export default function ProductionInputPage() {
     await Promise.all([loadItems(), loadLogs()]);
   }
 
-  const setQty = (itemId: string, value: string) =>
+  const setQty = (itemId: string, value: string) => {
+    if (receiptNeeded) return;
     setQuantities(prev => ({ ...prev, [itemId]: value.replace(/[^0-9]/g, '') }));
+  };
 
   // 입력된 항목이 있는지 확인
   const hasInput = Object.values(quantities).some(v => parseInt(v) > 0);
@@ -140,7 +147,7 @@ export default function ProductionInputPage() {
 
     setSaving(true);
     for (const [itemId, qty] of entries) {
-      await fetch('/api/production', {
+      const res = await fetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -153,6 +160,12 @@ export default function ProductionInputPage() {
           line_number: parseInt(lineNumber),
         }),
       });
+      // 그 사이 수신 확인이 필요해졌으면(다른 사람이 화면을 연 채로) 멈추고 알린다
+      if (res.status === 409) {
+        setReceiptNeeded(true);
+        setSaving(false);
+        return;
+      }
     }
 
     setQuantities({});
@@ -227,7 +240,7 @@ export default function ProductionInputPage() {
             {totalInput > 0 && <p className="text-sm font-semibold text-brand-700">입력 {totalInput}조</p>}
           </div>
         </div>
-        <Button onClick={handleSaveAll} disabled={saving || !hasInput || overCount > 0} size="lg" className="mt-3 w-full">
+        <Button onClick={handleSaveAll} disabled={saving || receiptNeeded || !hasInput || overCount > 0} size="lg" className="mt-3 w-full">
           {saved ? <CheckCircle /> : <Save />}
           {saving ? '저장 중…' : saved ? '저장했습니다' : `전체 저장${totalInput > 0 ? ` (${totalInput}조)` : ''}`}
         </Button>
@@ -302,6 +315,19 @@ export default function ProductionInputPage() {
         </div>
       )}
 
+      {/* 수신 확인 전 — 생산 입력을 막고, 그 자리에서 누르게 한다 */}
+      {receiptNeeded && (
+        <div className="flex flex-col gap-3 rounded-xl border-2 border-warning/50 bg-warning-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-amber-900">아직 수신 확인 전인 작업의뢰서예요</p>
+            <p className="mt-0.5 break-keep text-sm text-amber-900/80">
+              생산관리부가 이 작업의뢰서를 받았다고 확인해야 생산을 입력할 수 있어요. 누르면 받은 시각과 이름이 남아요.
+            </p>
+          </div>
+          <ReceiptButton workOrderId={workOrderId} size="lg" onDone={() => setReceiptNeeded(false)} />
+        </div>
+      )}
+
       {/* 품목별 입력 · 날짜별 생산 — 카드 맨 위 탭 */}
       <Card className="gap-0 py-0">
         <div role="tablist" aria-label="보기" className="flex gap-1 rounded-t-xl border-b bg-muted/30 px-2 sm:px-4">
@@ -322,15 +348,15 @@ export default function ProductionInputPage() {
           {incompleteCount > 0 && (
             <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row">
               <div className="flex w-full sm:w-auto">
-                <Input aria-label="한 번에 입력할 수량" inputMode="numeric" value={stepQty} disabled={saving}
+                <Input aria-label="한 번에 입력할 수량" inputMode="numeric" value={stepQty} disabled={saving || receiptNeeded}
                   onChange={e => setStepQty(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
                   onBlur={() => { if (!parseInt(stepQty)) setStepQty('1'); }}
                   className="w-14 rounded-r-none border-r-0 text-center tabular" />
-                <Button variant="outline" onClick={handleAllPlusStep} disabled={saving} className="flex-1 rounded-l-none sm:flex-none">
+                <Button variant="outline" onClick={handleAllPlusStep} disabled={saving || receiptNeeded} className="flex-1 rounded-l-none sm:flex-none">
                   <Plus />조씩 입력 (남은 {incompleteCount}건)
                 </Button>
               </div>
-              <Button variant="outline" onClick={handleAllComplete} disabled={saving} className="w-full sm:w-auto">
+              <Button variant="outline" onClick={handleAllComplete} disabled={saving || receiptNeeded} className="w-full sm:w-auto">
                 <CheckCheck />남은 {incompleteCount}건 전량 입력
               </Button>
             </div>
@@ -346,7 +372,7 @@ export default function ProductionInputPage() {
 
 
         {/* 폰 — 품목당 카드 한 장 */}
-        <CardContent className={cn('p-3 md:hidden', view !== 'items' && 'hidden')}>
+        <CardContent className={cn('p-3 md:hidden', view !== 'items' && 'hidden', receiptNeeded && 'pointer-events-none opacity-50')} aria-disabled={receiptNeeded}>
           <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem}
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
@@ -356,7 +382,7 @@ export default function ProductionInputPage() {
           오른쪽은 생산 점검(완료 · 잔여 · 오늘 생산). 2026-11-02 "작업의뢰서라는 좋은 표본이 있으니 그 형태를 옮기고,
           매일 몇 개 만들었는지만 점검하게" — 무엇 하나 굵게 튀지 않게 종이처럼 평범한 글자로.
         */}
-        <CardContent className={cn('hidden p-0', view === 'items' && 'md:block')}>
+        <CardContent className={cn('hidden p-0', view === 'items' && 'md:block', receiptNeeded && 'pointer-events-none opacity-50')} aria-disabled={receiptNeeded}>
           <Table className="[&_td+td]:border-l [&_th+th]:border-l">
             <TableHeader>
               <TableRow>
@@ -501,7 +527,7 @@ export default function ProductionInputPage() {
               <span className="text-muted-foreground">생산량을 입력하면 저장할 수 있습니다</span>
             )}
           </div>
-          <Button size="lg" onClick={handleSaveAll} disabled={saving || !hasInput || overCount > 0} className="min-w-44">
+          <Button size="lg" onClick={handleSaveAll} disabled={saving || receiptNeeded || !hasInput || overCount > 0} className="min-w-44">
             <Save />{saving ? '저장 중…' : '전체 저장'}
           </Button>
         </div>

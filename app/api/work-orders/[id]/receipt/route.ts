@@ -3,7 +3,15 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { isMissingTable } from '@/lib/production/bokcheung-store';
-import { RECEIPTS_TABLE } from '@/lib/work-order/receipts';
+import { RECEIPTS_TABLE, needsReceipt } from '@/lib/work-order/receipts';
+
+/** GET — 생산 입력 화면이 "수신 확인이 먼저 필요한가" 를 묻는다 */
+export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { id } = await ctx.params;
+  return NextResponse.json({ required: await needsReceipt(createServiceRoleClient(), id) });
+}
 
 /**
  * POST /api/work-orders/[id]/receipt — 생산관리부 수신 확인 (2026-11-06 회의).

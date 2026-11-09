@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { chipClass } from '@/components/ui/chip';
-import { CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CloudOff, Download, Loader2, Wand2 } from 'lucide-react';
+import { CalendarDays, CalendarRange, Check, ChevronLeft, ChevronRight, CloudOff, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   GLASS_TYPES, SUMMARY_COLUMNS, summarizeTypes,
@@ -150,13 +150,6 @@ export default function BokcheungLog() {
   // 날짜를 바꾸거나 화면을 떠나기 전에 남은 저장을 보낸다
   useEffect(() => () => { clearTimeout(timer.current); void flush(); }, [date, flush]);
 
-  function fillSuggestions() {
-    const empty = rows.filter(r => !(entries[r.key]?.quantity_note ?? '').trim()).map(r => r.key);
-    if (empty.length === 0) return;
-    const byKey = new Map(rows.map(r => [r.key, r]));
-    change(empty, (e, k) => ({ ...e, quantity_note: byKey.get(k)?.suggested_note ?? '' }));
-  }
-
   async function download() {
     if (!data) return;
     setDownloading(true);
@@ -184,7 +177,6 @@ export default function BokcheungLog() {
   const sheet = data?.sheet;
   const summary = sheet ? summarizeTypes(sheet, entries) : null;
   const missingType = rows.filter(r => !(entries[r.key]?.glass_type ?? '').trim()).length;
-  const missingNote = rows.filter(r => !(entries[r.key]?.quantity_note ?? '').trim()).length;
   const canEdit = !!data?.canEdit;
   const today = todayKst();
 
@@ -207,11 +199,6 @@ export default function BokcheungLog() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <SaveBadge state={save} canEdit={canEdit} />
-            {canEdit && (
-              <Button variant="outline" onClick={fillSuggestions} disabled={!sheet || missingNote === 0}>
-                <Wand2 />수량외 추천값 입력
-              </Button>
-            )}
             <Button variant="outline" onClick={() => router.push('/production/report?view=period')}>
               <CalendarRange />기간별 다운로드
             </Button>
@@ -247,7 +234,7 @@ export default function BokcheungLog() {
           ) : (
             <p className="break-keep text-sm text-muted-foreground">
               <b className="text-foreground">종류</b>와 <b className="text-foreground">수량외</b>만 입력하면 회사 복층생산일지 양식 그대로 엑셀이 나옵니다.
-              가로 · 세로는 그날 그 줄에서 작업의뢰서 순서가 가장 앞인 품목이고, 수량외 칸의 흐린 글씨는 그 품목 기준 제안값입니다.
+              가로 · 세로는 그날 그 줄에서 작업의뢰서 순서가 가장 앞인 품목입니다.
               {missingType > 0 && <span className="font-semibold text-warning"> 종류가 빈 줄 {missingType}개</span>}
             </p>
           )}
@@ -359,7 +346,7 @@ function BlockTable({ block, entries, canEdit, onChange }: {
                   <TableCell className="tabular text-right">{r.width_mm?.toLocaleString() ?? '-'}</TableCell>
                   <TableCell className="tabular text-right">{r.height_mm?.toLocaleString() ?? '-'}</TableCell>
                   <TableCell>
-                    <Input value={e.quantity_note} placeholder={r.suggested_note} disabled={!canEdit} aria-label="수량외"
+                    <Input value={e.quantity_note} disabled={!canEdit} aria-label="수량외"
                       onChange={ev => onChange(r.key, 'quantity_note', ev.target.value)} className="h-9 w-28" />
                   </TableCell>
                   <TableCell className="tabular text-right font-bold">{r.quantity}조</TableCell>

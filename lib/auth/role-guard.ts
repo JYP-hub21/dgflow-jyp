@@ -154,10 +154,11 @@ export const MENU_ITEMS: MenuItem[] = [
     hint: '들어온 작업의뢰서 보기' },
   { label: '생산 현황', href: '/production', icon: 'Factory', permission: 'production:view', group: 'production',
     hint: '생산 수량 입력 · 진행률' },
-  { label: '납품', href: '/deliveries', icon: 'Truck', permission: 'production:view', group: 'production',
-    hint: '납품 수량 입력 · 미납 확인' },
   { label: '생산일지', href: '/production/report', icon: 'ClipboardList', permission: 'production:view', group: 'production',
     hint: '날짜별 생산 집계 · 엑셀' },
+  // 납품은 생산 · 일지 다음 — 흐름 맨 끝 (2026-11-09 사용자)
+  { label: '납품', href: '/deliveries', icon: 'Truck', permission: 'production:view', group: 'production',
+    hint: '납품 수량 입력 · 미납 확인' },
 
   { label: '마스터 관리', href: '/admin/products', icon: 'Database', permission: 'admin:master', group: 'admin' },
   { label: '사용자 관리', href: '/admin/users', icon: 'Users', permission: 'admin:users', group: 'admin' },
