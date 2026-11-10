@@ -15,6 +15,7 @@ import ProductionTrend, { TrendLegend, type TrendPoint } from '@/components/dash
 import { DEFAULT_LINES, lineName } from '@/lib/production/lines';
 import { loadLines } from '@/lib/production/lines-store';
 import { cn } from '@/lib/utils';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 /*
   대시보드 — 열면 한눈에 보이는 시각화 (2026-10-30 피드백 "조잡하다, 거의 시각화 자료처럼").
@@ -65,9 +66,11 @@ export default async function DashboardPage() {
       `)
       .in('status', ['pending', 'in_progress'])
       .order('created_at', { ascending: false }),
-    supabase.from('dgflow_production_logs').select('production_date, quantity_completed, area_m2, line_number')
-      .gte('production_date', from).lte('production_date', today),
-    supabase.from('dgflow_production_logs').select('quantity_completed, area_m2').gte('production_date', monthStart),
+    // 한 달 생산 기록이 1,000줄을 넘으면 잘려 이번 달 면적 · 막대가 적게 나왔다 — 끝까지 나눠 읽는다
+    fetchAll((a, b) => supabase.from('dgflow_production_logs').select('production_date, quantity_completed, area_m2, line_number')
+      .gte('production_date', from).lte('production_date', today).order('id').range(a, b)).then(data => ({ data }), () => ({ data: [] })),
+    fetchAll((a, b) => supabase.from('dgflow_production_logs').select('quantity_completed, area_m2')
+      .gte('production_date', monthStart).order('id').range(a, b)).then(data => ({ data }), () => ({ data: [] })),
     // 발주 건은 권한이 있어야 읽히는 표라 서비스 키로 — 화면에는 건수와 이름만 보인다
     listPurchaseOrders(createServiceRoleClient()),
     // 호기 이름 — 못 읽으면 1호기 · 2호기

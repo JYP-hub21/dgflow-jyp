@@ -26,17 +26,24 @@ export async function loadDeliveriesBetween(supabase: SupabaseClient, from: stri
   storage: EntriesStorage;
   logs: DeliveryLog[];
 }> {
-  const { data, error } = await supabase
-    .from(DELIVERY_TABLE)
-    .select('id, work_order_id, work_order_item_id, delivery_date, quantity, area_m2, note')
-    .gte('delivery_date', from)
-    .lte('delivery_date', to)
-    .order('delivery_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(5000);
-  if (error) {
-    if (isMissingTable(error)) return { storage: 'none', logs: [] };
-    throw new Error(error.message);
+  // 1,000줄에서 잘리지 않게 끝까지 나눠 읽는다 (2026-11-10 전체 점검)
+  const logs: DeliveryLog[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase
+      .from(DELIVERY_TABLE)
+      .select('id, work_order_id, work_order_item_id, delivery_date, quantity, area_m2, note')
+      .gte('delivery_date', from)
+      .lte('delivery_date', to)
+      .order('delivery_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(offset, offset + 999);
+    if (error) {
+      if (isMissingTable(error)) return { storage: 'none', logs: [] };
+      throw new Error(error.message);
+    }
+    logs.push(...((data ?? []) as DeliveryLog[]));
+    if (!data || data.length < 1000) break;
   }
-  return { storage: 'db', logs: (data ?? []) as DeliveryLog[] };
+  return { storage: 'db', logs };
 }

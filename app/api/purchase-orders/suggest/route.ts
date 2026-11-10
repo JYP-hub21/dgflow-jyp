@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { compareSizes, checkSummary, SUGGEST_MIN_SCORE, type SizeQty } from '@/lib/purchase-order/match';
 import { NextRequest, NextResponse } from 'next/server';
+import { fetchAllIn } from '@/lib/supabase/fetch-all';
 
 /**
  * 짝 후보 찾기 — ERP 작업의뢰서에는 우리 접수번호가 없어 규격 · 수량으로 찾는다.
@@ -72,9 +73,9 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(300);
     const free = (wos ?? []).filter(w => !taken.has(w.id));
-    const { data: items } = free.length
-      ? await supabase.from('dgflow_work_order_items').select('work_order_id, width_mm, height_mm, quantity').in('work_order_id', free.map(w => w.id))
-      : { data: [] };
+    // 300건의 품목이 1,000줄을 넘어 후보가 빠지던 것 — 끝까지 나눠 읽는다
+    const items = await fetchAllIn<{ work_order_id: string; width_mm: number; height_mm: number; quantity: number }>(free.map(w => w.id), (chunk, a, b) =>
+      supabase.from('dgflow_work_order_items').select('work_order_id, width_mm, height_mm, quantity').in('work_order_id', chunk).order('id').range(a, b));
 
     const ranked = free
       .map(w => ({ w, check: compareSizes(pkg.rows as SizeQty[], (items ?? []).filter(i => i.work_order_id === w.id)) }))

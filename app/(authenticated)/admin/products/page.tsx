@@ -290,11 +290,13 @@ function SitesTab() {
 
   async function handleSave() {
     if (!editing) return;
-    if (editing.id) {
-      await supabase.from('dgflow_sites').update(editing).eq('id', editing.id);
-    } else {
-      await supabase.from('dgflow_sites').insert(editing);
-    }
+    // 목록은 거래처 이름(customer)을 붙여 읽는다 — 그 칸까지 보내면 표에 없는 열이라 DB 가 거절하고
+    // 오류도 안 보여 "수정했는데 그대로" 가 됐다 (2026-11-10 전체 점검)
+    const { customer: _customer, ...row } = editing as Site & { customer?: unknown };
+    const { error } = editing.id
+      ? await supabase.from('dgflow_sites').update(row).eq('id', editing.id)
+      : await supabase.from('dgflow_sites').insert(row);
+    if (error) { alert(`저장하지 못했습니다: ${error.message}`); return; }
     setEditing(null);
     load();
   }

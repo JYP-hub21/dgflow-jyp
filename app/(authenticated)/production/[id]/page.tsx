@@ -78,6 +78,7 @@ export default function ProductionInputPage() {
   const [contact, setContact] = useState<SiteContact | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   /** 폰에서는 생산일자·주야간·호기를 접어 둔다. 교대마다 한 번 정하는 값이다 */
   const [showOptions, setShowOptions] = useState(false);
   const [logs, setLogs] = useState<ProductionLog[]>([]);
@@ -146,31 +147,54 @@ export default function ProductionInputPage() {
     if (entries.length === 0) return;
 
     setSaving(true);
-    for (const [itemId, qty] of entries) {
-      const res = await fetch('/api/production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          work_order_id: workOrderId,
-          work_order_item_id: itemId,
-          quantity_completed: parseInt(qty),
-          production_date: productionDate,
-          log_type: 'partial',
-          shift,
-          line_number: parseInt(lineNumber),
-        }),
-      });
-      // 그 사이 수신 확인이 필요해졌으면(다른 사람이 화면을 연 채로) 멈추고 알린다
-      if (res.status === 409) {
-        setReceiptNeeded(true);
-        setSaving(false);
-        return;
+    setSaveError('');
+    // 저장에 실패한 품목은 입력칸에 남겨 다시 누를 수 있게 한다 — 예전에는 409 말고는 실패를 무시하고
+    // 칸을 비운 뒤 "저장했습니다" 를 띄웠다(세션 만료 · 의뢰 수량 넘김 · 네트워크 오류). 2026-11-10 전체 점검
+    const failed: Record<string, string> = {};
+    const reasons: string[] = [];
+    try {
+      for (const [itemId, qty] of entries) {
+        let res: Response;
+        try {
+          res = await fetch('/api/production', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              work_order_id: workOrderId,
+              work_order_item_id: itemId,
+              quantity_completed: parseInt(qty),
+              production_date: productionDate,
+              log_type: 'partial',
+              shift,
+              line_number: parseInt(lineNumber),
+            }),
+          });
+        } catch {
+          failed[itemId] = qty;
+          reasons.push('인터넷 연결이 끊겼습니다');
+          continue;
+        }
+        // 그 사이 수신 확인이 필요해졌으면(다른 사람이 화면을 연 채로) 멈추고 알린다
+        if (res.status === 409) {
+          setReceiptNeeded(true);
+          for (const [id, q] of entries) if (!(id in failed)) failed[id] = q;
+          break;
+        }
+        if (!res.ok) {
+          failed[itemId] = qty;
+          const body = await res.json().catch(() => ({}));
+          reasons.push(res.status === 401 ? '로그인이 풀렸습니다 — 새로고침 후 다시 로그인해 주세요' : body.error || `저장 실패(${res.status})`);
+        }
       }
+    } finally {
+      setQuantities(failed);
+      await reload();
+      setSaving(false);
     }
-
-    setQuantities({});
-    await reload();
-    setSaving(false);
+    if (Object.keys(failed).length > 0) {
+      setSaveError(`${Object.keys(failed).length}개 품목을 저장하지 못했습니다 — ${[...new Set(reasons)].join(' / ') || '수신 확인이 필요합니다'}. 저장 못 한 수량은 칸에 남겨 두었습니다.`);
+      return;
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   }
@@ -244,6 +268,9 @@ export default function ProductionInputPage() {
           {saved ? <CheckCircle /> : <Save />}
           {saving ? '저장 중…' : saved ? '저장했습니다' : `전체 저장${totalInput > 0 ? ` (${totalInput}조)` : ''}`}
         </Button>
+        {saveError && (
+          <p role="alert" className="mt-2 break-keep rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive">{saveError}</p>
+        )}
       </div>
 
       {/* PC 머리글 */}

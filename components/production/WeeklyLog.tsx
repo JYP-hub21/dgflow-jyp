@@ -135,8 +135,12 @@ export default function WeeklyLog() {
         setSave('local');
         return;
       }
-      setSave(res.ok ? 'saved' : 'error');
+      if (res.ok) { setSave('saved'); return; }
+      // 실패한 칸은 다음 저장 때 다시 보낸다 — 예전에는 대기 목록을 먼저 비워 그 PC 임시 저장에만 남았다 (2026-11-10 전체 점검)
+      keys.forEach(k => pending.current.add(k));
+      setSave('error');
     } catch {
+      keys.forEach(k => pending.current.add(k));
       setSave('error');
     }
   }, []);

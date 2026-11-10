@@ -285,11 +285,29 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
               </div>
             )}
 
+            {/* 빠진 행 — 결과가 틀린 것이라 노란 '확인해 주세요' 에 묻히지 않게 따로 (2026-11-10 시험: 피트니스 40행이 빠진 채 반영됐다) */}
+            {result.applied && result.applied.unassigned.length > 0 && (
+              <div role="alert" className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-sm">
+                <p className="flex items-start gap-1.5 font-semibold text-destructive">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="break-keep">
+                    품목 {result.applied.unassigned.length}행({sumQty(result.applied.unassigned).toLocaleString()}장)이 어느 포장에도 들어가지 않았어요
+                  </span>
+                </p>
+                <p className="break-keep text-xs text-muted-foreground">
+                  {shorten(label(result.applied.unassigned))} — 이대로 받으면 ERP 엑셀의 _미배정 시트로 따로 내려가요. 다시 짜 달라고 하면 대부분 바로잡혀요.
+                </p>
+                <Button size="sm" variant="outline" disabled={busy}
+                  onClick={() => void send(`${label(result.applied!.unassigned)} 행이 어느 포장에도 들어가지 않았어요. 빠진 행까지 모두 포장에 넣어 다시 짜 주세요.`)}>
+                  <RotateCcw />빠진 행까지 넣어 다시 짜기
+                </Button>
+              </div>
+            )}
+
             {(() => {
               const a = result.applied;
               const notes = [
                 ...result.plan.cautions,
-                ...(a && a.unassigned.length > 0 ? [`어느 포장에도 안 들어간 품목 ${a.unassigned.length}행 (${shorten(label(a.unassigned))}) — 엑셀의 _미배정 시트로 따로 내려갑니다. 추가 요청으로 다시 짜 달라고 해 보세요.`] : []),
                 ...(a && a.duplicates.length > 0 ? [`두 포장에 겹친 행 ${a.duplicates.length}개(${shorten(label(a.duplicates))})는 앞 포장에 남겼습니다.`] : []),
                 ...(a && a.emptyLabels.length > 0 ? [`품목이 없어 뺀 포장: ${a.emptyLabels.join(', ')}`] : []),
               ];

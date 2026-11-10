@@ -59,7 +59,7 @@ export default function CuttingInputPage() {
 
     const glass = rawGlasses.find(g => g.id === selectedGlass);
 
-    await fetch('/api/cutting', {
+    const res = await fetch('/api/cutting', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -74,7 +74,14 @@ export default function CuttingInputPage() {
         is_manual: isManual,
         remark,
       }),
-    });
+    }).catch(() => null);
+    // 실패하면 입력을 비우지 않고 알린다 — 예전에는 응답을 안 보고 칸을 비웠다 (2026-11-10 전체 점검)
+    if (!res || !res.ok) {
+      const body = res ? await res.json().catch(() => ({})) : {};
+      alert(`재단 기록을 저장하지 못했습니다${body.error ? `: ${body.error}` : res ? ` (${res.status})` : ' — 인터넷 연결을 확인해 주세요'}`);
+      setSaving(false);
+      return;
+    }
 
     setProductName(''); setQuantity(''); setSelectedGlass(''); setRawQuantity(''); setRemark(''); setIsManual(false);
     setSaving(false);

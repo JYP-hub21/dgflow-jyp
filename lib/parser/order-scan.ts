@@ -719,16 +719,27 @@ function mapColumns(matrix: unknown[][], header: number): ScanColumns {
     return i >= 0 ? i : null;
   };
 
+  // 머리글이 두 줄인 양식은 위 줄에 위치 · 비고가 있다 (우미 부산장안: 8행 `위치 | 비고`, 9행 `가로 | 세로 | 수량 | 개소 | 합계`)
+  const above = header > 0 ? (matrix[header - 1] ?? []).map(squash) : [];
+
   const columns: ScanColumns = {
-    location: findIn(head, /^위치$/),
-    product_name: findIn(head, /^제품명$|^품명$/),
+    location: findIn(head, /^위치$/) ?? findIn(above, /^위치$/),
+    product_name: findIn(head, /^제품명$|^품명$/) ?? findIn(above, /^제품명$|^품명$/),
     thickness: findIn(sub, /^두께/) ?? findIn(head, /^두께/),
     width_mm: findIn(head, /^가로$/) ?? findIn(sub, /^가로$/),
     height_mm: findIn(head, /^세로$/) ?? findIn(sub, /^세로$/),
     quantity: findIn(head, /^수량$/) ?? findIn(sub, /^수량$/),
     area: findIn(head, /^평수$|^평$|^면적$/),
-    remark: findIn(head, /^비고$/),
+    remark: findIn(head, /^비고$/) ?? findIn(above, /^비고$/),
   };
+
+  // `수량 | 개소 | 합계` 양식 — 수량은 한 개소(층 · 세대)당 장수, 실제 장수는 합계(= 수량 × 개소)다.
+  // 수량을 읽으면 장수가 1/2–1/4 로 나온다 (2026-11-10 실물 ERP 대조: 장안 2동 84A 정답 132장, 수량 열로는 34장).
+  const count = findIn(head, /^개소$/) ?? findIn(sub, /^개소$/);
+  const total = findIn(head, /^합계$/) ?? findIn(sub, /^합계$/);
+  if (count !== null && total !== null && columns.quantity !== null && total > columns.quantity) {
+    columns.quantity = total;
+  }
 
   return columns;
 }
@@ -760,6 +771,19 @@ function pickLocationSource(
 
   const locFilled = filled(columns.location);
   const remarkFilled = filled(columns.remark);
+
+  // 비고가 위치 열의 동 · 호(`1동 1호`)를 되풀이할 뿐이면 위치 열을 읽는다 — 그래야 타입 · 층 · 실명이 나오고 여러 호가
+  // `1~3호` 로 합쳐진다. 비고만 읽으면 `3동 1호` 만 남아 실물 ERP 와 어긋났다(2026-11-10 우미 남원주 7차 대조).
+  if (locFilled > 0 && remarkFilled > 0) {
+    let dongHoOnly = 0;
+    for (let r = firstDataRow; r < matrix.length; r++) {
+      const v = text((matrix[r] ?? [])[columns.remark!]);
+      if (v && /^\d+\s*동\s*\d+(?:\s*[,~]\s*\d+)*\s*호$/.test(v.trim())) dongHoOnly++;
+    }
+    if (dongHoOnly >= remarkFilled * 0.8) return 'location-column';
+    // 위치는 위치 열에 다 있고 비고는 몇 줄뿐(`5호라인 카세대`) — 둘 다 읽는다 (우미 부산장안)
+    if (remarkFilled * 4 < locFilled) return 'both';
+  }
 
   if (remarkFilled > 0) return 'remark-column';
   if (locFilled > 0) return 'location-column';

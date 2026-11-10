@@ -53,3 +53,6 @@ supabase/.temp/
 /*.pdf
 /*.png
 /엑셀 자료/
+
+# Next.js 16.4 가 개발 서버를 켤 때 만드는 AI 안내 파일 — 저장소에 올리지 않는다
+AGENTS.md

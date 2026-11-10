@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { needsReceipt } from '@/lib/work-order/receipts';
+import { kstToday } from '@/lib/kst-date';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST: 생산실적 입력
@@ -26,17 +27,40 @@ export async function POST(request: NextRequest) {
 
   const supabase = await createServerSupabaseClient();
 
+  // 수량 · 의뢰 수량 넘김 검사 — 고치기(PATCH)에는 있었는데 넣기(POST)에는 없었다. 폰과 PC 가 같은 의뢰서를 열어 둔 채
+  // 둘 다 '전량' 을 누르면 20/10 이 됐다 (2026-11-10 전체 점검)
+  const qty = Number(quantity_completed);
+  if (!Number.isInteger(qty) || qty <= 0) {
+    return NextResponse.json({ error: '수량은 1 이상의 정수여야 합니다.' }, { status: 400 });
+  }
+  if (work_order_item_id) {
+    const [{ data: item }, { data: done }] = await Promise.all([
+      supabase.from('dgflow_work_order_items').select('quantity, work_order_id').eq('id', work_order_item_id).single(),
+      supabase.from('dgflow_production_logs').select('quantity_completed').eq('work_order_item_id', work_order_item_id),
+    ]);
+    if (!item || item.work_order_id !== work_order_id) {
+      return NextResponse.json({ error: '이 작업의뢰서의 품목이 아닙니다.' }, { status: 400 });
+    }
+    const total = (done || []).reduce((s, l) => s + l.quantity_completed, 0);
+    if (total + qty > item.quantity) {
+      return NextResponse.json(
+        { error: `의뢰 ${item.quantity}조를 넘습니다 (이미 ${total}조 + 이번 ${qty}조). 다른 곳에서 먼저 입력했는지 확인해 주세요.`, code: 'OVER_ORDERED' },
+        { status: 400 },
+      );
+    }
+  }
+
   // 생산 로그 저장
-  const area = await calculateItemArea(supabase, work_order_item_id, quantity_completed);
+  const area = await calculateItemArea(supabase, work_order_item_id, qty);
 
   const { data, error } = await supabase
     .from('dgflow_production_logs')
     .insert({
       work_order_id,
       work_order_item_id,
-      production_date: production_date || new Date().toISOString().split('T')[0],
+      production_date: production_date || kstToday(),
       log_type: log_type || 'full',
-      quantity_completed,
+      quantity_completed: qty,
       area_m2: area,
       shift: shift || 'day',
       line_number: line_number || 1,

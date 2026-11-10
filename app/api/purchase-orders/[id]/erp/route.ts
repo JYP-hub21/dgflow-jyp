@@ -51,13 +51,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
   const { data: oldFiles } = await supabase
     .from('dgflow_purchase_order_files').select('id, storage_prefix, chunk_count')
     .eq('purchase_order_id', id).eq('sheet_name', sheetName).in('kind', ['erp', 'spec']);
-  for (const f of oldFiles ?? []) {
-    const paths = Array.from({ length: f.chunk_count }, (_, i) => `${f.storage_prefix}/${String(i).padStart(4, '0')}`);
-    await supabase.storage.from(PO_BUCKET).remove(paths);
-  }
-  if (oldFiles?.length) await supabase.from('dgflow_purchase_order_files').delete().in('id', oldFiles.map(f => f.id));
-  if (old?.length) await supabase.from('dgflow_purchase_order_packages').delete().in('id', old.map(p => p.id));
-
+  // 새 것을 먼저 넣고, 다 들어간 뒤에 예전 것을 지운다 — 예전에는 지우기부터 해서 새 포장 넣기가 실패하면
+  // 그 차수의 포장과 파일이 모두 사라진 채 500 이 났다 (2026-11-10 전체 점검)
   if (files.length) {
     const { error } = await supabase.from('dgflow_purchase_order_files').insert(files.map(f => ({
       id: f.id,
@@ -90,7 +85,18 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
       total_quantity: rows.reduce((n, r) => n + r.quantity, 0),
     };
   }));
-  if (pkgError) return bad(pkgError.message, 500);
+  if (pkgError) {
+    // 새 파일 줄만 되돌린다 — 예전 포장 · 파일은 그대로 남는다
+    if (files.length) await supabase.from('dgflow_purchase_order_files').delete().in('id', files.map(f => f.id));
+    return bad(pkgError.message, 500);
+  }
+
+  for (const f of oldFiles ?? []) {
+    const paths = Array.from({ length: f.chunk_count }, (_, i) => `${f.storage_prefix}/${String(i).padStart(4, '0')}`);
+    await supabase.storage.from(PO_BUCKET).remove(paths);
+  }
+  if (oldFiles?.length) await supabase.from('dgflow_purchase_order_files').delete().in('id', oldFiles.map(f => f.id));
+  if (old?.length) await supabase.from('dgflow_purchase_order_packages').delete().in('id', old.map(p => p.id));
 
   const now = new Date().toISOString();
   await supabase.from('dgflow_purchase_orders').update({

@@ -19,6 +19,7 @@ import { loadReceipts } from '@/lib/work-order/receipts';
 import { loadDeliveries } from '@/lib/production/delivery-store';
 import { deliveredByWorkOrder } from '@/lib/production/delivery';
 import { Factory, ScanLine, ClipboardList, Phone } from 'lucide-react';
+import { fetchAllIn } from '@/lib/supabase/fetch-all';
 
 const PAGE_SIZE = 20;
 
@@ -46,10 +47,14 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
   const openIds = (openOrders || []).map(wo => wo.id as string);
   const lastProduced = new Map<string, string>();
   if (openIds.length > 0) {
-    const { data: lastLogs } = await supabase
+    // `.limit(5000)` 을 줘도 1,000줄에서 잘려 오래 밀린 의뢰서의 마지막 생산일이 비었다 — 끝까지 나눠 읽는다
+    const lastLogs = await fetchAllIn<{ work_order_id: string; production_date: string }>(openIds, (chunk, a, b) => supabase
       .from('dgflow_production_logs').select('work_order_id, production_date')
-      .in('work_order_id', openIds).order('production_date', { ascending: false }).limit(5000);
-    for (const l of lastLogs || []) if (!lastProduced.has(l.work_order_id as string)) lastProduced.set(l.work_order_id as string, l.production_date as string);
+      .in('work_order_id', chunk).order('production_date', { ascending: false }).order('id').range(a, b)).catch(() => []);
+    for (const l of lastLogs) {
+      const prev = lastProduced.get(l.work_order_id);
+      if (!prev || l.production_date > prev) lastProduced.set(l.work_order_id, l.production_date);
+    }
   }
   const contacts = await contactsForWorkOrders(createServiceRoleClient(), openIds);
 

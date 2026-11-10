@@ -18,7 +18,7 @@ export default function WorkOrderEditActions({ id, number }: { id: string; numbe
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [logs, setLogs] = useState<{ productionLogs: number; cuttingLogs: number } | null>(null);
+  const [logs, setLogs] = useState<{ productionLogs: number; cuttingLogs: number; deliveryLogs: number } | null>(null);
 
   async function remove() {
     setBusy(true);
@@ -26,7 +26,7 @@ export default function WorkOrderEditActions({ id, number }: { id: string; numbe
       const res = await fetch(`/api/work-orders/${id}${logs ? '?force=1' : ''}`, { method: 'DELETE' });
       const json = await res.json().catch(() => ({}));
       if (res.status === 409 && json.code === 'HAS_LOGS') {
-        setLogs({ productionLogs: json.productionLogs, cuttingLogs: json.cuttingLogs });
+        setLogs({ productionLogs: json.productionLogs, cuttingLogs: json.cuttingLogs, deliveryLogs: json.deliveryLogs ?? 0 });
         return;
       }
       if (!res.ok) { toast.error(json.error ?? '삭제하지 못했습니다.'); return; }
@@ -53,7 +53,7 @@ export default function WorkOrderEditActions({ id, number }: { id: string; numbe
               <DialogTitle className="text-lg font-bold">작업의뢰서 {number} 삭제</DialogTitle>
               <DialogDescription>
                 {logs
-                  ? `생산 기록 ${logs.productionLogs}건 · 재단 기록 ${logs.cuttingLogs}건이 함께 삭제되며 되돌릴 수 없습니다. 그래도 삭제하시겠습니까?`
+                  ? `생산 기록 ${logs.productionLogs}건 · 재단 기록 ${logs.cuttingLogs}건 · 납품 기록 ${logs.deliveryLogs}건이 함께 삭제되며 되돌릴 수 없습니다. 그래도 삭제하시겠습니까?`
                   : '이 작업의뢰서와 품목을 삭제합니다. 되돌릴 수 없습니다.'}
               </DialogDescription>
             </DialogHeader>

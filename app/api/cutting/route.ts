@@ -2,6 +2,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { NextRequest, NextResponse } from 'next/server';
+import { kstToday } from '@/lib/kst-date';
 
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
@@ -22,7 +23,7 @@ export async function POST(request: NextRequest) {
     .from('dgflow_cutting_logs')
     .insert({
       work_order_id,
-      cutting_date: cutting_date || new Date().toISOString().split('T')[0],
+      cutting_date: cutting_date || kstToday(), // 서버는 UTC — 오전 9시 전 입력이 어제로 들어갔다
       product_name,
       quantity,
       area_m2: null,

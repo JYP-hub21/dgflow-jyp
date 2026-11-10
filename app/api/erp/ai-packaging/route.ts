@@ -12,7 +12,7 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import * as z from 'zod/v4';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
-import { applyPlan, buildPrompt, type AiPackagingRequest, type AiPlan } from '@/lib/erp/ai-packaging';
+import { applyPlan, buildPrompt, keysLabel, type AiPackagingRequest, type AiPlan } from '@/lib/erp/ai-packaging';
 
 // 발주서를 읽고 깊게 생각하는 데 30초–1분 반쯤 걸린다
 export const maxDuration = 300;
@@ -74,7 +74,10 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
 2. 상단 포장 지시문 "1,3,4동( 1,2,3호 포장,4,5호 포장),2동(…)". 같은 상단의 "※ 7차 주문서별 포장요망 (동순서 3-4-2-1-5)" 은 동순서지 포장 단위가 아니다.
 3. 회색 합계 행 — 가로 · 세로 없이 수량만 있는 행은 포장 끝("※ 회색 합계 단위로 포장" 지시). 그 행의 라벨(예: "A-구간 합계")이 포장 이름이다.
    가로 칸에 "계" 가 있는 행은 품명 블록 끝이지 포장 끝이 아니다. "총 계" 는 시트 총계다.
-4. 근거가 없으면 동 · 호 조합으로 나누고, 그것도 없으면 한 포장으로 둔다.
+4. **위 1–3 같은 포장 지시가 없으면 한 포장으로 둔다.** 동 · 블록 · 발주번호 · 합계 행이 여러 개라는 것만으로 나누지 않는다
+   (실물 ERP 대조 2026-11-10: 지시 없는 동신 · 이랜드 · 동성 발주서는 모두 한 포장이었다). 나누는 게 나아 보이면 cautions 에
+   "포장 지시가 없어 한 포장으로 두었습니다 — ○○별로 나누려면 말씀해 주세요" 처럼 제안만 한다.
+   "발주서별 포장요망" · "층별 포장" · "회색 합계 단위로 포장" · "TOTAL 합계 적힌 것처럼 포장" 같은 말은 지시다 — 그대로 따른다.
 "동별, 라인별 포장" 같은 모호한 말은 해석을 reply 에 밝히고 다른 해석은 cautions 에 적는다.
 
 ## 사내 품명 (규격정리 우측) — 알려진 예
@@ -105,6 +108,15 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
 ## 말투
 reply · understanding · reason · cautions 는 모두 한국어 존댓말(~요, ~습니다)로, 짧고 분명하게 쓴다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
 
+/** 사람마다 10분에 30번까지 — 서버 인스턴스마다 따로 세는 가벼운 막이(진짜 상한은 Anthropic 콘솔의 지출 한도) */
+const RECENT = new Map<string, number[]>();
+function allowRequest(userId: string, now = Date.now()): boolean {
+  const recent = (RECENT.get(userId) ?? []).filter(t => now - t < 10 * 60_000);
+  if (recent.length >= 30) { RECENT.set(userId, recent); return false; }
+  RECENT.set(userId, [...recent, now]);
+  return true;
+}
+
 export async function POST(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -122,6 +134,15 @@ export async function POST(request: NextRequest) {
   if (!body || !Array.isArray(body.sheets) || (body.sheets.length === 0 && !body.available_sheets?.length)
     || (body.sheets.length > 0 && body.sheets.every(s => !s.text || s.item_rows.length === 0))) {
     return NextResponse.json({ error: '발주서 내용이 비어 있습니다.' }, { status: 400 });
+  }
+  // 크레딧 보호 — 요청 크기와 사람마다 횟수에 상한을 둔다 (2026-11-10 전체 점검: 제한이 하나도 없었다).
+  // 실제 가장 큰 요청(남원주 1–8차 여덟 시트 합치기)이 시트 글 약 60만 자라 그 두 배를 넘으면 거절한다.
+  const textSize = body.sheets.reduce((n, s) => n + (s.text?.length ?? 0), 0) + JSON.stringify(body.previous ?? '').length;
+  if (body.sheets.length > 24 || textSize > 1_200_000) {
+    return NextResponse.json({ error: '한 번에 보내기에 발주서가 너무 큽니다. 시트를 나눠 요청해 주세요.' }, { status: 413 });
+  }
+  if (!allowRequest(user.id)) {
+    return NextResponse.json({ error: '짧은 시간에 요청이 너무 많습니다. 몇 분 뒤 다시 시도해 주세요.' }, { status: 429 });
   }
   const prompt = buildPrompt(body);
 
@@ -176,22 +197,33 @@ export async function POST(request: NextRequest) {
       ].filter((x): x is string => !!x);
       return { score: c.unassigned.length + c.duplicates.length + (p.package_count !== p.packages.length ? 1000 : 0) + c.unknownSheets.length * 1000, problems };
     };
-    const firstCheck = badness(plan);
+    // 같은 말로 처음부터 다시 물으면 같은 실수를 되풀이했다(2026-11-10 시험: 제일 "피트니스 따로" — 포장 2개라고 하고 목록엔 1개,
+    // 다시 물어도 그대로). 그래서 직전 답과 빠진 행 번호를 주고 **그 부분만 채우게** 하고, 그래도 틀리면 한 번 더 묻는다.
+    let check = badness(plan);
     let retried = false;
-    if (firstCheck.score > 0) {
-      const second = await ask([
+    for (let attempt = 0; attempt < 2 && check.score > 0; attempt++) {
+      const missing = plan.action === 'arrange' && body.sheets.length > 0 ? applyPlan(plan, body.sheets).unassigned : [];
+      const fix = await ask([
         prompt.ask, '',
-        '## 첫 답에서 틀린 점',
-        ...firstCheck.problems,
-        '처음부터 다시 판단해 전체 답을 다시 써라. 불러온 시트의 모든 품목 행이 packages 또는 exclude 에 정확히 한 번씩 들어가야 하고, package_count 와 목록 개수가 같아야 한다.',
+        '## 직전 답 (고쳐야 함)',
+        JSON.stringify(plan), '',
+        '## 직전 답에서 틀린 점',
+        ...check.problems,
+        ...(missing.length > 0 ? [`어느 포장에도 안 들어간 품목 행: ${keysLabel(missing, body.sheets.map(s => s.name))}`] : []),
+        '',
+        '직전 답을 바탕으로 틀린 곳만 고쳐 전체 답을 다시 써라. reply · understanding 에 적은 포장이 packages 목록에 **하나도 빠짐없이** 있어야 한다.',
+        '불러온 시트의 모든 품목 행이 packages 또는 exclude 에 정확히 한 번씩 들어가야 하고, package_count 와 목록 개수가 같아야 한다.',
       ].join('\n'));
-      usage.input_tokens += second.usage.input_tokens;
-      usage.output_tokens += second.usage.output_tokens;
-      usage.cache_read += second.usage.cache_read_input_tokens ?? 0;
-      usage.cache_write += second.usage.cache_creation_input_tokens ?? 0;
+      usage.input_tokens += fix.usage.input_tokens;
+      usage.output_tokens += fix.usage.output_tokens;
+      usage.cache_read += fix.usage.cache_read_input_tokens ?? 0;
+      usage.cache_write += fix.usage.cache_creation_input_tokens ?? 0;
       retried = true;
-      if (second.stop_reason !== 'refusal' && second.parsed_output && badness(second.parsed_output).score < firstCheck.score) {
-        plan = second.parsed_output;
+      if (fix.stop_reason === 'refusal' || !fix.parsed_output) break;
+      const next = badness(fix.parsed_output);
+      if (next.score < check.score) {
+        plan = fix.parsed_output;
+        check = next;
       }
     }
 

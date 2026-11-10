@@ -4,6 +4,8 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { invalidItems, planRevision, type RevisionInput } from '@/lib/work-order/revise';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
+import { MANUAL_SHEET } from '@/lib/purchase-order/manual';
+import { DELIVERY_TABLE } from '@/lib/production/delivery';
 
 /**
  * 등록한 작업의뢰서 수정 · 삭제 (2026-11-06 회의 "이미 올린 의뢰서를 수정 · 삭제할 수 있어야").
@@ -90,18 +92,26 @@ export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: 
   if ('error' in auth) return auth.error;
   const { id } = await ctx.params;
   const supabase = createServiceRoleClient();
-  const [production, cutting] = await Promise.all([
+  // 납품 기록도 함께 지워진다(CASCADE) — 예전 경고는 생산 · 재단만 셌다 (2026-11-10 전체 점검)
+  const [production, cutting, delivery] = await Promise.all([
     supabase.from('dgflow_production_logs').select('id', { count: 'exact', head: true }).eq('work_order_id', id),
     supabase.from('dgflow_cutting_logs').select('id', { count: 'exact', head: true }).eq('work_order_id', id),
+    supabase.from(DELIVERY_TABLE).select('id', { count: 'exact', head: true }).eq('work_order_id', id),
   ]);
   const productionLogs = production.count ?? 0;
   const cuttingLogs = cutting.count ?? 0;
+  const deliveryLogs = delivery.error ? 0 : delivery.count ?? 0;
   const force = request.nextUrl.searchParams.get('force') === '1';
-  if ((productionLogs > 0 || cuttingLogs > 0) && !force) {
+  if ((productionLogs > 0 || cuttingLogs > 0 || deliveryLogs > 0) && !force) {
     return NextResponse.json({
-      error: '생산 · 재단 기록이 있는 작업의뢰서입니다.', code: 'HAS_LOGS', productionLogs, cuttingLogs,
+      error: '생산 · 재단 · 납품 기록이 있는 작업의뢰서입니다.', code: 'HAS_LOGS', productionLogs, cuttingLogs, deliveryLogs,
     }, { status: 409 });
   }
+  // '직접 연결' 포장은 이 의뢰서를 붙이려고 만든 빈 포장이다 — 의뢰서만 지우면(FK SET NULL) 빈 포장이 남아
+  // 발주 건이 '작업의뢰서 받는 중' 에서 넘어가지 못하고 화면에서 지울 길도 없었다 → 같이 지운다
+  const { error: pkgError } = await supabase.from('dgflow_purchase_order_packages')
+    .delete().eq('work_order_id', id).eq('sheet_name', MANUAL_SHEET);
+  if (pkgError) return NextResponse.json({ error: pkgError.message }, { status: 500 });
   const { error } = await supabase.from('dgflow_work_orders').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ deleted: true });

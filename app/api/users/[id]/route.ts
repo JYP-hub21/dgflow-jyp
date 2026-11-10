@@ -91,6 +91,14 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/users/
   }
 
   if (typeof body.password === 'string') {
+    // 남의 비밀번호를 바꾸면 그 사람으로 로그인할 수 있다 — 마스터가 아니면, 대상의 권한이 전부 내 권한 안일 때만
+    // (사원 관리 권한만 가진 직원이 업무지원부 직원 비밀번호를 바꿔 권한을 넘어서던 길을 막는다. 2026-11-10 전체 점검)
+    if (me.role !== 'master' && target.id !== me.id) {
+      if (target.role === 'master') return bad('마스터 계정의 비밀번호는 마스터만 바꿀 수 있습니다.', 403);
+      if ((target.permissions ?? []).some((k: string) => !hasPermission(me, k))) {
+        return bad('나보다 권한이 많은 계정의 비밀번호는 바꿀 수 없습니다. 마스터에게 부탁해 주세요.', 403);
+      }
+    }
     const err = passwordError(body.password);
     if (err) return bad(err);
     const { error } = await supabase.auth.admin.updateUserById(target.auth_id, {

@@ -3,6 +3,7 @@ import { hasPermission, type PermissionSubject } from '@/lib/auth/role-guard';
 import { deriveStage, stalledDays, type PoStage, type StoredStage } from './stage';
 import type { CheckResult } from './match';
 import { SITE_SELECT, toWorkOrderSite, type WorkOrderSite } from '@/lib/work-order/site';
+import { fetchAllIn } from '@/lib/supabase/fetch-all';
 
 /** 서버 전용 — service role 클라이언트를 받아 발주 건을 읽고 쓴다 */
 
@@ -112,11 +113,15 @@ async function userNames(supabase: SupabaseClient, ids: (string | null)[]) {
 async function workOrderProgress(supabase: SupabaseClient, ids: string[]) {
   const map = new Map<string, { total: number; produced: number }>();
   if (ids.length === 0) return map;
-  const { data } = await supabase
+  // 품목이 1,000줄을 넘으면 잘려 진행률이 틀리고, 덜 읽힌 의뢰서가 '끝남' 으로 보여 정리(cleanup)가
+  // 진행 중인 발주서 원본까지 지울 수 있었다 — 끝까지 나눠 읽는다 (2026-11-10 전체 점검)
+  const data = await fetchAllIn<{ work_order_id: string; quantity: number | null; produced_quantity: number | null }>(ids, (chunk, a, b) => supabase
     .from('dgflow_work_order_items')
     .select('work_order_id, quantity, produced_quantity')
-    .in('work_order_id', ids);
-  for (const r of data ?? []) {
+    .in('work_order_id', chunk)
+    .order('id')
+    .range(a, b));
+  for (const r of data) {
     const p = map.get(r.work_order_id) ?? { total: 0, produced: 0 };
     p.total += r.quantity ?? 0;
     p.produced += Math.min(r.produced_quantity ?? 0, r.quantity ?? 0);
