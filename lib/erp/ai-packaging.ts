@@ -75,6 +75,8 @@ export interface AiPackagingRequest {
   sheets: AiSheetInput[];
   /** 파일의 모든 시트 — 다른 차수를 불러 달라고 할 수 있게 */
   available_sheets: { name: string; rows: number }[];
+  /** 발주서 파일이 여럿일 때 — 파일 번호 · 이름 · 그 파일의 시트(순서대로). "두 번째 발주서의 세 번째 시트" 를 알아듣게 */
+  files?: { mark: string; name: string; sheets: { name: string; rows: number }[] }[];
   /** 지금 미리보기에 보이는 포장과 그 방식 */
   current: { mode: string; packages: { label: string; ranges: RowRange[] }[] } | null;
   /** 이번에 사람이 적은 요청 (비우면 발주서대로) */
@@ -83,6 +85,8 @@ export interface AiPackagingRequest {
   history?: string[];
   /** 직전 계획 — 있으면 그걸 바탕으로 고친다 */
   previous?: AiPlan | null;
+  /** DG 프리즘이 이 요청에 맞춰 방금 불러온 시트 — 사용자가 고른 게 아니다 */
+  just_loaded?: string[];
 }
 
 /** 한 번에 적을 수 있는 요청 길이 — 장황하게 적어도 된다 */
@@ -96,8 +100,15 @@ export const MAX_INSTRUCTION = 3000;
 export function buildPrompt(req: AiPackagingRequest): { sheet: string; ask: string } {
   const sheet = [
     `거래처: ${req.customer_name || '(못 읽음)'} / 현장: ${req.site_name || '(못 읽음)'}`,
-    `파일의 모든 시트: ${req.available_sheets.map(s => `${s.name}(${s.rows}행)`).join(', ')}`,
-    `지금 불러온 시트: ${req.sheets.map(s => s.name).join(', ')}`,
+    ...(req.files && req.files.length > 1
+      ? [
+          `발주서 파일 ${req.files.length}개 — 시트 이름 앞의 ①②③ 이 파일 번호다:`,
+          ...req.files.map(f => `${f.mark} ${f.name} — 시트 ${f.sheets.map((s, i) => `${i + 1}) ${s.name}(${s.rows}행)`).join(' ')}`),
+        ]
+      : [`파일의 모든 시트: ${req.available_sheets.map(s => `${s.name}(${s.rows}행)`).join(', ')}`]),
+    req.sheets.length > 0
+      ? `지금 불러온 시트: ${req.sheets.map(s => s.name).join(', ')}`
+      : '지금 불러온 시트: 없음 — 사용자가 아직 시트를 고르지 않았다. 포장을 짜려면 먼저 load_sheets 로 요청에 맞는 시트를 불러온다.',
     '',
     ...req.sheets.flatMap(s => [
       `### 시트 "${s.name}" — 품목 행(이 행들을 빠짐없이 포장에 넣거나 뺀다): ${rowRangesText(s.item_rows)}`,
@@ -115,14 +126,18 @@ export function buildPrompt(req: AiPackagingRequest): { sheet: string; ask: stri
         '',
       ]
     : [];
+  const loaded = req.just_loaded && req.just_loaded.length > 0
+    ? [`(이 요청에 맞춰 네가 방금 ${req.just_loaded.join(', ')} 시트를 불러왔다 — 사용자가 미리 불러 둔 것이 아니다. 답에는 "요청하신 시트를 불러와" 처럼 말한다.)`, '']
+    : [];
   if (!req.previous) {
-    return { sheet, ask: [...current, `## 사용자 요청`, now || '없음 — 발주서 내용대로 포장을 짠다.'].join('\n') };
+    return { sheet, ask: [...current, ...loaded, `## 사용자 요청`, now || '없음 — 발주서 내용대로 포장을 짠다.'].join('\n') };
   }
   const history = (req.history ?? []).map(h => h.trim()).filter(Boolean).slice(-10);
   return {
     sheet,
     ask: [
       ...current,
+      ...loaded,
       '## 지금까지 사용자가 한 요청 (순서대로)',
       ...(history.length > 0 ? history.map((h, i) => `${i + 1}) ${h.slice(0, MAX_INSTRUCTION)}`) : ['(없음 — 발주서 내용대로 짰다)']),
       '',

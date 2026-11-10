@@ -100,4 +100,21 @@ describe('DG 프리즘 — 보내는 글 · 받은 계획 적용', () => {
     expect(next.ask).toContain('"label":"1동"');
     expect(next.ask).toContain('## 새 요청\n2동은 합쳐 줘');
   });
+
+  it('발주서 파일이 여럿이면 — 파일 번호와 파일별 시트 순서를 적는다', () => {
+    const p = buildPrompt({
+      site_name: '부산', customer_name: '우미',
+      sheets: [{ name: '① 5차', text: '15| 1동 1호', item_rows: [15] }],
+      available_sheets: [{ name: '① 합계', rows: 20 }, { name: '① 5차', rows: 300 }, { name: '② 5차', rows: 310 }],
+      files: [
+        { mark: '①', name: '1동 5차발주서.xlsx', sheets: [{ name: '① 합계', rows: 20 }, { name: '① 5차', rows: 300 }] },
+        { mark: '②', name: '2동 5차발주서.xlsx', sheets: [{ name: '② 5차', rows: 310 }] },
+      ],
+      current: null, instruction: '',
+    });
+    expect(p.sheet).toContain('발주서 파일 2개');
+    expect(p.sheet).toContain('① 1동 5차발주서.xlsx — 시트 1) ① 합계(20행) 2) ① 5차(300행)');
+    expect(p.sheet).toContain('② 2동 5차발주서.xlsx — 시트 1) ② 5차(310행)');
+    expect(p.sheet).not.toContain('파일의 모든 시트:');
+  });
 });

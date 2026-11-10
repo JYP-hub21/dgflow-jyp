@@ -88,11 +88,19 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
 - 질문(몇 장? 어디가 이상해? 왜 이렇게 나눴어?)이면 **answer** — reply 에 답하고 packages 는 비운다. 숫자 질문은 발주서 글에서 직접 세어 답한다.
 - 지금 불러온 시트에 없는 시트가 필요하면("1차와 2차를 합쳐서", "3차도 같이") **load_sheets** — sheets 에 함께 다룰 시트를 **전부** 적는다.
   시스템이 그 시트들을 불러온 뒤 같은 요청을 다시 보낸다. 이미 그 시트들이 다 불러와져 있으면 load_sheets 를 쓰지 말고 바로 arrange 한다.
+- 불러온 시트가 **없으면**(사용자가 발주서만 놓고 바로 말한 경우) arrange 할 수 없다 — 요청에 맞는 시트를 load_sheets 로 부른다.
+  어느 시트인지 정말 알 수 없으면 answer 로 어느 시트를 쓸지 짧게 되묻는다.
 - 포장을 짜거나 고치는 요청이면 **arrange** — 지금 불러온 시트의 **모든 품목 행**을 packages 또는 exclude 에 정확히 한 번씩 넣는다.
   먼저 package_count 에 포장 수를 적고 그만큼 packages 를 채운다. 여러 시트를 합치면 한 포장에 여러 시트의 범위를 넣을 수 있다.
   ranges 는 넓게 — 이어진 구간은 첫 행–끝 행 하나로 적는다(사이의 계 · 합계 · 빈 행 · 표시 행은 시스템이 뺀다).
   요청이 직전 계획 · 지금 미리보기의 일부만 바꾸는 것이면 나머지는 그대로 둔다.
 - "○○ 빼 줘" 는 exclude, "위치에서 ○○ 지워 줘 / 바꿔 줘" 는 location_edits, "품명 바꿔 줘" 는 product_names.
+
+## 발주서 파일이 여럿일 때
+- 시트 이름 앞의 ①②③ 은 발주서 파일 번호다. "첫 번째 발주서" = ①, "두 번째 발주서의 세 번째 시트" = ② 파일 시트 목록의 3) 번 시트.
+- sheets · ranges 의 시트 이름은 목록에 적힌 그대로("② 5차") 쓴다. "나머지 발주서는 모든 시트" 처럼 말하면 그 파일의 시트를 전부 적는다.
+- 서로 다른 현장의 발주서를 합치면 한 ERP 엑셀에 다른 현장이 섞인다 — 따를 수는 있지만 cautions 에 꼭 적는다.
+  합계 · 표지 · 물량산출서 같은 시트는 품목 행이 없거나 성격이 달라 보통 합치지 않는다 — 합치라고 하면 따르되 cautions 에 적는다.
 
 ## 말투
 reply · understanding · reason · cautions 는 모두 한국어 존댓말(~요, ~습니다)로, 짧고 분명하게 쓴다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
@@ -106,7 +114,13 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => null)) as AiPackagingRequest | null;
-  if (!body?.sheets?.length || body.sheets.every(s => !s.text || s.item_rows.length === 0)) {
+  // 배포 전에 열어 둔 화면은 예전 모양(sheet_text)으로 보낸다 — 알아듣게 알려 준다 (2026-11-09 "발주서 내용이 비어 있습니다" 로 헷갈림)
+  if (body && !body.sheets && 'sheet_text' in body) {
+    return NextResponse.json({ error: '화면이 예전 버전이에요. 새로고침(F5)한 뒤 발주서를 다시 놓고 요청해 주세요.' }, { status: 409 });
+  }
+  // 시트를 아직 안 골랐어도(sheets 빈 목록) 시트 목록이 있으면 받는다 — DG 프리즘이 말을 듣고 시트를 불러온다
+  if (!body || !Array.isArray(body.sheets) || (body.sheets.length === 0 && !body.available_sheets?.length)
+    || (body.sheets.length > 0 && body.sheets.every(s => !s.text || s.item_rows.length === 0))) {
     return NextResponse.json({ error: '발주서 내용이 비어 있습니다.' }, { status: 400 });
   }
   const prompt = buildPrompt(body);
@@ -150,6 +164,9 @@ export async function POST(request: NextRequest) {
     // (설명에는 포장 여러 개라고 쓰고 목록에는 1개만 넣은 일이 두 번 있었다) 틀린 답을 통째로 보여 주지 않는다 — 그 답에 끌려간다.
     const badness = (p: AiPlan) => {
       if (p.action !== 'arrange') return { score: 0, problems: [] as string[] };
+      if (body.sheets.length === 0) {
+        return { score: 1000, problems: ['아직 불러온 시트가 없는데 포장을 짰습니다. 요청에 맞는 시트를 load_sheets 로 먼저 불러오세요.'] };
+      }
       const c = applyPlan(p, body.sheets);
       const problems = [
         p.package_count !== p.packages.length && `포장이 ${p.package_count}개라고 했지만 packages 목록에는 ${p.packages.length}개만 넣었습니다.`,

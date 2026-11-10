@@ -30,11 +30,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown, Layers } from 'lucide-react';
+import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown, Layers, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { chipClass, chipCountClass } from '@/components/ui/chip';
 import StepTitle from '@/components/ui/step-title';
-import type { SheetInfo } from '@/lib/parser/excel-order';
 import { scanOrderSheet, sheetMatrix, type OrderScan, type ScanColumns } from '@/lib/parser/order-scan';
 import { readWorkbook } from '@/lib/parser/read-workbook';
 import { fileToXlsxBuffer } from '@/lib/excel/read-file';
@@ -60,7 +59,7 @@ import SheetEditor from './SheetEditor';
 import ColumnMapper from './ColumnMapper';
 import DgPrismPanel from './DgPrismPanel';
 import { editLocation, keysToRanges, sheetTextForAi, type AiPackagingRequest, type AiPlan, type AppliedPlan } from '@/lib/erp/ai-packaging';
-import { mergeScans, splitKey } from '@/lib/erp/multi-sheet';
+import { fileMark, mergeScans, sheetLabel, splitKey } from '@/lib/erp/multi-sheet';
 
 interface Meta {
   customer_name: string;
@@ -94,9 +93,13 @@ export interface PurchaseOrderSource {
   files: { id: string; file_name: string; mime_type: string; size_bytes: number; storage_prefix: string; chunk_count: number }[];
 }
 
+/** 올린 발주서 파일 하나 — 열쇠는 올린 순서대로 늘고 지워도 다시 쓰지 않는다 */
+interface LoadedFile { key: number; name: string; wb: XLSX.WorkBook }
+/** 시트 하나 — 여러 파일에 같은 이름의 시트가 있을 수 있어 열쇠는 "파일 열쇠::시트 이름" */
+interface SheetRef { id: string; fileKey: number; sheet: string; label: string; rows: number }
+
 export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: PurchaseOrderSource } = {}) {
   const router = useRouter();
-  const [fileName, setFileName] = useState('');
   /** 저장소에서 발주서를 받는 중 (조각 n/총) */
   const [fetching, setFetching] = useState<{ done: number; total: number } | null>(null);
   const [savingPo, setSavingPo] = useState(false);
@@ -109,12 +112,17 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    * 시트를 고를 때마다 다시 읽으면 화면이 통째로 멈춘다("응답 없는 페이지").
    * 그래서 파일을 고를 때 딱 한 번 읽고, 원본 ArrayBuffer 는 바로 버린다.
    */
-  const workbookRef = useRef<XLSX.WorkBook | null>(null);
-  const [hasFile, setHasFile] = useState(false);
-  const [sheets, setSheets] = useState<SheetInfo[]>([]);
-  /** 지금 변환하는 시트 — 여러 차수를 합칠 수 있다 (2026-11-09 "1차와 2차 한번에 합쳐서") */
+  // 엑셀 여러 개를 한꺼번에 올릴 수 있다 (2026-11-09 "엑셀 여러 개 올릴 수 있게도 해야지")
+  const filesRef = useRef<LoadedFile[]>([]);
+  const fileSeq = useRef(0);
+  const [files, setFiles] = useState<{ key: number; name: string }[]>([]);
+  const hasFile = files.length > 0;
+  const fileName = files.map(f => f.name).join(' + ');
+  const [sheets, setSheets] = useState<SheetRef[]>([]);
+  /** 지금 변환하는 시트(열쇠) — 여러 차수 · 여러 파일을 합칠 수 있다 (2026-11-09) */
   const [activeSheets, setActiveSheets] = useState<string[]>([]);
-  const activeSheet = activeSheets.join(' + ');
+  const activeLabels = activeSheets.map(id => sheets.find(x => x.id === id)?.label ?? id);
+  const activeSheet = activeLabels.join(' + ');
   /** 시트를 눌러 여러 개 고르는 모드 */
   const [multiSheet, setMultiSheet] = useState(false);
   const [meta, setMeta] = useState<Meta | null>(null);
@@ -164,17 +172,17 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   }, []);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+    const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (file) await loadFile(file);
+    if (picked.length > 0) await loadFiles(picked);
   }
-  async function loadFile(file: File) {
+  async function loadFiles(list: File[]) {
     // csv 는 xlsx 로 바꿔 넘긴다 — 아래 경로는 xlsx 바이트만 받는다 (한글 인코딩도 여기서 가려 읽는다)
-    await loadWorkbook(file.name, () => fileToXlsxBuffer(file));
+    await addWorkbooks(list.map(file => ({ name: file.name, read: () => fileToXlsxBuffer(file) })));
   }
-  // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
+  // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백) — 여러 개도 된다
   const { dragging, dropProps } = useFileDrop({
-    onFiles: (files) => void loadFile(files[0]), accept: '.xlsx,.xls,.csv', multiple: false,
+    onFiles: (list) => void loadFiles(list), accept: '.xlsx,.xls,.csv', multiple: true,
   });
 
   /** 발주 건에 올라온 발주서를 저장소에서 받아 읽는다. 담당자가 열면 그게 "확인" 이다 */
@@ -186,11 +194,11 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     }).catch(() => {});
     setFetching({ done: 0, total: f.chunk_count });
     try {
-      await loadWorkbook(f.file_name, async () => {
+      await addWorkbooks([{ name: f.file_name, read: async () => {
         const blob = await downloadChunked(createClient(), f.storage_prefix, f.chunk_count, f.mime_type,
           (done, total) => setFetching({ done, total }));
         return blob.arrayBuffer();
-      });
+      } }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : '발주서를 받지 못했습니다.');
     } finally {
@@ -207,32 +215,54 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [purchaseOrder]);
 
-  async function loadWorkbook(name: string, read: () => Promise<ArrayBuffer>) {
+  /** 지금 올라와 있는 파일들의 시트 목록 — 파일 순서 · 시트 순서대로 */
+  function sheetRefs(): SheetRef[] {
+    const list = filesRef.current;
+    return list.flatMap((f, i) => f.wb.SheetNames.map(sheet => ({
+      id: `${f.key}::${sheet}`, fileKey: f.key, sheet, label: sheetLabel(i, sheet, list.length), rows: rowCountOf(f.wb.Sheets[sheet]),
+    })));
+  }
+  const wsOf = (ref: SheetRef) => filesRef.current.find(f => f.key === ref.fileKey)!.wb.Sheets[ref.sheet];
+
+  /** 파일 목록이 바뀐 뒤 — 고르던 시트가 남아 있으면 다시 읽고(파일 번호가 붙을 수 있다), 없으면 비운다 */
+  function afterFilesChanged() {
+    const refs = sheetRefs();
+    setFiles(filesRef.current.map(f => ({ key: f.key, name: f.name })));
+    setSheets(refs);
+    const keep = activeSheets.filter(id => refs.some(r => r.id === id));
+    if (keep.length > 0) { run(keep, columnOverrides, locationOverride, false); return; }
+    resetResult();
+    setActiveSheets([]);
+    // 시트가 하나뿐이면 고를 것이 없다 — 바로 변환한다 (흥화·계룡 발주서가 그랬다)
+    if (refs.length === 1) run([refs[0].id], {}, null, true);
+  }
+
+  /** 발주서 파일을 더한다 — 이름이 같은 파일은 새로 올린 것으로 바꾼다 */
+  async function addWorkbooks(list: { name: string; read: () => Promise<ArrayBuffer> }[]) {
     setBusy(true);
     setError('');
-    setFileName(name);
-    resetResult();
-    workbookRef.current = null;
-    setHasFile(false);
-    setSheets([]);
-
-    let only: string | null = null;
-    try {
-      // 파싱은 워커에서 한다 — 144MB 짜리 발주서는 13초가 걸려서
-      // 메인 스레드에서 읽으면 그 동안 버튼이 하나도 안 눌린다.
-      const wb = await readWorkbook(await read());
-      workbookRef.current = wb;
-      setHasFile(true);
-      setSheets(wb.SheetNames.map(name => ({ name, rows: rowCountOf(wb.Sheets[name]) })));
-      setActiveSheets([]);
-      if (wb.SheetNames.length === 1) only = wb.SheetNames[0];
-    } catch {
-      setError('엑셀 파일을 읽지 못했습니다. .xlsx 파일인지 확인해 주세요.');
-    } finally {
-      setBusy(false);
+    const failed: string[] = [];
+    for (const item of list) {
+      try {
+        // 파싱은 워커에서 한다 — 144MB 짜리 발주서는 13초가 걸려서
+        // 메인 스레드에서 읽으면 그 동안 버튼이 하나도 안 눌린다. 파일마다 딱 한 번 읽고 원본은 버린다.
+        const wb = await readWorkbook(await item.read());
+        const entry = { key: ++fileSeq.current, name: item.name, wb };
+        const at = filesRef.current.findIndex(f => f.name === item.name);
+        if (at >= 0) filesRef.current[at] = entry; else filesRef.current.push(entry);
+      } catch {
+        failed.push(item.name);
+      }
     }
-    // 시트가 하나뿐이면 고를 것이 없다 — 바로 변환한다 (흥화·계룡 발주서가 그랬다)
-    if (only) run([only], {}, null, true);
+    setBusy(false);
+    afterFilesChanged();
+    // 변환(run)이 오류 칸을 비우므로 읽기 실패는 그 뒤에 적는다
+    if (failed.length > 0) setError(`엑셀 파일을 읽지 못했습니다 (${failed.join(', ')}). .xlsx 파일인지 확인해 주세요.`);
+  }
+
+  function removeFile(key: number) {
+    filesRef.current = filesRef.current.filter(f => f.key !== key);
+    afterFilesChanged();
   }
 
   function resetResult() {
@@ -252,17 +282,18 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    */
   const run = useCallback(
     (
-      sheetNames: string[],
+      sheetIds: string[],
       overrides: Partial<ScanColumns>,
       locationSource: OrderScan['location_source'] | null,
       useProfile: boolean,
     ) => {
-      const wb = workbookRef.current;
-      if (!wb || sheetNames.length === 0) return;
+      const refs = sheetRefs();
+      const pick = sheetIds.map(id => refs.find(r => r.id === id)).filter((r): r is SheetRef => !!r);
+      if (pick.length === 0) return;
       setBusy(true);
       setError('');
       try {
-        const firstWs = wb.Sheets[sheetNames[0]];
+        const firstWs = wsOf(pick[0]);
 
         // 1) 먼저 자동으로 읽어 거래처·지문을 얻는다 (여럿이면 첫 시트로)
         const probe = scanOrderSheet(firstWs);
@@ -295,12 +326,19 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           }
           return one;
         };
-        const parts = sheetNames.map(name => ({ name, scan: scanOne(wb.Sheets[name]) }));
+        const parts = pick.map(r => ({ name: r.label, scan: scanOne(wsOf(r)) }));
         const merged = mergeScans(parts);
+        // 서로 다른 현장의 발주서를 합치면 한 ERP 엑셀에 다른 현장이 섞인다 — 막지는 않고 크게 알린다
+        if (pick.length > 1) {
+          const siteNames = [...new Set(pick.map(r => readMeta(wsOf(r)).site_name.trim()).filter(Boolean))];
+          if (new Set(siteNames.map(norm)).size > 1) {
+            merged.notes.unshift(`서로 다른 현장의 발주서를 합쳤습니다 (${siteNames.join(' / ')}). 한 ERP 엑셀에 다른 현장이 섞이지 않는지 확인해 주세요.`);
+          }
+        }
 
         // 3) 포장 단위 — 발주서 합계 행이 먼저, 없으면 상단 지시문·동·호 (여럿이면 모든 시트의 지시문을 함께 본다)
         const parsedRows = rowsFromScan(merged);
-        const hints = sheetNames.map(n => hintsFromWorksheet(wb.Sheets[n]));
+        const hints = pick.map(r => hintsFromWorksheet(wsOf(r)));
         const found = detectPackaging(hints.flatMap(h => h.topLines), hints.flatMap(h => h.markerCells), parsedRows);
 
         const fromSheet = packagesFromScan(merged);
@@ -323,7 +361,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         setColumnOverrides(overrides);
         setLocationOverride(locationSource);
         setAppliedProfile(usedProfile);
-        setActiveSheets(sheetNames);
+        setActiveSheets(pick.map(r => r.id));
         setHeaderCells(rowText(parts[0].scan.header_row));
         setSampleCells(firstItem > 0 ? rowText(firstItem) : []);
         setSignature(sig);
@@ -443,28 +481,37 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    * 지금 미리보기의 포장(방식 · 행 범위). 그래야 "1차와 2차 합쳐서", "3동 포장 둘을 합쳐" 같은 요청을 알아듣는다.
    */
   function aiRequest(instruction: string): AiPackagingRequest | null {
-    const wb = workbookRef.current;
-    if (!wb || activeSheets.length === 0) return null;
+    const refs = sheetRefs();
+    if (refs.length === 0) return null;
+    // 시트를 아직 안 골랐으면(scan 없음) 시트 목록만 보낸다 — DG 프리즘이 말을 듣고 load_sheets 로 불러온다
+    const pick = scan ? activeSheets.map(id => refs.find(r => r.id === id)).filter((r): r is SheetRef => !!r) : [];
+    const names = pick.map(r => r.label);
     const keys = rows.map(r => r.source_row).filter((r): r is number => r !== undefined);
-    const sheetsIn = activeSheets.map((name, i) => ({
-      name,
-      text: sheetTextForAi(sheetMatrix(wb.Sheets[name])),
+    const sheetsIn = pick.map((r, i) => ({
+      name: r.label,
+      text: sheetTextForAi(sheetMatrix(wsOf(r))),
       item_rows: keys.map(splitKey).filter(k => k.index === i).map(k => k.row),
     }));
-    if (sheetsIn.every(x => x.item_rows.length === 0)) return null;
+    if (pick.length > 0 && sheetsIn.every(x => x.item_rows.length === 0)) return null;
     const groups = groupsOf(splitMode);
     const packages = groups.length > 0
       ? groups.map(g => ({
           label: g.label,
-          ranges: keysToRanges(filterByPackaging(rows, g).map(r => r.source_row).filter((r): r is number => r !== undefined), activeSheets),
+          ranges: keysToRanges(filterByPackaging(rows, g).map(r => r.source_row).filter((r): r is number => r !== undefined), names),
         }))
-      : [{ label: '전체', ranges: keysToRanges(keys, activeSheets) }];
+      : [{ label: '전체', ranges: keysToRanges(keys, names) }];
     return {
       site_name: meta?.site_name ?? '',
       customer_name: meta?.customer_name ?? '',
       sheets: sheetsIn,
-      available_sheets: sheets.map(x => ({ name: x.name, rows: x.rows })),
-      current: { mode: SPLIT_LABEL[splitMode], packages },
+      available_sheets: refs.map(x => ({ name: x.label, rows: x.rows })),
+      files: filesRef.current.length > 1
+        ? filesRef.current.map((f, i) => ({
+            mark: fileMark(i), name: f.name,
+            sheets: refs.filter(r => r.fileKey === f.key).map(r => ({ name: r.label, rows: r.rows })),
+          }))
+        : undefined,
+      current: pick.length > 0 ? { mode: SPLIT_LABEL[splitMode], packages } : null,
       instruction,
     };
   }
@@ -481,19 +528,29 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   /** DG 프리즘이 다른 시트가 필요하다고 할 때 — 그 시트들을 파일 순서대로 불러온다 */
   function loadSheetsForAi(names: string[]): boolean {
-    const order = sheets.map(x => x.name);
-    const picked = order.filter(n => names.some(w => w.replace(/\s/g, '') === n.replace(/\s/g, '')));
-    if (picked.length === 0 || picked.length !== new Set(names).size) return false;
+    const refs = sheetRefs();
+    const flat = (t: string) => t.replace(/\s/g, '');
+    const wanted = new Set<string>();
+    for (const n of names) {
+      const byLabel = refs.find(r => flat(r.label) === flat(n));
+      // 파일이 하나면 시트 이름만 적어도 된다 — 여럿이면 그 이름이 한 파일에만 있을 때만
+      const bySheet = refs.filter(r => flat(r.sheet) === flat(n));
+      const hit = byLabel ?? (bySheet.length === 1 ? bySheet[0] : undefined);
+      if (!hit) return false;
+      wanted.add(hit.id);
+    }
+    const picked = refs.filter(r => wanted.has(r.id)).map(r => r.id);
+    if (picked.length === 0) return false;
     if (picked.length > 1) setMultiSheet(true);
     run(picked, {}, null, true);
     return true;
   }
 
   /** 시트 칩을 눌렀을 때 — 여러 차수 합치기 모드면 더하거나 빼고, 아니면 그 시트 하나로 */
-  function pickSheet(name: string) {
-    if (!multiSheet) { run([name], {}, null, true); return; }
-    const on = activeSheets.includes(name);
-    const next = sheets.map(x => x.name).filter(n => (n === name ? !on : activeSheets.includes(n)));
+  function pickSheet(id: string) {
+    if (!multiSheet) { run([id], {}, null, true); return; }
+    const on = activeSheets.includes(id);
+    const next = sheets.map(x => x.id).filter(n => (n === id ? !on : activeSheets.includes(n)));
     if (next.length > 0) run(next, {}, null, true);
   }
 
@@ -647,9 +704,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   <div className="flex flex-wrap gap-2">
                     {purchaseOrder.files.map(f => (
                       <button key={f.id} type="button" disabled={busy || !!fetching}
-                        onClick={() => openPurchaseOrderFile(f)} className={chipClass(fileName === f.file_name)}>
+                        onClick={() => openPurchaseOrderFile(f)} className={chipClass(files.some(x => x.name === f.file_name))}>
                         <FileSpreadsheet className="h-4 w-4" />{f.file_name}
-                        <span className={chipCountClass(fileName === f.file_name)}>{formatBytes(f.size_bytes)}</span>
+                        <span className={chipCountClass(files.some(x => x.name === f.file_name))}>{formatBytes(f.size_bytes)}</span>
                       </button>
                     ))}
                   </div>
@@ -664,20 +721,38 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             <label {...dropProps} className={cn(
               'group flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-9 text-center transition-colors',
               dragging ? 'border-success bg-success-50'
-                : fileName ? 'border-success/60 bg-success-50/70'
+                : hasFile ? 'border-success/60 bg-success-50/70'
                   : 'border-success/50 bg-success-50/40 hover:border-success hover:bg-success-50',
             )}>
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success text-white shadow-sm transition-transform group-hover:scale-105">
-                {fileName ? <CheckCircle2 className="h-7 w-7" /> : <FileSpreadsheet className="h-7 w-7" />}
+                {hasFile ? <CheckCircle2 className="h-7 w-7" /> : <FileSpreadsheet className="h-7 w-7" />}
               </span>
               <span className="break-keep text-lg font-bold text-foreground">
-                {dragging ? '여기에 놓으세요' : fileName || <>규격정리가 필요한 발주서 <span className="text-success">EXCEL</span> 놓기</>}
+                {dragging ? '여기에 놓으세요'
+                  : files.length > 1 ? `발주서 ${files.length}개를 올렸어요`
+                    : files.length === 1 ? files[0].name
+                      : <>규격정리가 필요한 발주서 <span className="text-success">EXCEL</span> 놓기</>}
               </span>
               <span className="break-keep text-sm text-muted-foreground">
-                {fileName ? '다른 발주서로 바꾸려면 다시 누르거나 끌어다 놓으세요' : '눌러서 고르거나 이 상자에 끌어다 놓으세요 · xlsx · xls · csv'}
+                {hasFile ? '더 놓으면 발주서가 추가돼요 · 여러 개를 한꺼번에 놓아도 돼요' : '눌러서 고르거나 이 상자에 끌어다 놓으세요 · 여러 개 가능 · xlsx · xls · csv'}
               </span>
-              <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFile} />
+              <input type="file" accept=".xlsx,.xls,.csv" multiple className="hidden" onChange={handleFile} />
             </label>
+
+            {/* 올린 파일 — 여럿이면 번호(①②)가 시트 이름 앞에 붙는다 */}
+            {files.length > 0 && (
+              <ul className="flex flex-wrap gap-2">
+                {files.map((f, i) => (
+                  <li key={f.key} className="flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border bg-card py-1 pl-2.5 pr-1 text-sm">
+                    {files.length > 1 && <span className="font-bold text-success">{fileMark(i)}</span>}
+                    <FileSpreadsheet className="h-4 w-4 shrink-0 text-success" />
+                    <span className="truncate">{f.name}</span>
+                    <button type="button" onClick={() => removeFile(f.key)} disabled={busy} aria-label={`${f.name} 빼기`}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {error && (
               <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-sm font-medium text-destructive">
@@ -689,8 +764,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold">
-                    차수 시트 선택 <span className="font-normal text-muted-foreground">
-                      {multiSheet ? '— 합칠 시트를 모두 누르세요' : '— 누른 시트를 변환합니다'}
+                    {files.length > 1 ? '시트 선택' : '차수 시트 선택'} <span className="font-normal text-muted-foreground">
+                      {multiSheet ? '— 합칠 시트를 모두 누르세요' : activeSheets.length === 0 ? '— 누르거나 DG 프리즘에게 말로 골라 달라고 하세요' : '— 누른 시트를 변환합니다'}
                     </span>
                   </p>
                   <button type="button" onClick={() => {
@@ -699,28 +774,37 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     if (!next && activeSheets.length > 1) run([activeSheets[0]], {}, null, true);
                   }} disabled={busy}
                     className={chipClass(multiSheet, 'h-8 text-xs')}>
-                    <Layers className="h-3.5 w-3.5" />여러 차수 합치기
+                    <Layers className="h-3.5 w-3.5" />{files.length > 1 ? '여러 시트 합치기' : '여러 차수 합치기'}
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {sheets.map(s => {
-                    const on = activeSheets.includes(s.name);
-                    return (
-                      <button
-                        key={s.name}
-                        onClick={() => pickSheet(s.name)}
-                        disabled={busy}
-                        className={chipClass(on)}
-                      >
-                        {multiSheet && <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[10px] leading-none', on ? 'border-white bg-white text-brand-900' : 'border-input')}>{on ? '✓' : ''}</span>}
-                        {s.name}
-                        <span className={chipCountClass(on)}>{s.rows}행</span>
-                      </button>
-                    );
-                  })}
+                <div className="space-y-2.5">
+                  {files.map((f, i) => (
+                    <div key={f.key}>
+                      {files.length > 1 && (
+                        <p className="mb-1.5 truncate text-xs font-semibold text-muted-foreground"><span className="text-success">{fileMark(i)}</span> {f.name}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        {sheets.filter(s => s.fileKey === f.key).map(s => {
+                          const on = activeSheets.includes(s.id);
+                          return (
+                            <button
+                              key={s.id}
+                              onClick={() => pickSheet(s.id)}
+                              disabled={busy}
+                              className={chipClass(on)}
+                            >
+                              {multiSheet && <span className={cn('flex h-3.5 w-3.5 items-center justify-center rounded-sm border text-[10px] leading-none', on ? 'border-white bg-white text-brand-900' : 'border-input')}>{on ? '✓' : ''}</span>}
+                              {s.sheet}
+                              <span className={chipCountClass(on)}>{s.rows}행</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 {activeSheets.length > 1 && (
-                  <p className="mt-2 text-xs font-medium text-brand-800">{activeSheets.join(' + ')} 를 합쳐 한 번에 변환하고 있어요</p>
+                  <p className="mt-2 text-xs font-medium text-brand-800">{activeSheet} 를 합쳐 한 번에 변환하고 있어요</p>
                 )}
               </div>
             )}
@@ -733,7 +817,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           </CardContent>
         </Card>
 
-        <DgPrismPanel ready={!!scan && rows.length > 0} sheetKey={`${fileName}|${activeSheet}`} sheetNames={activeSheets}
+        <DgPrismPanel ready={hasFile && (!scan || rows.length > 0)} sheetKey={`${files.map(f => f.key).join(',')}|${activeSheets.join(',')}`} sheetNames={activeLabels}
           buildRequest={aiRequest} rows={rows} active={aiActive}
           onResult={showAiPlan} onLoadSheets={loadSheetsForAi} onEdit={() => changeSplit('manual')} />
       </div>

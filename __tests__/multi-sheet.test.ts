@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keyOf, keyerFor, keysText, mergeScans, splitKey } from '@/lib/erp/multi-sheet';
+import { fileMark, keyOf, keyerFor, keysText, mergeScans, sheetLabel, splitKey } from '@/lib/erp/multi-sheet';
 import type { OrderScan, ScanRow } from '@/lib/parser/order-scan';
 import { rowsFromScan } from '@/lib/erp/from-scan';
 
@@ -45,5 +45,11 @@ describe('여러 차수 시트 합치기', () => {
     ]);
     // 시트가 하나면 그대로
     expect(mergeScans([{ name: '7차', scan: a }])).toBe(a);
+  });
+
+  it('파일 번호 · 시트 이름표 — 파일이 하나면 번호를 붙이지 않는다', () => {
+    expect([fileMark(0), fileMark(2), fileMark(25)]).toEqual(['①', '③', '(26)']);
+    expect(sheetLabel(1, '5차', 3)).toBe('② 5차');
+    expect(sheetLabel(0, '5차', 1)).toBe('5차');
   });
 });

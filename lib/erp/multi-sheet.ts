@@ -11,6 +11,16 @@ import type { OrderScan, ScanRow } from '@/lib/parser/order-scan';
 
 export const ROW_BASE = 100000;
 
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳';
+/** 발주서 파일 번호 표시 — ① ② ③ … (2026-11-09 엑셀 여러 개 올리기) */
+export function fileMark(index: number): string {
+  return CIRCLED[index] ?? `(${index + 1})`;
+}
+/** 시트 이름표 — 파일이 여럿이면 "① 5차", 하나면 "5차" */
+export function sheetLabel(fileIndex: number, sheet: string, fileCount: number): string {
+  return fileCount > 1 ? `${fileMark(fileIndex)} ${sheet}` : sheet;
+}
+
 /** 시트 순서(0부터) · 엑셀 행 → 행 열쇠 */
 export function keyOf(sheetCount: number, sheetIndex: number, row: number): number {
   return sheetCount > 1 ? (sheetIndex + 1) * ROW_BASE + row : row;

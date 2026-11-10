@@ -32,7 +32,7 @@ const QUICK: { label: string; text: string }[] = [
 /** 처음 화면에 보여 줄 "할 수 있는 일" — 빈 칸 대신 무엇을 시킬 수 있는지 알려 준다 */
 const CAPABILITIES: { icon: React.ElementType; title: string; text: string }[] = [
   { icon: Boxes, title: '포장 짜기', text: '발주서 지시 · 합계 행 · 동·호로 나누고, 원하는 대로 다시 나눠요' },
-  { icon: Layers, title: '차수 합치기', text: '1차 · 2차처럼 여러 시트를 불러와 한 번에 정리해요' },
+  { icon: Layers, title: '차수 · 파일 합치기', text: '1차 · 2차, 여러 발주서 파일의 시트도 말만 하면 불러와 한 번에 정리해요' },
   { icon: ArrowDownUp, title: '싣는 순서', text: '동순서 · 포장 순서 · 포장 안 발주서 순서를 바꿔요' },
   { icon: Eraser, title: '품목 빼기', text: '발코니 · 파손분처럼 이번에 뺄 품목을 빼요' },
   { icon: TextCursorInput, title: '위치 글자', text: '"구조마감" 같은 말을 지우거나 바꿔요' },
@@ -49,6 +49,16 @@ const CAPABILITIES: { icon: React.ElementType; title: string; text: string }[] =
  * - 다른 방식 칩을 누르면 언제든 되돌아가고, '직접 짜기로 고치기' 로 손으로 고친다.
  * - 결과를 보고 '추가 요청' 으로 이어서 고친다 — 서버가 앞선 요청 · 직전 계획을 같이 받아 고친다.
  */
+function sumUsage(a: AiUsage, b: AiUsage): AiUsage {
+  return {
+    input_tokens: a.input_tokens + b.input_tokens,
+    output_tokens: a.output_tokens + b.output_tokens,
+    cache_read: (a.cache_read ?? 0) + (b.cache_read ?? 0),
+    cache_write: (a.cache_write ?? 0) + (b.cache_write ?? 0),
+    model: b.model,
+  };
+}
+
 export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest, rows, active, onResult, onLoadSheets, onEdit }: {
   /** 시트를 읽어 보낼 수 있는지 */
   ready: boolean;
@@ -74,7 +84,7 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   /** 시트를 불러온 뒤 다시 보낼 요청 — 불러오기가 끝나 sheetKey 가 바뀌면 보낸다 */
-  const resend = useRef<{ instruction: string; history: string[]; previous: AiPlan | null } | null>(null);
+  const resend = useRef<{ instruction: string; history: string[]; previous: AiPlan | null; usage: AiUsage; loaded: string[] } | null>(null);
 
   // 다른 시트 · 다른 파일이면 앞선 대화는 맞지 않는다 — 단, DG 프리즘이 스스로 시트를 불러온 경우는 이어서 보낸다
   useEffect(() => {
@@ -88,12 +98,12 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetKey]);
 
-  async function send(instruction = draft, carry?: { history: string[]; previous: AiPlan | null }) {
+  async function send(instruction = draft, carry?: { history: string[]; previous: AiPlan | null; usage?: AiUsage; loaded?: string[] }) {
     const base = buildRequest(instruction);
     if (!base || (busy && !carry)) return;
     const prevPlan = carry ? carry.previous : result?.plan.action === 'arrange' ? result.plan : null;
     const prevHistory = carry ? carry.history : result ? history : [];
-    const req: AiPackagingRequest = { ...base, history: prevHistory, previous: prevPlan };
+    const req: AiPackagingRequest = { ...base, history: prevHistory, previous: prevPlan, just_loaded: carry?.loaded };
     setBusy(true);
     setError('');
     try {
@@ -113,7 +123,7 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
         if (carry || same || wanted.length === 0) {
           throw new Error(`DG 프리즘이 시트(${wanted.join(', ') || '없음'})를 다시 불러 달라고 했지만 이미 불러온 상태입니다. 요청을 조금 바꿔 다시 보내 주세요.`);
         }
-        resend.current = { instruction, history: prevHistory, previous: prevPlan };
+        resend.current = { instruction, history: prevHistory, previous: prevPlan, usage: body.usage, loaded: wanted };
         setNote(`${plan.reply || ''} ${wanted.join(' + ')} 시트를 불러와 이어서 짜고 있어요…`.trim());
         if (!onLoadSheets(wanted)) {
           resend.current = null;
@@ -123,7 +133,9 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
       }
 
       const applied = plan.action === 'arrange' ? applyPlan(plan, req.sheets) : null;
-      setResult({ plan, applied, usage: body.usage, retried: !!body.retried, sheetNames: names });
+      // 시트를 불러오느라 한 번 더 물었으면 두 번 값을 더해 보여 준다
+      const usage: AiUsage = carry?.usage ? sumUsage(carry.usage, body.usage) : body.usage;
+      setResult({ plan, applied, usage, retried: !!body.retried, sheetNames: names });
       const asked = instruction.trim();
       setHistory(prevHistory.concat(asked ? [asked] : []));
       setDraft('');
@@ -214,19 +226,25 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
 
             {result.applied && (
               <div className="rounded-lg bg-card ring-1 ring-border">
-                <div className="flex items-center justify-between gap-2 border-b px-3.5 py-2">
-                  <p className="flex items-center gap-1.5 text-sm font-semibold">
-                    포장 {result.applied.packages.length}장
-                    {result.sheetNames.length > 1 && <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700"><Layers className="h-3 w-3" />{result.sheetNames.join(' + ')}</span>}
-                    <span className="font-normal text-muted-foreground">· 싣는 순서대로</span>
-                  </p>
-                  {active
-                    ? <span className="rounded-full bg-success-50 px-2 py-0.5 text-xs font-semibold text-success">미리보기에 반영됨</span>
-                    : (
-                      <Button size="xs" variant="outline" onClick={() => onResult(result.applied!, result.plan)}>
-                        <Undo2 />DG 프리즘 포장으로 다시 보기
-                      </Button>
-                    )}
+                <div className="border-b px-3.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="whitespace-nowrap text-sm font-semibold">
+                      포장 {result.applied.packages.length}장 <span className="font-normal text-muted-foreground">· 싣는 순서대로</span>
+                    </p>
+                    {active
+                      ? <span className="shrink-0 whitespace-nowrap rounded-full bg-success-50 px-2 py-0.5 text-xs font-semibold text-success">미리보기에 반영됨</span>
+                      : (
+                        <Button size="xs" variant="outline" onClick={() => onResult(result.applied!, result.plan)}>
+                          <Undo2 />DG 프리즘 포장으로 다시 보기
+                        </Button>
+                      )}
+                  </div>
+                  {/* 합친 시트 — 파일 번호가 붙으면 길어져서 따로 한 줄 */}
+                  {result.sheetNames.length > 1 && (
+                    <p className="mt-1.5 flex items-start gap-1 rounded bg-brand-50 px-1.5 py-1 text-[11px] font-semibold leading-snug text-brand-700">
+                      <Layers className="mt-px h-3 w-3 shrink-0" />{result.sheetNames.join(' + ')}
+                    </p>
+                  )}
                 </div>
                 <ol className="max-h-64 divide-y overflow-y-auto">
                   {result.applied.packages.map((p, i) => {
@@ -307,7 +325,7 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="tabular text-xs text-muted-foreground">
-              {busy ? '' : ready ? `${draft.length.toLocaleString()} / ${MAX_INSTRUCTION.toLocaleString()}자 · Ctrl+Enter 로 보내기` : '발주서를 놓고 시트를 고르면 보낼 수 있어요'}
+              {busy ? '' : ready ? `${draft.length.toLocaleString()} / ${MAX_INSTRUCTION.toLocaleString()}자 · Ctrl+Enter 로 보내기` : '발주서를 놓으면 보낼 수 있어요'}
             </span>
             <Button onClick={() => void send()} disabled={!ready || busy || (!!result && !draft.trim())}
               className={cn(ready && !busy && 'shadow-md shadow-brand-600/20')}>
