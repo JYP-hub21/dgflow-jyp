@@ -777,7 +777,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold">
-                    {files.length > 1 ? '시트 선택' : '차수 시트 선택'} <span className="font-normal text-muted-foreground">
+                    시트 선택 <span className="font-normal text-muted-foreground">
                       {multiSheet ? '— 합칠 시트를 모두 누르세요' : activeSheets.length === 0 ? '— 누르거나 DG 프리즘에게 말로 골라 달라고 하세요' : '— 누른 시트를 변환합니다'}
                     </span>
                   </p>
@@ -787,7 +787,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     if (!next && activeSheets.length > 1) run([activeSheets[0]], {}, null, true);
                   }} disabled={busy}
                     className={chipClass(multiSheet, 'h-8 text-xs')}>
-                    <Layers className="h-3.5 w-3.5" />{files.length > 1 ? '여러 시트 합치기' : '여러 차수 합치기'}
+                    <Layers className="h-3.5 w-3.5" />여러 시트 합치기
                   </button>
                 </div>
                 <div className="space-y-2.5">
@@ -830,7 +830,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           </CardContent>
         </Card>
 
-        <DgPrismPanel ready={hasFile && (!scan || rows.length > 0)} sheetKey={`${files.map(f => f.key).join(',')}|${activeSheets.join(',')}`} sheetNames={activeLabels}
+        <DgPrismPanel ready={hasFile && (!scan || rows.length > 0)} canMerge={sheets.length > 1} sheetKey={`${files.map(f => f.key).join(',')}|${activeSheets.join(',')}`} sheetNames={activeLabels}
           buildRequest={aiRequest} rows={rows} active={aiActive}
           onResult={showAiPlan} onLoadSheets={loadSheetsForAi} onEdit={() => changeSplit('manual')} />
       </div>

@@ -20,22 +20,26 @@ interface Result {
   sheetNames: string[];
 }
 
-/** 요청 칸에 한 번에 넣는 예시 문장 */
-const QUICK: { label: string; text: string }[] = [
-  { label: '발주서 지시대로', text: '발주서에 적힌 포장 지시와 동순서대로 짜 주세요.' },
-  { label: '1·2차 합쳐서', text: '1차와 2차를 합쳐서 규격정리해 주세요.' },
-  { label: '싣는 순서 바꾸기', text: '○동을 맨 앞에 싣게 순서를 바꿔 주세요.' },
-  { label: '발코니 따로', text: '발코니 유리는 동별로 따로 모아 주세요.' },
+/**
+ * 요청 칸에 한 번에 넣는 예시 문장 — **어느 발주서에나 맞는 말만** (2026-11-10 사용자 지적:
+ * "1 · 2차" 는 한 발주서에만 있는 시트 이름이라 대표 예시로 두면 안 된다). 시트 이름 · 위치 · 품목은 사람이 뒤에 채운다.
+ * merge 는 시트가 둘 이상일 때만 보인다.
+ */
+const QUICK: { label: string; text: string; merge?: boolean }[] = [
+  { label: '발주서 지시대로', text: '발주서에 적힌 포장 지시와 싣는 순서대로 짜 주세요.' },
+  { label: '시트 합치기', text: '이 시트들을 합쳐서 한 번에 규격정리해 주세요:', merge: true },
+  { label: '싣는 순서 바꾸기', text: '싣는 순서를 이렇게 바꿔 주세요:' },
+  { label: '품목 빼기', text: '이번 ERP 에서는 이 품목을 빼 주세요:' },
   { label: '이상한 곳 찾기', text: '이 발주서에서 확인해야 할 이상한 곳을 찾아 주세요.' },
 ];
 
 /** 처음 화면에 보여 줄 "할 수 있는 일" — 빈 칸 대신 무엇을 시킬 수 있는지 알려 준다 */
 const CAPABILITIES: { icon: React.ElementType; title: string; text: string }[] = [
   { icon: Boxes, title: '포장 짜기', text: '발주서 지시 · 합계 행 · 동·호로 나누고, 원하는 대로 다시 나눠요' },
-  { icon: Layers, title: '차수 · 파일 합치기', text: '1차 · 2차, 여러 발주서 파일의 시트도 말만 하면 불러와 한 번에 정리해요' },
+  { icon: Layers, title: '시트 · 파일 합치기', text: '여러 시트, 여러 발주서 파일도 말만 하면 불러와 한 번에 정리해요' },
   { icon: ArrowDownUp, title: '싣는 순서', text: '동순서 · 포장 순서 · 포장 안 발주서 순서를 바꿔요' },
-  { icon: Eraser, title: '품목 빼기', text: '발코니 · 파손분처럼 이번에 뺄 품목을 빼요' },
-  { icon: TextCursorInput, title: '위치 글자', text: '"구조마감" 같은 말을 지우거나 바꿔요' },
+  { icon: Eraser, title: '품목 빼기', text: '이번 ERP 에 넣지 않을 품목을 말하면 빼요' },
+  { icon: TextCursorInput, title: '위치 글자', text: '위치 칸에 붙은 필요 없는 말을 지우거나 바꿔요' },
   { icon: Tag, title: '사내 품명', text: '규격정리 오른쪽 품명을 ERP 품목명으로 제안해요' },
   { icon: CircleHelp, title: '질문', text: '몇 장인지, 이상한 곳이 있는지 물어보세요' },
 ];
@@ -59,9 +63,11 @@ function sumUsage(a: AiUsage, b: AiUsage): AiUsage {
   };
 }
 
-export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest, rows, active, onResult, onLoadSheets, onEdit }: {
+export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetNames, buildRequest, rows, active, onResult, onLoadSheets, onEdit }: {
   /** 시트를 읽어 보낼 수 있는지 */
   ready: boolean;
+  /** 올린 발주서에 시트가 둘 이상인지 — '시트 합치기' 예시는 그때만 보인다 */
+  canMerge?: boolean;
   /** 불러온 시트가 바뀌면 대화를 새로 시작한다 (적어 둔 요청은 남긴다) */
   sheetKey: string;
   /** 지금 불러온 시트 이름 — 행 이름을 "2차 15" 처럼 보여 줄 때 */
@@ -160,7 +166,18 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
   const qtyOf = new Map(rows.filter(r => r.source_row !== undefined).map(r => [r.source_row!, r.quantity]));
   const sumQty = (keys: number[]) => keys.reduce((s, k) => s + (qtyOf.get(k) ?? 0), 0);
   const onKey = (e: React.KeyboardEvent) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); } };
-  const addQuick = (q: string) => setDraft(d => (d.trim() ? `${d.trim()} ${q}` : q).slice(0, MAX_INSTRUCTION));
+  const box = useRef<HTMLTextAreaElement>(null);
+  // 예시를 넣으면 바로 이어 쓰게 글 끝에 커서를 둔다 — "이 시트들을 합쳐서 …:" 뒤에 시트 이름을 적는다
+  const addQuick = (q: string) => {
+    const next = (draft.trim() ? `${draft.trim()} ${q}` : q).slice(0, MAX_INSTRUCTION);
+    setDraft(q.endsWith(':') ? `${next} ` : next);
+    requestAnimationFrame(() => {
+      const el = box.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  };
   const label = (keys: number[]) => keysLabel(keys, result?.sheetNames ?? sheetNames);
 
   return (
@@ -175,7 +192,7 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
               DG 프리즘
               <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-600/20">AI</span>
             </p>
-            <p className="break-keep text-[13px] text-muted-foreground">발주서 규격정리 전문가 — 묻거나 시키면 포장 · 순서 · 차수 합치기까지 해 드려요</p>
+            <p className="break-keep text-[13px] text-muted-foreground">발주서 규격정리 전문가 — 묻거나 시키면 포장 · 순서 · 시트 합치기까지 해 드려요</p>
           </div>
         </header>
 
@@ -307,15 +324,15 @@ export default function DgPrismPanel({ ready, sheetKey, sheetNames, buildRequest
               {result ? '— 고칠 점이나 궁금한 것을 적으면 위 결과를 바탕으로 이어서 해요' : '— 질문도 되고 지시도 돼요. 길게 적어도 되고, 비우면 발주서대로 짜요'}
             </span>
           </label>
-          <Textarea id="dg-prism-request" value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKey}
+          <Textarea id="dg-prism-request" ref={box} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKey}
             disabled={busy} rows={result ? 2 : 4} maxLength={MAX_INSTRUCTION}
             className="bg-card text-sm leading-relaxed shadow-xs"
             placeholder={result
-              ? '예) 2동은 한 포장으로 합쳐 주세요. / 3동은 몇 장이에요? / 위치에서 "구조마감" 은 빼 주세요.'
-              : '예) 1차와 2차를 합쳐서 규격정리해 주세요. 5동을 맨 앞에 싣고, 발코니 유리는 동별로 따로 모아 주세요. 나머지는 발주서 지시대로 해 주세요.'} />
+              ? '예) 이 두 포장은 하나로 합쳐 주세요. / 이 포장은 모두 몇 장이에요? / 위치 칸에서 이 말은 빼 주세요.'
+              : '예) 포장은 발주서 지시대로 하고, 싣는 순서만 바꿔 주세요. / 이 시트들을 합쳐서 정리해 주세요. / 몇 장이에요?'} />
           {!result && (
             <div className="flex flex-wrap gap-1.5">
-              {QUICK.map(q => (
+              {QUICK.filter(q => !q.merge || canMerge).map(q => (
                 <button key={q.label} type="button" onClick={() => addQuick(q.text)} disabled={busy} title={q.text}
                   className="rounded-full border border-brand-600/25 bg-card px-2.5 py-1 text-xs text-brand-800 transition-colors hover:border-brand-600 hover:bg-brand-50">
                   + {q.label}
