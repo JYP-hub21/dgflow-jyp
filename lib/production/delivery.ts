@@ -145,7 +145,9 @@ export function deliveriesByDateAndOrder(logs: DeliveryLog[]): DeliveryDayByOrde
 
 export interface DeliveryTodo {
   quantity: number;
+  /** 품목마다 의뢰 수량까지만 센 생산 */
   produced: number;
+  /** 품목마다 의뢰 수량까지만 센 납품 — 의뢰보다 더 나간 재고분은 다른 품목의 미납을 메우지 않는다 */
   delivered: number;
   /** 아직 안 나간 수량 */
   remaining: number;
@@ -153,13 +155,25 @@ export interface DeliveryTodo {
   ready: number;
 }
 
-/** 의뢰서 하나의 납품 할 일 */
-export function deliveryTodo(items: { quantity: number; produced_quantity: number }[], delivered: number): DeliveryTodo {
-  const quantity = items.reduce((s, i) => s + i.quantity, 0);
-  const produced = items.reduce((s, i) => s + Math.min(i.produced_quantity, i.quantity), 0);
-  return {
-    quantity, produced, delivered,
-    remaining: Math.max(0, quantity - delivered),
-    ready: Math.max(0, produced - delivered),
-  };
+/**
+ * 의뢰서 하나의 납품 할 일 — 품목마다 따진다.
+ * 예전에는 의뢰서 전체 합으로 따져 A 품목(의뢰 10)을 20 내보내고 B 품목(의뢰 10)이 0 이면
+ * 미납 0 이 되고 의뢰서가 납품 완료로 닫혀 B 의 10 이 모든 목록에서 사라졌다 (2026-11-10 점검).
+ * 더 나간 것(재고분)은 막지 않지만, 그 품목의 의뢰 수량까지만 센다.
+ */
+export function deliveryTodo(
+  items: { id: string; quantity: number; produced_quantity: number }[],
+  deliveredByItemId: Map<string, number>,
+): DeliveryTodo {
+  const todo: DeliveryTodo = { quantity: 0, produced: 0, delivered: 0, remaining: 0, ready: 0 };
+  for (const i of items) {
+    const produced = Math.max(0, Math.min(i.produced_quantity, i.quantity));
+    const delivered = Math.max(0, Math.min(deliveredByItemId.get(i.id) ?? 0, i.quantity));
+    todo.quantity += i.quantity;
+    todo.produced += produced;
+    todo.delivered += delivered;
+    todo.remaining += Math.max(0, i.quantity - delivered);
+    todo.ready += Math.max(0, produced - delivered);
+  }
+  return todo;
 }

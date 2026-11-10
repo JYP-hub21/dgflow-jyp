@@ -21,7 +21,7 @@ export async function validateSite(
   if (!isSite(site)) return { error: '생산 공장 값이 올바르지 않습니다.' };
   if (site === 'ochang') return { production_site: site, outsource_partner_id: null };
   const partnerId = typeof body.outsource_partner_id === 'string' ? body.outsource_partner_id : '';
-  if (!partnerId) return { error: '외주 업체를 고르세요.' };
+  if (!partnerId) return { error: '외주 업체를 선택하세요.' };
   const { data } = await supabase.from('dgflow_outsource_partners').select('id').eq('id', partnerId).maybeSingle();
   if (!data) return { error: '외주 업체를 찾지 못했습니다.' };
   return { production_site: site, outsource_partner_id: partnerId };

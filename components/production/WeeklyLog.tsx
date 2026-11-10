@@ -52,6 +52,8 @@ const toNumber = (s: string): number | null => {
 };
 const fixed = (v: number | '휴무', digits: number) => (v === '휴무' ? v : v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }));
 const percent = (v: number) => `${Math.round(v * 100)}%`;
+/** 근무시간 합 — 소수 시간을 더하면 42.800000000000004 처럼 찍혀 소수 둘째 자리까지만, 끝의 0 은 뗀다 (2026-11-10 점검) */
+const hoursText = (h: number) => (Math.round(h * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const shortDate = (date: string) => `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
 
 /** 투입 인원 칸에서 고를 명단 — 표마다 넘기지 않고 한 곳에서 준다 */
@@ -195,10 +197,17 @@ export default function WeeklyLog() {
   }, [entries]);
   // 생산 인원 명단 (조직도 생산부) — 표가 없으면 이 주에 적힌 이름으로만 고른다
   const [crew, setCrew] = useState<{ storage: 'db' | 'none'; members: CrewMember[] }>({ storage: 'none', members: [] });
+  // 명단을 못 불러오면 알린다 — 예전에는 실패해도 빈 명단으로 보여 '명단이 아직 없습니다' 로 오해했다 (2026-11-10 점검)
+  const [crewError, setCrewError] = useState('');
   useEffect(() => {
-    fetch('/api/production/crew').then(r => (r.ok ? r.json() : null))
-      .then(j => { if (j) setCrew({ storage: j.storage, members: j.members ?? [] }); })
-      .catch(() => {});
+    fetch('/api/production/crew')
+      .then(async r => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j) throw new Error(j?.error || `서버 오류 ${r.status}`);
+        setCrew({ storage: j.storage, members: j.members ?? [] });
+        setCrewError('');
+      })
+      .catch(e => setCrewError(e instanceof TypeError ? '인터넷 연결이 끊겼습니다' : e instanceof Error ? e.message : String(e)));
   }, []);
   const addCrew = useCallback(async (name: string) => {
     const res = await fetch('/api/production/crew', {
@@ -255,6 +264,11 @@ export default function WeeklyLog() {
       {error && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive">{error}</p>
       )}
+      {crewError && canEdit && (
+        <p className="break-keep rounded-lg border border-warning/40 bg-warning-50 px-4 py-2.5 text-sm">
+          생산부 명단을 불러오지 못했습니다 ({crewError}). 투입 인원은 이름을 직접 입력할 수 있으며, 새로고침하면 명단을 다시 불러옵니다.
+        </p>
+      )}
       {loading && !sheet && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />불러오는 중…</p>
       )}
@@ -270,8 +284,8 @@ export default function WeeklyLog() {
           <OutputTable sheet={sheet.lines} nameOf={n => lineName(lines, n)} entries={entries} auto={data.auto} canEdit={canEdit} onChange={change} />
 
           <p className="break-keep text-sm text-muted-foreground">
-            <b className="text-foreground">근무 구분 · 근무시간 · 투입 인원 · 사유</b>를 입력하면 목표 · 시간당 생산 · 환산 · 평가가 계산되고, 회사 주간생산일지 양식 그대로 엑셀이 나옵니다.
-            근무시간은 설비 고장 같은 부동시간을 뺀 실제 생산 시간을 입력하세요. 투입 인원 칸을 누르면 생산부 명단에서 고를 수 있습니다.
+            <b className="text-foreground">근무 구분 · 근무시간 · 투입 인원 · 사유</b>를 입력하면 목표 · 시간당 생산 · 환산 · 평가가 계산되고, 회사 주간생산일지 양식 그대로 엑셀이 생성됩니다.
+            근무시간은 설비 고장 같은 부동시간을 제외한 실제 생산 시간을 입력하세요. 투입 인원 칸을 누르면 생산부 명단에서 선택할 수 있습니다.
           </p>
 
           <CrewContext.Provider value={roster}>
@@ -315,7 +329,7 @@ function LineTable({ block, name, entries, canEdit, auto, onChange }: {
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b bg-muted/40 px-5 py-3">
         <h3 className="text-[15px] font-bold">주간생산일지 {name}</h3>
         <p className="tabular text-sm text-muted-foreground">
-          근무 {t.hours}시간 · <b className="text-foreground">{t.jo.toLocaleString()}조</b> · {fixed(t.m2, 2)}M² · 환산 {fixed(t.score, 1)}
+          근무 {hoursText(t.hours)}시간 · <b className="text-foreground">{t.jo.toLocaleString()}조</b> · {fixed(t.m2, 2)}M² · 환산 {fixed(t.score, 1)}
         </p>
       </div>
       <CardContent className="overflow-x-auto p-0">
@@ -358,7 +372,7 @@ function LineTable({ block, name, entries, canEdit, auto, onChange }: {
             <tr className="bg-muted/40 font-bold">
               <td colSpan={2} className={cn(td, 'sticky left-0 z-10 bg-muted')}>소계</td>
               <td className={td} />
-              <td className={td}>{t.hours}</td>
+              <td className={td}>{hoursText(t.hours)}</td>
               <td colSpan={2 + CREW_COLUMNS.length + 1} className={td} />
               <td className={td}>{t.target.toLocaleString()}</td>
               <td className={td}>{t.jo.toLocaleString()}</td>

@@ -15,7 +15,7 @@ export const STAGE_LABEL: Record<PoStage, string> = {
   submitted: '확인 전',
   checked: '확인함',
   erp_ready: 'ERP 등록 대기',
-  linking: '작업의뢰서 받는 중',
+  linking: '작업의뢰서 수신 중',
   producing: '생산 중',
   done: '완료',
   cancelled: '취소',

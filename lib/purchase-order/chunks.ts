@@ -32,7 +32,7 @@ export async function uploadChunked(
       contentType: 'application/octet-stream',
       upsert: true,
     });
-    if (error) throw new Error(`파일을 올리지 못했습니다 (${i + 1}/${count}번째 조각): ${error.message}`);
+    if (error) throw new Error(`파일을 업로드하지 못했습니다 (${i + 1}/${count}번째 조각): ${error.message}`);
     onProgress?.(Math.min(file.size, (i + 1) * CHUNK_BYTES));
   }
   return count;

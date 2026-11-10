@@ -25,9 +25,9 @@ async function NewPurchaseOrderPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <PageHeader
-        title="발주서 올리기"
+        title="발주서 등록"
         back={{ href: '/purchase-orders', label: '발주서' }}
-        description="메일 대신 여기에 올리고 담당자를 지목하세요. 담당자가 열어 보면 확인한 시각이 남습니다."
+        description="메일 대신 이곳에 업로드하고 담당자를 지목하세요. 담당자가 열람하면 확인 시각이 기록됩니다."
       />
       <PurchaseOrderForm
         meId={user.id}

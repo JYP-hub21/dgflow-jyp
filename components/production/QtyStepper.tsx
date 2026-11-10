@@ -39,11 +39,11 @@ export default function QtyStepper({ value, onChange, size = 'md', invalid, high
           highlight && !invalid && 'border-brand-600')}
       />
       <div className="flex w-7 flex-col">
-        <button type="button" aria-label="하나 더" onClick={() => step(1)}
+        <button type="button" aria-label="1 증가" onClick={() => step(1)}
           className="flex flex-1 items-center justify-center rounded-tr-lg border border-l-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100">
           <Plus className="h-3 w-3" strokeWidth={2.5} />
         </button>
-        <button type="button" aria-label="하나 빼기" onClick={() => step(-1)} disabled={n === 0}
+        <button type="button" aria-label="1 감소" onClick={() => step(-1)} disabled={n === 0}
           className="flex flex-1 items-center justify-center rounded-br-lg border border-l-0 border-t-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100 disabled:opacity-40">
           <Minus className="h-3 w-3" strokeWidth={2.5} />
         </button>

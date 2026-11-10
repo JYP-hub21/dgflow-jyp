@@ -12,8 +12,8 @@ export const PERMISSION_GROUPS = [
   {
     group: '발주서',
     items: [
-      { key: 'order:submit', label: '발주서 올리기 (담당자 지목)' },
-      { key: 'order:process', label: '발주서 처리 (담당자로 받기 · ERP 변환 · 작업의뢰서 연결)' },
+      { key: 'order:submit', label: '발주서 등록 (담당자 지목)' },
+      { key: 'order:process', label: '발주서 처리 (담당 접수 · ERP 변환 · 작업의뢰서 연결)' },
     ],
   },
   {
@@ -135,23 +135,23 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: '대시보드', href: '/dashboard', icon: 'LayoutDashboard', group: 'common' },
 
   // ① 공사관리부 — 발주서를 올리고, 올린 것이 어디까지 갔는지 본다
-  { label: '발주서 올리기', href: '/purchase-orders/new', icon: 'Upload', permission: 'order:submit', group: 'construction',
-    hint: '파일을 올리고 담당자 지목' },
-  { label: '올린 발주서', href: '/purchase-orders?view=mine', icon: 'Send', permission: 'order:submit', group: 'construction',
+  { label: '발주서 등록', href: '/purchase-orders/new', icon: 'Upload', permission: 'order:submit', group: 'construction',
+    hint: '파일 업로드 · 담당자 지목' },
+  { label: '등록 발주서', href: '/purchase-orders?view=mine', icon: 'Send', permission: 'order:submit', group: 'construction',
     hint: '담당자 확인 여부 · 진행 단계' },
 
   // ② 업무지원부 — 받은 발주서 → ERP 업로드 엑셀 → (회사 ERP) → 작업의뢰서 등록
-  { label: '받은 발주서', href: '/purchase-orders?view=todo', icon: 'Inbox', permission: 'order:process', group: 'support',
-    hint: '나에게 온 발주서 확인' },
+  { label: '수신 발주서', href: '/purchase-orders?view=todo', icon: 'Inbox', permission: 'order:process', group: 'support',
+    hint: '본인 배정 발주서 확인' },
   { label: 'ERP 업로드', href: '/erp-upload', icon: 'FileSpreadsheet', permission: 'erp:generate', group: 'support',
-    hint: 'ERP에 넣을 엑셀 만들기' },
+    hint: 'ERP 업로드용 엑셀 생성' },
   // ERP 가 뽑아 준 작업의뢰서를 받아 오는 입구. 생산 현황은 여기서 시작한다.
   { label: '작업의뢰서 등록', href: '/work-orders/receive', icon: 'ScanLine', permission: 'work_order:create', group: 'support',
-    hint: 'ERP에서 받은 엑셀 · PDF 올리기' },
+    hint: 'ERP 작업의뢰서 엑셀 · PDF 업로드' },
 
   // ③ 생산관리부 — 작업의뢰서를 보고 생산 수량을 기록한다
   { label: '작업의뢰서', href: '/work-orders', icon: 'FileCheck', permission: 'production:view', group: 'production',
-    hint: '들어온 작업의뢰서 보기' },
+    hint: '접수된 작업의뢰서 조회' },
   { label: '생산 현황', href: '/production', icon: 'Factory', permission: 'production:view', group: 'production',
     hint: '생산 수량 입력 · 진행률' },
   { label: '생산일지', href: '/production/report', icon: 'ClipboardList', permission: 'production:view', group: 'production',

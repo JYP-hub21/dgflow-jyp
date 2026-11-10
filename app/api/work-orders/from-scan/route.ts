@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
-import { format } from 'date-fns';
+import { kstToday } from '@/lib/kst-date';
 import { validateSite } from '@/lib/work-order/site-server';
 import { invalidItems } from '@/lib/work-order/revise';
 
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
 
   if (dup) {
     return NextResponse.json(
-      { error: `의뢰번호 ${workOrderNumber} 는 이미 등록돼 있습니다.`, id: dup.id },
+      { error: `의뢰번호 ${workOrderNumber} 는 이미 등록되어 있습니다.`, id: dup.id },
       { status: 409 }
     );
   }
@@ -78,7 +78,8 @@ export async function POST(request: NextRequest) {
     .insert({
       order_id: null,
       work_order_number: workOrderNumber,
-      request_date: payload.request_date || format(new Date(), 'yyyy-MM-dd'),
+      // 서버는 UTC 라 format(new Date()) 는 오전 9시 전에 어제가 된다 → 한국 날짜 (2026-11-10 점검)
+      request_date: payload.request_date || kstToday(),
       delivery_date: payload.delivery_date || null,
       customer_label: payload.customer_label?.trim() || null,
       site_label: payload.site_label?.trim() || null,

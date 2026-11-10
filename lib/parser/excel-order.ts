@@ -130,7 +130,7 @@ export function parseOrderExcel(buffer: ArrayBuffer, sheetName?: string): {
     return { ...fallback, meta, warnings: [...warnings, ...fallback.warnings] };
   }
 
-  warnings.push('품명/가로/세로 컬럼을 찾을 수 없습니다. 수동으로 확인해주세요.');
+  warnings.push('품명/가로/세로 컬럼을 찾을 수 없습니다. 수동으로 확인하세요.');
   return { meta, items: [], sheetName: bestSheet, totalRows: allRows.length, warnings };
 }
 
@@ -263,7 +263,9 @@ function formatMetaValue(value: string, field: keyof ParsedOrderMeta): string {
     // Date 객체 또는 Date 문자열 ("Sun Aug 24 2025 23:59:08 GMT+0900...")
     const date = new Date(value);
     if (!isNaN(date.getTime()) && date.getFullYear() > 2000) {
-      return date.toISOString().split('T')[0];
+      // SheetJS 날짜는 한국 자정이 '전날 23:59:08' 로 들어와 toISOString 으로 자르면 하루 앞당겨졌다 —
+      // erp-list 의 toIsoDate 처럼 12시간을 더해 날짜만 읽는다 (2026-11-10 점검)
+      return new Date(date.getTime() + 12 * 3600_000).toISOString().split('T')[0];
     }
     // Excel 시리얼 번호 (예: 45894)
     const num = Number(value);

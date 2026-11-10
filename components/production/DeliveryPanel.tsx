@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import RemarkText from '@/components/production/RemarkText';
 import { blockTotals, itemNo, sizeText } from '@/lib/production/item-view';
-import { deliveredByItem, groupDeliveries, type DeliveryLog } from '@/lib/production/delivery';
+import { deliveredByItem, deliveryTodo, groupDeliveries, type DeliveryLog } from '@/lib/production/delivery';
 import { cn } from '@/lib/utils';
 
 export interface DeliveryItem {
@@ -41,13 +41,29 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
   const [note, setNote] = useState('');
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  /** 지우는 중인 기록 */
+  const [removing, setRemoving] = useState<string | null>(null);
+
+  /** 불러오기 실패 — 예전에는 연결이 끊기면 '불러오는 중…' 에서 멈췄다 (2026-11-10 점검) */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/deliveries?work_order_id=${workOrderId}`);
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) { toast.error(body.error ?? '납품 기록을 불러오지 못했습니다.'); return; }
-    setLogs(body.logs ?? []);
-    setStorage(body.storage);
+    try {
+      const res = await fetch(`/api/deliveries?work_order_id=${workOrderId}`);
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = body.error ?? '납품 기록을 불러오지 못했습니다.';
+        setLoadError(message);
+        toast.error(message);
+        return;
+      }
+      setLoadError(null);
+      setLogs(body.logs ?? []);
+      setStorage(body.storage);
+    } catch {
+      setLoadError('인터넷 연결이 끊겨 납품 기록을 불러오지 못했습니다.');
+      toast.error('인터넷 연결이 끊겨 납품 기록을 불러오지 못했습니다.');
+    }
   }, [workOrderId]);
 
   useEffect(() => { load(); }, [load]);
@@ -61,6 +77,8 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
   const totalQty = items.reduce((s, i) => s + i.quantity, 0);
   const totalProduced = items.reduce((s, i) => s + i.produced_quantity, 0);
   const totalDelivered = logs.reduce((s, l) => s + l.quantity, 0);
+  // 미납은 품목마다 — 한 품목을 더 내보낸 것이 다른 품목의 미납을 메우지 않는다 (2026-11-10 점검)
+  const totalRemaining = deliveryTodo(items, delivered).remaining;
   const totalInput = Object.values(quantities).reduce((s, v) => s + (parseInt(v) || 0), 0);
   const overProduced = items.filter(i => (delivered.get(i.id) ?? 0) + (parseInt(quantities[i.id]) || 0) > i.produced_quantity);
   const editable = canEdit && storage === 'db';
@@ -98,19 +116,46 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
       setNote('');
       await load();
       onChanged?.();
+    } catch {
+      // 연결이 끊겼다 — 입력한 수량은 칸에 남겨 다시 누를 수 있게 한다 (2026-11-10 점검)
+      toast.error('인터넷 연결이 끊겨 저장하지 못했습니다. 입력한 수량은 그대로 두었습니다 — 연결을 확인하고 다시 저장하세요.');
     } finally {
       setSaving(false);
     }
   }
 
-  async function remove(id: string) {
-    const res = await fetch(`/api/deliveries/${id}`, { method: 'DELETE' });
-    if (!res.ok) { toast.error('삭제하지 못했습니다.'); return; }
-    await load();
-    onChanged?.();
+  /** 지우기 전에 묻는다 — 생산 기록 지우기와 같다 (2026-11-10 점검) */
+  async function remove(log: DeliveryLog) {
+    const it = itemById.get(log.work_order_item_id);
+    const name = it ? `No.${it.no} ${sizeText(it.width_mm, it.height_mm)}` : '이 기록';
+    if (!confirm(`${log.delivery_date} ${name} 납품 ${log.quantity}조 기록을 삭제하시겠습니까?`)) return;
+    setRemoving(log.id);
+    try {
+      const res = await fetch(`/api/deliveries/${log.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? '삭제하지 못했습니다.');
+        return;
+      }
+      toast.success('납품 기록을 삭제했습니다.');
+      await load();
+      onChanged?.();
+    } catch {
+      toast.error('인터넷 연결이 끊겨 삭제하지 못했습니다. 연결을 확인하고 다시 시도하세요.');
+    } finally {
+      setRemoving(null);
+    }
   }
 
   if (storage === null) {
+    if (loadError) {
+      return (
+        <div className="flex flex-wrap items-center gap-3 p-5 text-sm">
+          <span className="font-medium text-destructive">{loadError}</span>
+          <Button variant="outline" size="sm" onClick={() => { setLoadError(null); load(); }}>다시 불러오기</Button>
+        </div>
+      );
+    }
     return <p className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />불러오는 중…</p>;
   }
 
@@ -135,7 +180,7 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
           </label>
         </div>
         <div className="tabular text-sm">
-          의뢰 <b>{totalQty}</b> · 생산 <b>{totalProduced}</b> · 납품 <b className="text-brand-800">{totalDelivered}</b> · 미납 <b>{Math.max(0, totalQty - totalDelivered)}</b>
+          의뢰 <b>{totalQty}</b> · 생산 <b>{totalProduced}</b> · 납품 <b className="text-brand-800">{totalDelivered}</b> · 미납 <b>{totalRemaining}</b>
         </div>
       </div>
 
@@ -222,8 +267,10 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
                         <li className="tabular flex items-center gap-2">
                           <span>No.{it?.no ?? '-'} {it ? sizeText(it.width_mm, it.height_mm) : ''} · {l.quantity}조{l.note ? ` · ${l.note}` : ''}</span>
                           {canEdit && (
-                            <button type="button" aria-label="납품 기록 삭제" title="삭제" onClick={() => remove(l.id)}
-                              className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                            <button type="button" aria-label="납품 기록 삭제" title="삭제" onClick={() => remove(l)} disabled={removing !== null}
+                              className="text-muted-foreground hover:text-destructive disabled:opacity-40">
+                              {removing === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                            </button>
                           )}
                         </li>
                       </Fragment>

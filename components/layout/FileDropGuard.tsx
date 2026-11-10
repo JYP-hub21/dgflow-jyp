@@ -20,7 +20,7 @@ export default function FileDropGuard() {
       if (!hasFiles(e) || e.defaultPrevented) return;
       e.preventDefault();
       // 올리기 상자가 있는 화면이면 어디에 놓아야 하는지 알려 준다
-      if (document.querySelector('[data-file-drop]')) toast.info('파일은 점선으로 된 올리기 상자 안에 놓아 주세요.');
+      if (document.querySelector('[data-file-drop]')) toast.info('파일은 점선으로 표시된 업로드 영역 안에 놓으세요.');
     };
     window.addEventListener('dragover', over);
     window.addEventListener('drop', drop);

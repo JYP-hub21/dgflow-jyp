@@ -32,14 +32,14 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
   if (packages.length === 0) return bad('저장할 포장이 없습니다.');
 
   const supabase = createServiceRoleClient();
-  const { data: po } = await supabase.from('dgflow_purchase_orders').select('id, stage').eq('id', id).maybeSingle();
+  const { data: po } = await supabase.from('dgflow_purchase_orders').select('id, stage, checked_at, assignee_id').eq('id', id).maybeSingle();
   if (!po) return bad('발주 건을 찾을 수 없습니다.', 404);
   if (po.stage === 'cancelled') return bad('취소된 건입니다.');
 
   const { data: old } = await supabase
     .from('dgflow_purchase_order_packages').select('id, work_order_id').eq('purchase_order_id', id).eq('sheet_name', sheetName);
   if ((old ?? []).some(p => p.work_order_id)) {
-    return bad(`"${sheetName || '이 차수'}" 에는 이미 작업의뢰서가 연결된 포장이 있어 다시 저장할 수 없습니다. 연결을 먼저 끊으세요.`, 409);
+    return bad(`"${sheetName || '이 차수'}" 에는 이미 작업의뢰서가 연결된 포장이 있어 다시 저장할 수 없습니다. 연결을 먼저 해제하세요.`, 409);
   }
 
   for (const f of files) {
@@ -99,11 +99,19 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
   if (old?.length) await supabase.from('dgflow_purchase_order_packages').delete().in('id', old.map(p => p.id));
 
   const now = new Date().toISOString();
-  await supabase.from('dgflow_purchase_orders').update({
+  // 담당자가 아닌 처리 담당이 확인 전에 바로 ERP 를 저장하면 단계는 'ERP 등록 대기' 로 넘어가는데 확인 시각이 비어
+  // 목록에 계속 '미확인' 으로 보였다 — ERP 를 저장한 것이 곧 확인이므로 저장한 사람 · 시각으로 채운다
+  // ('확인했어요' 버튼과 같은 처리 권한이다. 이미 확인된 건은 그대로 둔다) (2026-11-10 점검)
+  const firstCheck = !po.checked_at;
+  const { error: stageError } = await supabase.from('dgflow_purchase_orders').update({
     stage: 'erp_ready',
     erp_saved_at: now,
     updated_at: now,
+    ...(firstCheck ? { checked_at: now, checked_by: user.id } : {}),
+    ...(firstCheck && !po.assignee_id ? { assignee_id: user.id } : {}),
   }).eq('id', id);
+  if (stageError) return bad(`포장은 저장했지만 단계를 변경하지 못했습니다: ${stageError.message}`, 500);
+  if (firstCheck) await logEvent(supabase, id, user.id, 'checked');
   await logEvent(supabase, id, user.id, 'erp_saved', { sheet_name: sheetName, packages: packages.length });
 
   return NextResponse.json({ success: true });

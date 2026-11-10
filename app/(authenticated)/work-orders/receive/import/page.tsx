@@ -61,7 +61,7 @@ export default function ImportWorkOrdersPage() {
         const p = parseErpOrderList(rows);
         if (!best || p.itemCount > best.itemCount) best = p;
       }
-      if (!best || best.headerRow === 0) throw new Error('의뢰번호 · 품명 칸이 있는 표를 찾지 못했습니다. ERP 작업의뢰서 목록 엑셀인지 확인해 주세요.');
+      if (!best || best.headerRow === 0) throw new Error('의뢰번호 · 품명 칸이 있는 표를 찾지 못했습니다. ERP 작업의뢰서 목록 엑셀인지 확인하세요.');
       if (best.missingColumns.length > 0) throw new Error(`필요한 칸이 없습니다: ${best.missingColumns.join(', ')}`);
       if (best.orders.length === 0) throw new Error('가져올 작업의뢰서가 없습니다.');
       setParsed(best);
@@ -94,7 +94,7 @@ export default function ImportWorkOrdersPage() {
 
   async function runImport() {
     if (!options || fresh.length === 0) return;
-    if (!window.confirm(`새 작업의뢰서 ${fresh.length}건(품목 ${fresh.reduce((s, o) => s + o.items.length, 0)}줄)을 시스템에 넣습니다. 계속할까요?`)) return;
+    if (!window.confirm(`새 작업의뢰서 ${fresh.length}건(품목 ${fresh.reduce((s, o) => s + o.items.length, 0)}줄)을 시스템에 등록합니다. 계속하시겠습니까?`)) return;
     setProgress({ done: 0, total: fresh.length });
     setError('');
     let created = 0, items = 0, skipped = 0;
@@ -128,7 +128,7 @@ export default function ImportWorkOrdersPage() {
       <PageHeader
         back={{ href: '/work-orders/receive', label: '작업의뢰서 등록' }}
         title="지난 작업의뢰서 가져오기"
-        description="ERP 에서 뽑은 작업의뢰서 목록 엑셀(한 줄에 품목 하나)을 올리면 의뢰번호별로 묶어 한꺼번에 등록합니다. 파일을 고르면 먼저 미리 보여 주고, 확인한 뒤에 넣습니다."
+        description="ERP 에서 출력한 작업의뢰서 목록 엑셀(한 줄에 품목 하나)을 업로드하면 의뢰번호별로 묶어 일괄 등록합니다. 파일을 선택하면 먼저 미리보기를 표시하고, 확인 후 등록합니다."
       />
 
       {/* 1. 파일 — 카드에 끌어다 놓아도 된다 */}
@@ -139,12 +139,12 @@ export default function ImportWorkOrdersPage() {
             <div>
               <p className="font-semibold">{fileName || 'ERP 작업의뢰서 목록 엑셀'}</p>
               <p className="text-xs text-muted-foreground">xlsx · xls · csv — 의뢰번호 · 품명 · 가로규격 · 세로규격 · 주문수량 칸이 있어야 합니다</p>
-              <p className="mt-0.5 text-xs font-medium text-brand-800">{dragging ? '여기에 놓으세요' : '파일을 이 상자에 끌어다 놓아도 됩니다'}</p>
+              <p className="mt-0.5 text-xs font-medium text-brand-800">{dragging ? '여기에 놓으세요' : '파일을 이 영역에 끌어다 놓아도 됩니다'}</p>
             </div>
           </div>
           <label className={cn('inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg bg-brand-800 px-4 text-sm font-semibold text-white hover:bg-brand-700', reading && 'pointer-events-none opacity-60')}>
             {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {reading ? '읽는 중…' : parsed ? '다른 파일 고르기' : '파일 고르기'}
+            {reading ? '읽는 중…' : parsed ? '다른 파일 선택' : '파일 선택'}
             <input type="file" accept=".xlsx,.xls,.csv" className="hidden"
               onChange={e => { const f = e.target.files?.[0]; if (f) void onFile(f); e.target.value = ''; }} />
           </label>
@@ -160,7 +160,7 @@ export default function ImportWorkOrdersPage() {
             <Stat label="작업의뢰서" value={`${parsed.orders.length.toLocaleString()}건`} sub={`품목 ${parsed.itemCount.toLocaleString()}줄`} />
             <Stat label="주문일" value={dates?.length ? `${dates[0].slice(5)} – ${dates[dates.length - 1].slice(5)}` : '-'} sub={dates?.length ? dates[0].slice(0, 4) + '년' : ''} />
             <Stat label="이미 등록됨" value={existing ? `${parsed.orders.filter(o => existing.has(o.work_order_number)).length}건` : '확인 중'} sub="건너뜁니다" />
-            <Stat label="새로 넣을 것" value={`${fresh.length.toLocaleString()}건`} sub={`잔여가 남은 것 ${withRemaining}건`} strong />
+            <Stat label="신규 등록 대상" value={`${fresh.length.toLocaleString()}건`} sub={`잔여 수량 있음 ${withRemaining}건`} strong />
           </div>
           {parsed.skipped.length > 0 && (
             <details className="rounded-lg border border-warning/40 bg-warning-50 px-4 py-2.5 text-sm">
@@ -178,7 +178,7 @@ export default function ImportWorkOrdersPage() {
               <label className="flex cursor-pointer items-start gap-2.5 text-sm">
                 <input type="checkbox" className="mt-0.5 h-5 w-5 accent-brand-800" checked={producedFromShipped}
                   onChange={e => setProducedFromShipped(e.target.checked)} />
-                <span><b>출고된 수량만큼은 생산 완료로 넣기</b><span className="block text-muted-foreground">다 출고된 의뢰서는 완료로 들어갑니다.</span></span>
+                <span><b>출고 수량만큼 생산 완료로 처리</b><span className="block text-muted-foreground">전량 출고된 의뢰서는 완료로 등록됩니다.</span></span>
               </label>
               <div className="space-y-2 text-sm">
                 <p className="font-semibold">잔여가 남은 의뢰서 {withRemaining}건은</p>
@@ -191,19 +191,19 @@ export default function ImportWorkOrdersPage() {
                 {remainingStatus === 'active' && producedFromShipped && (
                   <p className="flex items-start gap-1.5 rounded-lg bg-warning-50 px-3 py-2 text-xs">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-                    진행 중 의뢰서의 품목에 생산 실적을 새로 넣으면, 그 품목의 완료 수량은 출고 기준으로 넣어 둔 값 대신 새로 넣은 실적의 합으로 바뀝니다.
+                    진행 중 의뢰서의 품목에 생산 실적을 새로 입력하면, 그 품목의 완료 수량은 출고 기준으로 입력해 둔 값 대신 새로 입력한 실적의 합으로 변경됩니다.
                   </p>
                 )}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   {plan
-                    ? <>넣으면 <b className="text-foreground">완료 {plan.completed}건</b> · 진행 중 {plan.in_progress}건 · 대기 {plan.pending}건이 됩니다.</>
-                    : '잔여 의뢰서를 어떻게 둘지 고르면 가져올 수 있습니다.'}
+                    ? <>가져오면 <b className="text-foreground">완료 {plan.completed}건</b> · 진행 중 {plan.in_progress}건 · 대기 {plan.pending}건이 됩니다.</>
+                    : '잔여 의뢰서의 처리 방식을 선택하면 가져올 수 있습니다.'}
                 </p>
                 <Button onClick={runImport} disabled={!options || fresh.length === 0 || !!progress || !existing}>
                   {progress ? <Loader2 className="animate-spin" /> : <Upload />}
-                  {progress ? `넣는 중… ${progress.done}/${progress.total}` : `새 작업의뢰서 ${fresh.length}건 가져오기`}
+                  {progress ? `등록 중… ${progress.done}/${progress.total}` : `새 작업의뢰서 ${fresh.length}건 가져오기`}
                 </Button>
               </div>
               {progress && (

@@ -78,9 +78,14 @@ function isoDate(raw: string | null): string | null {
  *   └No └품명(생략 가능)    └가로 └세로 └수량 └면적 └비고
  */
 const ITEM_RE =
-  /^(\d+)\s+(.*?)\s*X\s*([\d,]+)\s+([\d,]+)\s+(\d+)\s+([\d.]+)\s*(.*)$/;
-const SUBTOTAL_RE = /^소\s*계\s+(\d+)\s+([\d.]+)\s*$/;
-const TOTAL_RE = /^(?:합\s*계|총\s*계)\s+(\d+)\s+([\d.]+)\s*$/;
+  /^(\d+)\s+(.*?)\s*X\s*([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]*\d(?:\.\d+)?)\s*(.*)$/;
+/**
+ * 소계 · 합계 줄. 수량 · 면적이 1,000 을 넘으면 ERP 가 `1,234` 처럼 쉼표를 찍는다 —
+ * 예전 `(\d+)\s+([\d.]+)` 는 그 줄을 못 읽어 검산이 소리 없이 사라졌다 (2026-11-10 점검).
+ * 쉼표는 `num` 이 지운다.
+ */
+const SUBTOTAL_RE = /^소\s*계\s+([\d,]+)\s+([\d,]*\d(?:\.\d+)?)\s*$/;
+const TOTAL_RE = /^(?:합\s*계|총\s*계)\s+([\d,]+)\s+([\d,]*\d(?:\.\d+)?)\s*$/;
 
 export function parseWorkOrderPdfText(text: string): ParsedPdf {
   const head: PdfHead = {

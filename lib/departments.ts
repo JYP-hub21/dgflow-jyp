@@ -19,15 +19,15 @@ export interface Department {
 export const DEPARTMENTS: Department[] = [
   {
     key: 'construction', name: '공사관리부', order: 1,
-    summary: '현장에서 받은 발주서를 올리고, 처리할 담당자를 지목합니다.',
+    summary: '현장에서 받은 발주서를 등록하고, 처리할 담당자를 지목합니다.',
   },
   {
     key: 'support', name: '업무지원부', order: 2,
-    summary: '받은 발주서로 ERP 업로드 엑셀을 만들고, ERP가 뽑아 준 작업의뢰서를 등록합니다.',
+    summary: '수신 발주서로 ERP 업로드 엑셀을 생성하고, ERP에서 발행된 작업의뢰서를 등록합니다.',
   },
   {
     key: 'production', name: '생산관리부', order: 3,
-    summary: '작업의뢰서를 보고 생산한 수량을 기록하고, 생산일지를 냅니다.',
+    summary: '작업의뢰서를 확인해 생산 수량을 기록하고, 생산일지를 작성합니다.',
   },
 ];
 

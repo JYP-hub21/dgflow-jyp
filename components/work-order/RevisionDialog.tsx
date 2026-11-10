@@ -11,6 +11,13 @@ import type { RevisionPlan } from '@/lib/work-order/revise';
  * 같은 의뢰번호를 다시 올리거나 화면에서 고칠 때 — 무엇이 바뀌는지 보여 주고 확인을 받는다.
  * 생산 기록이 있는 줄이 어떻게 되는지 여기서 먼저 알린다.
  */
+/** "4조를 생산하고 2조를 납품하여" — 납품만 있는 줄은 납품만 말한다 (2026-11-10 점검: 납품 기록도 지킨다) */
+function doneText(produced: number, delivered: number): string {
+  if (produced > 0 && delivered > 0) return `${produced}조를 생산하고 ${delivered}조를 납품하여`;
+  if (delivered > 0) return `${delivered}조를 납품하여`;
+  return `${produced}조를 생산하여`;
+}
+
 export default function RevisionDialog({ number, plan, busy, onCancel, onApply }: {
   number: string;
   plan: RevisionPlan;
@@ -45,7 +52,7 @@ export default function RevisionDialog({ number, plan, busy, onCancel, onApply }
                     {c.before.quantity !== c.after.quantity && <span className="mr-3">수량 {c.before.quantity} → <b>{c.after.quantity}</b></span>}
                     {(c.before.remark ?? '') !== (c.after.remark ?? '') && <span>비고 변경</span>}
                   </p>
-                  {c.limited && <p className="text-warning">이미 {c.produced}조를 생산하여 수량을 {c.produced}조까지만 줄입니다.</p>}
+                  {c.limited && <p className="text-warning">이미 {doneText(c.produced, c.delivered)} 수량을 {c.after.quantity}조까지만 줄입니다.</p>}
                 </li>
               ))}
             </Section>
@@ -68,7 +75,7 @@ export default function RevisionDialog({ number, plan, busy, onCancel, onApply }
                   <span className="tabular font-semibold">No.{r.no}</span>{' '}
                   <span className="text-muted-foreground">{r.product_name}</span>
                   <span className="tabular ml-2">{sizeText(r.width_mm, r.height_mm)} · {r.quantity}조</span>
-                  {r.kept && <p className="text-warning">이미 {r.produced}조를 생산하여 삭제하지 않고 수량을 {r.produced}조로 줄입니다.</p>}
+                  {r.kept && <p className="text-warning">이미 {doneText(r.produced, r.delivered)} 삭제하지 않고 수량을 {r.kept_quantity}조로 줄입니다.</p>}
                 </li>
               ))}
             </Section>

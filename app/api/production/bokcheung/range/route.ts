@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   const from = params.get('from');
   const to = params.get('to');
   if (!isIsoDate(from) || !isIsoDate(to)) {
-    return NextResponse.json({ error: '기간을 YYYY-MM-DD 로 지정해 주세요.' }, { status: 400 });
+    return NextResponse.json({ error: '기간을 YYYY-MM-DD 로 지정하세요.' }, { status: 400 });
   }
   if (from > to) return NextResponse.json({ error: '시작일이 종료일보다 늦습니다.' }, { status: 400 });
   if (daysBetween(from, to) > MAX_DAYS) {

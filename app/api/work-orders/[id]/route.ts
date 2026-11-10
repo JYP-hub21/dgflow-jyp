@@ -6,6 +6,7 @@ import { invalidItems, planRevision, type RevisionInput } from '@/lib/work-order
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { MANUAL_SHEET } from '@/lib/purchase-order/manual';
 import { DELIVERY_TABLE } from '@/lib/production/delivery';
+import { loadDeliveredByItem } from '@/lib/production/delivery-store';
 
 /**
  * 등록한 작업의뢰서 수정 · 삭제 (2026-11-06 회의 "이미 올린 의뢰서를 수정 · 삭제할 수 있어야").
@@ -53,11 +54,20 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ id: str
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
   const supabase = createServiceRoleClient();
-  const { data: existing, error: readError } = await supabase
-    .from('dgflow_work_order_items').select(ITEM_COLUMNS).eq('work_order_id', id);
+  // 납품 기록이 있는 줄도 생산한 줄처럼 지키려고 품목별 납품량을 같이 읽는다 — 예전에는 생산 기록이 없는 줄을 지우면
+  // 그 줄의 납품 기록(외주 · 재고분)이 CASCADE 로 소리 없이 사라졌다 (2026-11-10 점검)
+  let delivered: Map<string, number>;
+  const [{ data: existing, error: readError }, deliveredRead] = await Promise.all([
+    supabase.from('dgflow_work_order_items').select(ITEM_COLUMNS).eq('work_order_id', id),
+    loadDeliveredByItem(supabase, id).then(m => ({ m }), (e: unknown) => ({ e })),
+  ]);
   if (readError) return NextResponse.json({ error: readError.message }, { status: 500 });
+  if ('e' in deliveredRead) {
+    return NextResponse.json({ error: `납품 기록을 읽지 못해 수정을 중단했습니다: ${deliveredRead.e instanceof Error ? deliveredRead.e.message : ''}` }, { status: 500 });
+  }
+  delivered = deliveredRead.m;
 
-  const plan = planRevision(existing ?? [], body!.items!);
+  const plan = planRevision((existing ?? []).map(e => ({ ...e, delivered_quantity: delivered.get(e.id) ?? 0 })), body!.items!);
   if (!body?.apply) return NextResponse.json({ plan });
 
   const head = body.head ?? {};

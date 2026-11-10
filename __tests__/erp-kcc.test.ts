@@ -142,13 +142,17 @@ describe.skipIf(!hasFixture)('KCC 여의도 9/17 → ERP 업로드 엑셀', () =
 });
 
 describe.skipIf(!hasFixture)('규격정리 엑셀 생성', () => {
-  it('재(才) 계산이 실물 규격정리와 같다', async () => {
+  /** 만든 규격정리를 엑셀 파일로 썼다가 다시 읽은 값 — 평 · M2 · 합계는 수식이고, 읽히는 값은 넣어 둔 계산 결과다 */
+  async function specRows(scan: ReturnType<typeof build>['scan'], b: ReturnType<typeof build>['build']) {
     const { buildSpecSheetWorkbook } = await import('@/lib/erp/spec-sheet');
+    const wb = await buildSpecSheetWorkbook(scan, b);
+    const read = XLSX.read(new Uint8Array(await wb.xlsx.writeBuffer()), { type: 'array' });
+    return XLSX.utils.sheet_to_json<unknown[]>(read.Sheets['규격정리'], { header: 1, defval: null });
+  }
+
+  it('재(才) 계산이 실물 규격정리와 같다', async () => {
     const { scan, build: b } = build();
-    const wb = buildSpecSheetWorkbook(scan, b);
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets['규격정리'], {
-      header: 1, defval: null,
-    });
+    const rows = await specRows(scan, b);
 
     // 실물 규격정리 828행: 구조마감 근생// · 195×540×1 · 재 1.1469463778060975
     const row = rows.find(r => r[1] === 195 && r[2] === 540 && r[3] === 1);
@@ -157,11 +161,8 @@ describe.skipIf(!hasFixture)('규격정리 엑셀 생성', () => {
   });
 
   it('좌측은 발주서 순서, 우측은 ERP 순서다', async () => {
-    const { buildSpecSheetWorkbook } = await import('@/lib/erp/spec-sheet');
     const { scan, build: b } = build();
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(
-      buildSpecSheetWorkbook(scan, b).Sheets['규격정리'], { header: 1, defval: null },
-    );
+    const rows = await specRows(scan, b);
 
     const header = rows.findIndex(r => r[0] === '위치');
     // 실물 828~837행: 좌측 첫 줄은 발주서 15행(195×540), 우측 첫 줄은 ERP 첫 줄(1028×2750)

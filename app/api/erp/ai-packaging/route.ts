@@ -106,7 +106,7 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
   합계 · 표지 · 물량산출서 같은 시트는 품목 행이 없거나 성격이 달라 보통 합치지 않는다 — 합치라고 하면 따르되 cautions 에 적는다.
 
 ## 말투
-reply · understanding · reason · cautions 는 모두 한국어 존댓말(~요, ~습니다)로, 짧고 분명하게 쓴다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
+reply · understanding · reason · cautions 는 모두 한국어 격식체 존댓말(~습니다, ~하세요)로, 짧고 분명하게 쓴다. "~요" 로 끝나는 해요체는 쓰지 않는다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
 
 /** 사람마다 10분에 30번까지 — 서버 인스턴스마다 따로 세는 가벼운 막이(진짜 상한은 Anthropic 콘솔의 지출 한도) */
 const RECENT = new Map<string, number[]>();
@@ -122,13 +122,13 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!hasPermission(user, 'erp:generate')) return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
   if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI 키가 설정되지 않았습니다. 서버 환경변수 ANTHROPIC_API_KEY 를 넣어 주세요.' }, { status: 503 });
+    return NextResponse.json({ error: 'AI 키가 설정되지 않았습니다. 서버 환경변수 ANTHROPIC_API_KEY 를 설정하세요.' }, { status: 503 });
   }
 
   const body = (await request.json().catch(() => null)) as AiPackagingRequest | null;
   // 배포 전에 열어 둔 화면은 예전 모양(sheet_text)으로 보낸다 — 알아듣게 알려 준다 (2026-11-09 "발주서 내용이 비어 있습니다" 로 헷갈림)
   if (body && !body.sheets && 'sheet_text' in body) {
-    return NextResponse.json({ error: '화면이 예전 버전이에요. 새로고침(F5)한 뒤 발주서를 다시 놓고 요청해 주세요.' }, { status: 409 });
+    return NextResponse.json({ error: '화면이 이전 버전입니다. 새로고침(F5)한 뒤 발주서를 다시 업로드하고 요청하세요.' }, { status: 409 });
   }
   // 시트를 아직 안 골랐어도(sheets 빈 목록) 시트 목록이 있으면 받는다 — DG 프리즘이 말을 듣고 시트를 불러온다
   if (!body || !Array.isArray(body.sheets) || (body.sheets.length === 0 && !body.available_sheets?.length)
@@ -139,10 +139,10 @@ export async function POST(request: NextRequest) {
   // 실제 가장 큰 요청(남원주 1–8차 여덟 시트 합치기)이 시트 글 약 60만 자라 그 두 배를 넘으면 거절한다.
   const textSize = body.sheets.reduce((n, s) => n + (s.text?.length ?? 0), 0) + JSON.stringify(body.previous ?? '').length;
   if (body.sheets.length > 24 || textSize > 1_200_000) {
-    return NextResponse.json({ error: '한 번에 보내기에 발주서가 너무 큽니다. 시트를 나눠 요청해 주세요.' }, { status: 413 });
+    return NextResponse.json({ error: '한 번에 보내기에 발주서가 너무 큽니다. 시트를 나눠 요청하세요.' }, { status: 413 });
   }
   if (!allowRequest(user.id)) {
-    return NextResponse.json({ error: '짧은 시간에 요청이 너무 많습니다. 몇 분 뒤 다시 시도해 주세요.' }, { status: 429 });
+    return NextResponse.json({ error: '짧은 시간에 요청이 너무 많습니다. 몇 분 뒤 다시 시도하세요.' }, { status: 429 });
   }
   const prompt = buildPrompt(body);
 
@@ -169,10 +169,10 @@ export async function POST(request: NextRequest) {
   try {
     const first = await ask(prompt.ask);
     if (first.stop_reason === 'refusal') {
-      return NextResponse.json({ error: 'DG 프리즘이 이 요청을 처리하지 않았습니다. 다시 시도하거나 직접 짜 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'DG 프리즘이 이 요청을 처리하지 않았습니다. 다시 시도하거나 직접 구성하세요.' }, { status: 502 });
     }
     if (first.stop_reason === 'max_tokens' || !first.parsed_output) {
-      return NextResponse.json({ error: 'DG 프리즘의 답이 중간에 끊겼습니다. 발주서가 너무 길면 시트를 나눠 시도해 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'DG 프리즘의 답이 중간에 끊겼습니다. 발주서가 너무 길면 시트를 나눠 시도하세요.' }, { status: 502 });
     }
     let plan: AiPlan = first.parsed_output;
     const usage = {
@@ -230,14 +230,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ plan, usage, retried });
   } catch (err) {
     if (err instanceof Anthropic.AuthenticationError) {
-      return NextResponse.json({ error: 'AI 키가 맞지 않습니다. ANTHROPIC_API_KEY 를 확인해 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'AI 키가 맞지 않습니다. ANTHROPIC_API_KEY 를 확인하세요.' }, { status: 502 });
     }
     if (err instanceof Anthropic.RateLimitError) {
-      return NextResponse.json({ error: 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도해 주세요.' }, { status: 429 });
+      return NextResponse.json({ error: 'AI 사용량 한도에 걸렸습니다. 잠시 뒤 다시 시도하세요.' }, { status: 429 });
     }
     // 연결 오류도 APIError 의 한 갈래라 먼저 거른다
     if (err instanceof Anthropic.APIConnectionError) {
-      return NextResponse.json({ error: 'AI 서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'AI 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.' }, { status: 502 });
     }
     if (err instanceof Anthropic.APIError) {
       // 크레딧 부족 등은 400 으로 온다 — 원문을 그대로 보여 줘야 무엇을 할지 안다

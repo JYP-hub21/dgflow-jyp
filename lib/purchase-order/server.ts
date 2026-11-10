@@ -3,7 +3,7 @@ import { hasPermission, type PermissionSubject } from '@/lib/auth/role-guard';
 import { deriveStage, stalledDays, type PoStage, type StoredStage } from './stage';
 import type { CheckResult } from './match';
 import { SITE_SELECT, toWorkOrderSite, type WorkOrderSite } from '@/lib/work-order/site';
-import { fetchAllIn } from '@/lib/supabase/fetch-all';
+import { fetchAll, fetchAllIn } from '@/lib/supabase/fetch-all';
 
 /** 서버 전용 — service role 클라이언트를 받아 발주 건을 읽고 쓴다 */
 
@@ -91,14 +91,20 @@ export interface PoSummary extends PoRow {
   total: number;
   /** 이어진 작업의뢰서들의 생산 공장 — 목록에서 "오창공장 · 외주 ○○" 로 (2026-11-02) */
   sites: WorkOrderSite[];
+  /** 이어진 작업의뢰서 id — 대시보드 '이번 달 완료' 가 이 의뢰서들의 생산 기록으로 끝난 달을 본다 */
+  work_order_ids: string[];
+  /** 마지막으로 작업의뢰서를 이은 시각 — 이미 다 만든 의뢰서를 이어서 '완료' 가 된 때를 알려고 */
+  last_linked_at: string | null;
 }
 
 /** 작업의뢰서별 생산 공장 (오창 · 외주 업체와 담당자) */
 async function workOrderSites(supabase: SupabaseClient, ids: string[]) {
   const map = new Map<string, WorkOrderSite>();
   if (ids.length === 0) return map;
-  const { data } = await supabase.from('dgflow_work_orders').select(`id, ${SITE_SELECT}`).in('id', ids);
-  for (const w of data ?? []) map.set(w.id as string, toWorkOrderSite(w));
+  // 이어진 의뢰서가 수백 장이면 `.in()` 한 번이 주소 길이 한도를 넘는다 — 묶음으로 나눠 읽는다 (2026-11-10 점검)
+  const data = await fetchAllIn<{ id: string; production_site?: string | null; outsource_partner?: unknown }>(ids, (chunk, a, b) => supabase
+    .from('dgflow_work_orders').select(`id, ${SITE_SELECT}`).in('id', chunk).order('id').range(a, b));
+  for (const w of data) map.set(w.id, toWorkOrderSite(w));
   return map;
 }
 
@@ -133,43 +139,74 @@ async function workOrderProgress(supabase: SupabaseClient, ids: string[]) {
 const PO_COLUMNS =
   'id, intake_number, customer_name, site_name, due_date, memo, created_by, assignee_id, stage, checked_at, checked_by, erp_saved_at, created_at';
 
-/** 목록 · 대시보드용 — 단계를 계산해 붙인다 */
+/**
+ * 목록 · 대시보드용 — 단계를 계산해 붙인다.
+ *
+ * **다 읽지 못하면 던진다** (2026-11-10 점검). 예전에는 포장을 `.in('purchase_order_id', 300개)` 한 번으로 읽고
+ * 오류를 버려서, 주소 길이 한도에 걸리면 모든 건이 틀린 단계로 보였고, 1,000줄을 넘으면 잘려 포장 일부만 읽힌 건이
+ * '완료' 로 계산될 수 있었다 — 그러면 '끝난 건 정리' 가 진행 중인 발주서 원본을 지운다. 틀린 목록보다 오류가 낫다.
+ * `limit` 은 최근 몇 건까지 볼지 (1,000 을 넘으면 나눠 읽는다. 끝없이 = Infinity).
+ */
 export async function listPurchaseOrders(supabase: SupabaseClient, opts: { limit?: number } = {}): Promise<PoSummary[]> {
-  const { data: pos } = await supabase
-    .from('dgflow_purchase_orders')
-    .select(PO_COLUMNS)
-    .order('created_at', { ascending: false })
-    .limit(opts.limit ?? 300);
-  const rows = (pos ?? []) as PoRow[];
+  const limit = opts.limit ?? 300;
+  const rows = (await fetchAll<PoRow>((a, b) => a >= limit
+    ? Promise.resolve({ data: [], error: null })
+    : supabase
+      .from('dgflow_purchase_orders')
+      .select(PO_COLUMNS)
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(a, Math.min(b, limit - 1)))).slice(0, limit);
   if (rows.length === 0) return [];
 
-  const { data: pkgs } = await supabase
-    .from('dgflow_purchase_order_packages')
-    .select('purchase_order_id, work_order_id')
-    .in('purchase_order_id', rows.map(r => r.id));
-  const linkedIds = (pkgs ?? []).map(p => p.work_order_id).filter(Boolean);
+  const pkgs = await fetchAllIn<{ purchase_order_id: string; work_order_id: string | null; linked_at: string | null }>(
+    rows.map(r => r.id),
+    (chunk, a, b) => supabase
+      .from('dgflow_purchase_order_packages')
+      .select('purchase_order_id, work_order_id, linked_at')
+      .in('purchase_order_id', chunk)
+      .order('id')
+      .range(a, b),
+  );
+  const byPo = new Map<string, typeof pkgs>();
+  for (const p of pkgs) {
+    const list = byPo.get(p.purchase_order_id);
+    if (list) list.push(p); else byPo.set(p.purchase_order_id, [p]);
+  }
+  const linkedIds = [...new Set(pkgs.map(p => p.work_order_id).filter((v): v is string => !!v))];
   const [progress, sites] = await Promise.all([workOrderProgress(supabase, linkedIds), workOrderSites(supabase, linkedIds)]);
   const names = await userNames(supabase, rows.flatMap(r => [r.created_by, r.assignee_id]));
 
   return rows.map(r => {
-    const mine = (pkgs ?? []).filter(p => p.purchase_order_id === r.id).map(p => ({
-      work_order_id: p.work_order_id as string | null,
+    const own = byPo.get(r.id) ?? [];
+    const mine = own.map(p => ({
+      work_order_id: p.work_order_id,
       ...(p.work_order_id ? progress.get(p.work_order_id) : {}),
     }));
     const derived = deriveStage(r.stage, mine);
+    const workOrderIds = mine.map(p => p.work_order_id).filter((v): v is string => !!v);
     return {
       ...r,
       creator_name: names.get(r.created_by) ?? '-',
       assignee_name: r.assignee_id ? names.get(r.assignee_id) ?? '-' : null,
       derived,
       packages_total: mine.length,
-      packages_linked: mine.filter(p => p.work_order_id).length,
+      packages_linked: workOrderIds.length,
       stalled_days: stalledDays({ ...r, stage: derived }),
       produced: mine.reduce((n, p) => n + (p.produced ?? 0), 0),
       total: mine.reduce((n, p) => n + (p.total ?? 0), 0),
       sites: uniqueSites(mine.map(p => (p.work_order_id ? sites.get(p.work_order_id) : undefined))),
+      work_order_ids: workOrderIds,
+      last_linked_at: latest(own.map(p => p.linked_at)),
     };
   });
+}
+
+/** ISO 시각 중 가장 늦은 것 (없으면 null) */
+function latest(list: (string | null)[]): string | null {
+  let best: string | null = null;
+  for (const t of list) if (t && (!best || new Date(t).getTime() > new Date(best).getTime())) best = t;
+  return best;
 }
 
 /** 같은 공장(같은 외주 업체)은 한 번만 */
@@ -212,17 +249,25 @@ export async function loadPurchaseOrder(supabase: SupabaseClient, id: string): P
   if (!po) return null;
   const row = po as PoRow;
 
-  const [{ data: files }, { data: pkgs }, { data: events }] = await Promise.all([
+  const [filesRes, pkgsRes, eventsRes] = await Promise.all([
     supabase.from('dgflow_purchase_order_files').select('*').eq('purchase_order_id', id).order('created_at'),
     supabase.from('dgflow_purchase_order_packages').select('*').eq('purchase_order_id', id).order('sheet_name').order('seq'),
     supabase.from('dgflow_purchase_order_events').select('*').eq('purchase_order_id', id).order('created_at', { ascending: false }),
   ]);
+  // 못 읽은 것을 빈 목록으로 두면 단계 · 파일이 틀리게 보인다 — 오류로 알린다 (2026-11-10 점검)
+  const failed = filesRes.error ?? pkgsRes.error ?? eventsRes.error;
+  if (failed) throw new Error(`발주 건을 읽지 못했습니다: ${failed.message}`);
+  const files = filesRes.data;
+  const pkgs = pkgsRes.data;
+  const events = eventsRes.data;
 
   const woIds = (pkgs ?? []).map(p => p.work_order_id).filter(Boolean) as string[];
   const progress = await workOrderProgress(supabase, woIds);
-  const { data: wos } = woIds.length
+  const wosRes = woIds.length
     ? await supabase.from('dgflow_work_orders').select(`id, work_order_number, ${SITE_SELECT}`).in('id', woIds)
-    : { data: [] };
+    : { data: [], error: null };
+  if (wosRes.error) throw new Error(`작업의뢰서를 읽지 못했습니다: ${wosRes.error.message}`);
+  const wos = wosRes.data;
   const woNumber = new Map((wos ?? []).map(w => [w.id as string, w.work_order_number as string]));
   const woSite = new Map((wos ?? []).map(w => [w.id as string, toWorkOrderSite(w)]));
 
@@ -256,6 +301,8 @@ export async function loadPurchaseOrder(supabase: SupabaseClient, id: string): P
     produced: packages.reduce((n, p) => n + (p.work_order?.produced ?? 0), 0),
     total: packages.reduce((n, p) => n + (p.work_order?.total ?? 0), 0),
     sites: uniqueSites(packages.map(p => p.work_order?.site)),
+    work_order_ids: woIds,
+    last_linked_at: latest(packages.map(p => p.linked_at)),
     files: (files ?? []) as PoFile[],
     packages,
     events: (events ?? []).map(e => ({ ...e, user_name: e.user_id ? names.get(e.user_id) ?? '-' : '시스템' })) as PoEvent[],

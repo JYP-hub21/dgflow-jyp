@@ -139,7 +139,7 @@ export default function SignupPage() {
 
               <Button type="submit" disabled={loading}
                 className="h-11 w-full rounded-xl bg-brand-800 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60">
-                {loading ? '보내는 중…' : '가입 신청'}
+                {loading ? '전송 중…' : '가입 신청'}
               </Button>
               <p className="text-center text-xs text-muted-foreground">관리자가 승인해야 로그인할 수 있습니다.</p>
             </form>
@@ -148,7 +148,7 @@ export default function SignupPage() {
 
         {!done && (
           <p className="mt-5 text-center text-sm text-muted-foreground">
-            이미 계정이 있나요?{' '}
+            이미 계정이 있으신가요?{' '}
             <Link href="/login" className="font-semibold text-brand-800 underline-offset-4 hover:underline">로그인</Link>
           </p>
         )}

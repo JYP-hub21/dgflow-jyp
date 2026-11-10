@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasAnyPermission } from '@/lib/auth/role-guard';
 import { compareSizes, checkSummary, SUGGEST_MIN_SCORE, type SizeQty } from '@/lib/purchase-order/match';
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchAllIn } from '@/lib/supabase/fetch-all';
+import { fetchAll, fetchAllIn } from '@/lib/supabase/fetch-all';
 
 /**
  * 짝 후보 찾기 — ERP 작업의뢰서에는 우리 접수번호가 없어 규격 · 수량으로 찾는다.
@@ -63,10 +63,16 @@ export async function GET(request: NextRequest) {
       .from('dgflow_purchase_order_packages').select('rows').eq('id', packageId).maybeSingle();
     if (!pkg) return NextResponse.json({ error: '포장을 찾을 수 없습니다.' }, { status: 404 });
 
-    // 아직 어느 포장에도 안 붙은 최근 작업의뢰서
-    const { data: linked } = await supabase
-      .from('dgflow_purchase_order_packages').select('work_order_id').not('work_order_id', 'is', null);
-    const taken = new Set((linked ?? []).map(l => l.work_order_id));
+    // 아직 어느 포장에도 안 붙은 최근 작업의뢰서 — 이어진 포장이 1,000개를 넘으면 잘려서 이미 붙은 의뢰서가
+    // 후보로 다시 나왔다. 끝까지 나눠 읽고, 못 읽으면 틀린 후보 대신 오류로 알린다 (2026-11-10 점검)
+    let linked: { work_order_id: string }[];
+    try {
+      linked = await fetchAll<{ work_order_id: string }>((a, b) => supabase
+        .from('dgflow_purchase_order_packages').select('work_order_id').not('work_order_id', 'is', null).order('id').range(a, b));
+    } catch (e) {
+      return NextResponse.json({ error: `후보를 찾지 못했습니다: ${(e as Error).message}` }, { status: 500 });
+    }
+    const taken = new Set(linked.map(l => l.work_order_id));
     const { data: wos } = await supabase
       .from('dgflow_work_orders')
       .select('id, work_order_number, customer_label, site_label, request_date')

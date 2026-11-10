@@ -47,24 +47,24 @@ export default function SpecSheetPreview({ blocks, excludedRows, onDownload }: {
               <FileSpreadsheet className="h-4.5 w-4.5 text-success" />규격정리 미리보기
             </CardTitle>
             <p className="mt-1 break-keep text-sm text-muted-foreground">
-              받을 엑셀과 같은 내용이에요. 왼쪽은 <b className="font-semibold text-foreground">발주서 순서 그대로</b>, 오른쪽은{' '}
-              <b className="font-semibold text-foreground">ERP 순서</b>(포장 순서 · 세로↓ 가로↓)예요. 위에서 포장 방식을 바꾸면 오른쪽이 바로 다시 정리돼요.
+              다운로드할 엑셀과 같은 내용입니다. 왼쪽은 <b className="font-semibold text-foreground">발주서 순서 그대로</b>, 오른쪽은{' '}
+              <b className="font-semibold text-foreground">ERP 순서</b>(포장 순서 · 세로↓ 가로↓)입니다. 위에서 포장 방식을 변경하면 오른쪽이 바로 다시 정리됩니다.
             </p>
           </div>
           <Button variant="outline" onClick={onDownload} className="shrink-0">
-            <Download />규격정리 받기
+            <Download />규격정리 다운로드
           </Button>
         </div>
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Stat label="포장 · 품명" value={`${packages.length}개 · ${products}가지`} />
-          <Stat label="발주서 → ERP 수량" value={`${n0(leftQty)} → ${n0(rightQty)}장`}
+          <Stat label="발주서 → ERP 수량" value={`${n0(leftQty)} → ${n0(rightQty)}조`}
             tone={leftQty === rightQty ? 'ok' : 'warn'}
-            note={leftQty === rightQty ? '좌우 일치' : `${n0(Math.abs(leftQty - rightQty))}장 차이`} />
+            note={leftQty === rightQty ? '좌우 일치' : `${n0(Math.abs(leftQty - rightQty))}조 차이`} />
           <Stat label="재(엑셀의 '평' 열)" value={n2(sai)} />
           <Stat label="면적" value={`${n2(m2)} m²`} />
         </dl>
         {excludedRows > 0 && (
-          <p className="text-xs text-muted-foreground">DG 프리즘이 이번 ERP 에서 뺀 품목 {n0(excludedRows)}행은 규격정리 양쪽에서도 뺐어요.</p>
+          <p className="text-xs text-muted-foreground">DG 프리즘이 이번 ERP 에서 제외한 품목 {n0(excludedRows)}행은 규격정리 양쪽에서도 제외했습니다.</p>
         )}
       </CardHeader>
 
@@ -78,15 +78,15 @@ export default function SpecSheetPreview({ blocks, excludedRows, onDownload }: {
               <button key={x.label} type="button" onClick={() => setOnly(x.label)}
                 className={chipClass(only === x.label, 'h-8 max-w-full text-xs')}>
                 <span className="max-w-[260px] truncate">{x.label}</span>
-                <span className={chipCountClass(only === x.label)}>{n0(x.qty)}장</span>
-                {x.off && <span className="h-2 w-2 rounded-full bg-warning" title="좌우 수량이 다른 덩어리가 있어요" />}
+                <span className={chipCountClass(only === x.label)}>{n0(x.qty)}조</span>
+                {x.off && <span className="h-2 w-2 rounded-full bg-warning" title="좌우 수량이 다른 블록이 있습니다" />}
               </button>
             ))}
           </div>
         )}
 
         {blocks.length === 0 && (
-          <p className="rounded-lg bg-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">규격정리에 넣을 품목이 없어요.</p>
+          <p className="rounded-lg bg-muted/60 px-4 py-6 text-center text-sm text-muted-foreground">규격정리에 포함할 품목이 없습니다.</p>
         )}
 
         {shown.map((b, i) => (
@@ -136,8 +136,8 @@ function Block({ block: b }: { block: SpecBlock }) {
           <p className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
             ERP 품명
             {suggested
-              ? <span className="inline-flex items-center gap-0.5 text-brand-700"><Sparkles className="h-3 w-3" />DG 프리즘 제안 — 확인해 주세요</span>
-              : <span>— 사내 품목명으로 바꿔 주세요</span>}
+              ? <span className="inline-flex items-center gap-0.5 text-brand-700"><Sparkles className="h-3 w-3" />DG 프리즘 제안 — 확인 필요</span>
+              : <span>— 사내 품목명으로 변경하세요</span>}
           </p>
           <p className={cn('truncate text-sm font-bold', suggested && 'text-brand-800')} title={b.erp_name}>{b.erp_name}</p>
         </div>
@@ -145,7 +145,7 @@ function Block({ block: b }: { block: SpecBlock }) {
       {b.left_qty !== b.right_qty && (
         <p className="flex items-center gap-1.5 border-b bg-warning-50 px-3.5 py-1.5 text-xs font-semibold text-amber-900">
           <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-          발주서 {n0(b.left_qty)}장, ERP {n0(b.right_qty)}장 — {n0(Math.abs(b.left_qty - b.right_qty))}장 차이가 있어요. ERP 표에서 고친 곳이 있는지 확인해 주세요.
+          발주서 {n0(b.left_qty)}조, ERP {n0(b.right_qty)}조 — {n0(Math.abs(b.left_qty - b.right_qty))}조 차이가 있습니다. ERP 표에서 수정한 곳이 있는지 확인하세요.
         </p>
       )}
       <div className="max-h-[520px] overflow-auto">

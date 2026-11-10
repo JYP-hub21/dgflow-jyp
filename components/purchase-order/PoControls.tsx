@@ -41,9 +41,9 @@ export function FileDownload({ poId, file }: {
       const { checked } = await post(`/api/purchase-orders/${poId}/events`, { action: 'downloaded', file_id: file.id });
       const blob = await downloadChunked(createClient(), file.storage_prefix, file.chunk_count, file.mime_type);
       saveBlob(blob, file.file_name);
-      if (checked) { toast.success('확인으로 기록했습니다. 올린 사람에게 보입니다.'); router.refresh(); }
+      if (checked) { toast.success('확인 완료로 기록했습니다. 등록자에게 표시됩니다.'); router.refresh(); }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '받지 못했습니다.');
+      toast.error(e instanceof Error ? e.message : '다운로드하지 못했습니다.');
     } finally {
       setBusy(false);
     }
@@ -98,11 +98,11 @@ export function PoActions({ poId, meId, assigneeId, canProcess, canCancel, assig
           </Button>
         )}
         <Button variant="outline" size="sm" disabled={busy} onClick={() => setPicking(!picking)}>
-          담당자 바꾸기{picking ? <ChevronUp /> : <ChevronDown />}
+          담당자 변경{picking ? <ChevronUp /> : <ChevronDown />}
         </Button>
         {canCancel && (
           <Button variant="outline" size="sm" disabled={busy} className="text-destructive"
-            onClick={() => confirm('이 발주 건을 취소할까요? 담당자 목록에서 빠집니다.') && run({ cancel: true }, '취소했습니다.')}>
+            onClick={() => confirm('이 발주 건을 취소하시겠습니까? 담당자 목록에서 제외됩니다.') && run({ cancel: true }, '취소했습니다.')}>
             <Ban />접수 취소
           </Button>
         )}
@@ -172,7 +172,7 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
       if (workOrderId) {
         if (json.data.check.ok) toast.success(`연결했습니다 — ${json.data.summary}`);
         else toast.warning(`연결했지만 ERP 엑셀과 다릅니다 — ${json.data.summary}`);
-      } else toast.success('연결을 끊었습니다.');
+      } else toast.success('연결을 해제했습니다.');
       setCandidates(null);
       router.refresh();
     } catch (e) {
@@ -207,8 +207,8 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
             )}
             <Progress value={wo.total ? Math.round(wo.produced / wo.total * 100) : 0} className="w-32" />
             {canLink && (
-              <button type="button" disabled={busy} title="연결 끊기"
-                onClick={() => confirm(`${wo.work_order_number} 연결을 끊을까요?`) && link(null)}
+              <button type="button" disabled={busy} title="연결 해제"
+                onClick={() => confirm(`${wo.work_order_number} 연결을 해제하시겠습니까?`) && link(null)}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-destructive">
                 <Unlink className="h-4 w-4" />
               </button>
@@ -217,14 +217,14 @@ export function PackageRow({ poId, pkg, canLink }: { poId: string; pkg: PackageV
         ) : canLink ? (
           <div className="flex flex-wrap gap-2">
             <Link href={`/work-orders/receive?po=${poId}&pkg=${pkg.id}`} className={buttonVariants({ size: 'sm' })}>
-              <Upload />작업의뢰서 올리기
+              <Upload />작업의뢰서 등록
             </Link>
             <Button variant="outline" size="sm" disabled={busy} onClick={findCandidates}>
-              {busy ? <Loader2 className="animate-spin" /> : <Search />}등록된 것에서 찾기
+              {busy ? <Loader2 className="animate-spin" /> : <Search />}등록된 의뢰서에서 검색
             </Button>
           </div>
         ) : (
-          <span className="text-sm text-muted-foreground">작업의뢰서 기다리는 중</span>
+          <span className="text-sm text-muted-foreground">작업의뢰서 대기 중</span>
         )}
       </div>
 

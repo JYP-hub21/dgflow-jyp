@@ -204,7 +204,7 @@ export function applyRule(
 
   const left = rows.filter(r => r.source_row !== undefined && !used.has(r.source_row!));
   if (left.length > 0) {
-    notes.push(`저장된 규칙에 걸리지 않은 품목이 ${left.length}건 있습니다. 직접 배정해 주세요.`);
+    notes.push(`저장된 규칙에 걸리지 않은 품목이 ${left.length}건 있습니다. 직접 배정하세요.`);
   }
 
   return { packages, notes };

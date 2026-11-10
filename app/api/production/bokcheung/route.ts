@@ -22,7 +22,7 @@ async function prepare(request: NextRequest) {
   }
   const date = request.nextUrl.searchParams.get('date');
   if (!isIsoDate(date)) {
-    return { error: NextResponse.json({ error: '날짜를 YYYY-MM-DD 로 지정해 주세요.' }, { status: 400 }) };
+    return { error: NextResponse.json({ error: '날짜를 YYYY-MM-DD 로 지정하세요.' }, { status: 400 }) };
   }
   const supabase = createServiceRoleClient();
   try {

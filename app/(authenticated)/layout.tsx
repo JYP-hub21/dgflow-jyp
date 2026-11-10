@@ -40,7 +40,8 @@ export default async function AuthenticatedLayout({
   }
 
   return (
-    <div className="flex h-screen">
+    // 인쇄할 때는 메뉴를 빼고, 화면 높이에 갇힌 스크롤을 풀어 내용 전체가 찍히게 한다 (2026-11-10 점검: 1장에서 잘렸다)
+    <div className="flex h-screen print:block print:h-auto">
       <Sidebar
         userName={user.name}
         user={{ role: user.role, permissions: user.permissions }}
@@ -50,7 +51,7 @@ export default async function AuthenticatedLayout({
         loginIdLocked={loginIdLocked(user.login_id)}
       />
       {/* 폰에서는 상단 띠(h-14)가 고정이라 그만큼 내려서 시작한다 */}
-      <main className="min-w-0 flex-1 overflow-y-auto bg-background p-4 pt-18 md:p-6 md:pt-6 lg:p-8">
+      <main className="min-w-0 flex-1 overflow-y-auto bg-background p-4 pt-18 md:p-6 md:pt-6 lg:p-8 print:overflow-visible print:bg-white print:p-0">
         <CurrentUserProvider user={{
           id: user.id, name: user.name, role: user.role, permissions: user.permissions, department: user.department,
         }}>

@@ -35,6 +35,11 @@ const spec = templateJson as unknown as TemplateSpec;
 export const TEMPLATE_ROWS = 16;
 const FIRST_DATA_ROW = 8;
 
+/** A4 세로 높이(pt) — 210×297mm */
+const A4_HEIGHT_PT = 297 / 25.4 * 72;
+/** 높이를 정하지 않은 줄(머리글 7행)의 높이 — exceljs 가 시트 기본값을 15pt 로 쓴다 */
+const DEFAULT_ROW_HEIGHT_PT = 15;
+
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -46,7 +51,8 @@ export function bokcheungSheetName(date: string): string {
 
 /**
  * 줄 번호 배치 — 테스트도 같은 계산을 쓴다.
- * 1 · 2호기 덩어리는 양식대로 16줄(넘치면 늘림), 더한 호기 덩어리는 쓴 줄만큼(인쇄가 한 장을 넘지 않게).
+ * 1 · 2호기 덩어리는 양식대로 16줄(넘치면 늘림), 더한 호기 덩어리는 쓴 줄만큼(줄을 아끼려고).
+ * 줄이 늘어 84% 로 한 장에 안 들어가면 그 시트만 '한 페이지에 맞추기' 로 바꾼다 (fitOnePage).
  */
 export function bokcheungLayout(sheet: BokcheungSheet) {
   let row = FIRST_DATA_ROW;
@@ -183,4 +189,21 @@ function addBokcheungSheet(
   // 누계 — 수량(조)과 M²
   ws.getCell(`C${L.tail + 3}`).value = sheet.cumulative.quantity;
   ws.getCell(`J${L.tail + 3}`).value = round2(sheet.cumulative.area_m2 * AREA_FACTOR);
+
+  fitOnePage(ws, L.last);
+}
+
+/**
+ * 한 장에 안 들어가면 그 시트만 '한 페이지에 맞추기' 로 바꾼다 (2026-11-10 점검).
+ * 양식은 A4 세로 84% 고정이다. 기본 45줄(약 894pt)은 84% 로 찍을 수 있는 높이(약 921pt) 안에 들지만,
+ * 한 덩어리가 18줄을 넘거나 셋째 호기 덩어리가 붙으면 합계 · 누계가 둘째 장으로 넘어갔다.
+ * 평소 날은 회사 모양(84%) 그대로 두고, 넘치는 날만 가로 · 세로 한 장에 맞춰 줄여 찍는다.
+ */
+export function fitOnePage(ws: ExcelJS.Worksheet, lastRow: number): void {
+  const { margins, scale } = ws.pageSetup;
+  const marginPt = ((margins?.top ?? 0.75) + (margins?.bottom ?? 0.75)) * 72;
+  const capacity = (A4_HEIGHT_PT - marginPt) / ((scale ?? 100) / 100);
+  let height = 0;
+  for (let r = 1; r <= lastRow; r++) height += ws.getRow(r).height ?? DEFAULT_ROW_HEIGHT_PT;
+  if (height > capacity) Object.assign(ws.pageSetup, { fitToPage: true, fitToWidth: 1, fitToHeight: 1 });
 }

@@ -78,11 +78,11 @@ export default function SheetEditor({
           <span className="font-normal text-muted-foreground">
             시트명 &quot;{sheet.sheet_name}&quot; · {rows.length}행 · {total.toLocaleString()}조
           </span>
-          {edited && <Badge variant="info">직접 고침</Badge>}
+          {edited && <Badge variant="info">직접 수정</Badge>}
         </CardTitle>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            포장 단위 근거: {packagingSourceLabel(sheet.source)} · 칸을 눌러 바로 고칠 수 있습니다
+            포장 단위 근거: {packagingSourceLabel(sheet.source)} · 칸을 클릭하여 바로 수정할 수 있습니다
           </p>
           <div className="flex gap-2">
             {edited && (

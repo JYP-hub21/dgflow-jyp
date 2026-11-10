@@ -33,7 +33,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/users/
     .eq('id', id)
     .single();
   if (!target) return bad('사용자를 찾을 수 없습니다.', 404);
-  if (target.role === 'master' && me.role !== 'master') return bad('마스터 계정은 마스터만 고칠 수 있습니다.', 403);
+  if (target.role === 'master' && me.role !== 'master') return bad('마스터 계정은 마스터만 수정할 수 있습니다.', 403);
 
   const update: Record<string, unknown> = {};
 
@@ -96,7 +96,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/users/
     if (me.role !== 'master' && target.id !== me.id) {
       if (target.role === 'master') return bad('마스터 계정의 비밀번호는 마스터만 바꿀 수 있습니다.', 403);
       if ((target.permissions ?? []).some((k: string) => !hasPermission(me, k))) {
-        return bad('나보다 권한이 많은 계정의 비밀번호는 바꿀 수 없습니다. 마스터에게 부탁해 주세요.', 403);
+        return bad('본인보다 권한이 많은 계정의 비밀번호는 변경할 수 없습니다. 마스터에게 요청하세요.', 403);
       }
     }
     const err = passwordError(body.password);
@@ -134,7 +134,7 @@ export async function DELETE(_request: NextRequest, ctx: RouteContext<'/api/user
   const { data: target } = await supabase
     .from('dgflow_users').select('id, auth_id, status').eq('id', id).single();
   if (!target) return bad('사용자를 찾을 수 없습니다.', 404);
-  if (target.status !== 'pending') return bad('승인된 계정은 지우지 않고 비활성화합니다.');
+  if (target.status !== 'pending') return bad('승인된 계정은 삭제하지 않고 비활성화합니다.');
 
   const { error } = await supabase.from('dgflow_users').delete().eq('id', id);
   if (error) return bad(error.message, 500);

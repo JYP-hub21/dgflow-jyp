@@ -213,6 +213,21 @@ export function addWeeklySheet(
   return ws;
 }
 
+/**
+ * 엑셀이 받는 시트 이름으로 — / \ ? * [ ] : 는 못 쓰고(exceljs 가 오류를 던져 주간 엑셀 전체가 안 나왔다),
+ * 31자까지, 앞뒤 작은따옴표 불가, 대소문자 무시하고 겹치면 안 된다 (2026-11-10 점검 — 호기 이름은 사람이 짓는다)
+ */
+export function safeSheetName(raw: string, used: Iterable<string>): string {
+  const base = raw.replace(/[\\/?*[\]:]/g, ' ').replace(/\s+/g, ' ').replace(/^'+|'+$/g, '').trim() || '시트';
+  const taken = new Set([...used].map(n => n.toLowerCase()));
+  let name = base.slice(0, 31).trim();
+  for (let k = 2; taken.has(name.toLowerCase()); k++) {
+    const suffix = ` (${k})`;
+    name = `${base.slice(0, 31 - suffix.length).trim()}${suffix}`;
+  }
+  return name;
+}
+
 /** 한 주 파일 — 1 · 2호기 시트 + 기록이 있는 더한 호기 시트 (두 호기씩) */
 export function buildWeeklyWorkbook(
   sheet: WeeklySheet, entries: Record<string, WeeklyDayEntry | undefined>, settings?: WeeklySettings,
@@ -225,7 +240,8 @@ export function buildWeeklyWorkbook(
   for (let i = 0; i < extras.length; i += 2) {
     const pair = extras.slice(i, i + 2);
     const names = pair.map(b => nameOf(b.line));
-    const ws = addWeeklySheet(wb, { ...sheet, lines: pair }, entries, settings, `${sheet.week.sheetName} ${names.join(' ')}`.slice(0, 31));
+    const name = safeSheetName(`${sheet.week.sheetName} ${names.join(' ')}`, wb.worksheets.map(w => w.name));
+    const ws = addWeeklySheet(wb, { ...sheet, lines: pair }, entries, settings, name);
     pair.forEach((_, k) => nameBlock(ws, k, names[k]));
     if (pair.length === 1) hideSecondBlock(ws);
   }

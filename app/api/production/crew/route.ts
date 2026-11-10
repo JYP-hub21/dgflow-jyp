@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!hasPermission(user, 'production:input')) return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
   const body = await request.json().catch(() => null) as { name?: string; position?: string } | null;
   const name = (body?.name ?? '').trim().slice(0, 40);
-  if (!name) return NextResponse.json({ error: '이름을 적어 주세요.' }, { status: 400 });
+  if (!name) return NextResponse.json({ error: '이름을 입력하세요.' }, { status: 400 });
 
   const supabase = createServiceRoleClient();
   const { storage, members } = await loadCrew(supabase);

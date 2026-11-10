@@ -22,6 +22,10 @@ describe('DG 프리즘 — 보내는 글 · 받은 계획 적용', () => {
     expect(text).toBe('1| ※ 7차 포장요망\n3| 1동 1호 | 5GN+12Ar+5DURA MAX |  | 455 | 950 | 10\n4| 2026-11-09');
   });
 
+  it('SheetJS 날짜(한국에서 전날 23:59:08 · 그 PC 자정)도 하루 앞당기지 않는다 (2026-11-10 점검)', () => {
+    expect(sheetTextForAi([[new Date(2026, 6, 6, 23, 59, 8)], [new Date(2026, 6, 7)]])).toBe('1| 2026-07-07\n2| 2026-07-07');
+  });
+
   it('행 번호를 범위 글로', () => {
     expect(rowRangesText([20, 15, 16, 17, 17, 30, 31])).toBe('15-17, 20, 30-31');
     expect(rowRangesText([])).toBe('');

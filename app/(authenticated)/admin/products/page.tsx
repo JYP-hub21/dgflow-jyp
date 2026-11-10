@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import PageHeader from '@/components/layout/PageHeader';
 import { Plus, Pencil, Trash2, Save, X, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { customerDeleteText, masterResultError } from '@/lib/master-data';
 
 const PAGE_SIZE = 15;
 
@@ -92,20 +93,22 @@ function ProductsTab() {
     setItems(data || []);
   }
 
+  // 저장 · 삭제가 DB 에서 거절돼도(제품코드 중복 등) 창이 닫히고 아무 말이 없었다 — 결과를 보고 알린다 (2026-11-10 점검)
   async function handleSave() {
     if (!editing) return;
-    if (editing.id) {
-      await supabase.from('dgflow_products').update(editing).eq('id', editing.id);
-    } else {
-      await supabase.from('dgflow_products').insert(editing);
-    }
+    const res = editing.id
+      ? await supabase.from('dgflow_products').update(editing).eq('id', editing.id).select('id')
+      : await supabase.from('dgflow_products').insert(editing).select('id');
+    const err = masterResultError(res, '저장', `제품코드 "${editing.product_code ?? ''}" 가 이미 있습니다. 다른 코드를 입력하세요.`);
+    if (err) { alert(err); return; }
     setEditing(null);
     load();
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    await supabase.from('dgflow_products').delete().eq('id', id);
+  async function handleDelete(p: Product) {
+    if (!confirm(`"${p.display_name}" 품명을 삭제하시겠습니까?`)) return;
+    const err = masterResultError(await supabase.from('dgflow_products').delete().eq('id', p.id).select('id'), '삭제');
+    if (err) { alert(err); return; }
     load();
   }
 
@@ -168,7 +171,7 @@ function ProductsTab() {
                 <TableCell>
                   <div className="flex justify-end gap-1.5">
                     <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(p)}><Pencil /></Button>
-                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(p.id)}><Trash2 /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(p)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -198,18 +201,23 @@ function CustomersTab() {
 
   async function handleSave() {
     if (!editing) return;
-    if (editing.id) {
-      await supabase.from('dgflow_customers').update(editing).eq('id', editing.id);
-    } else {
-      await supabase.from('dgflow_customers').insert(editing);
-    }
+    const res = editing.id
+      ? await supabase.from('dgflow_customers').update(editing).eq('id', editing.id).select('id')
+      : await supabase.from('dgflow_customers').insert(editing).select('id');
+    const err = masterResultError(res, '저장');
+    if (err) { alert(err); return; }
     setEditing(null);
     load();
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    await supabase.from('dgflow_customers').delete().eq('id', id);
+  // 거래처를 지우면 그 거래처의 현장이 함께 지워진다(ON DELETE CASCADE) — 몇 곳인지 먼저 세어 알린다 (2026-11-10 점검)
+  async function handleDelete(c: Customer) {
+    const { data: sites, count, error } = await supabase
+      .from('dgflow_sites').select('site_name', { count: 'exact' }).eq('customer_id', c.id).order('site_name').limit(5);
+    if (error) { alert(`이 거래처의 현장을 확인하지 못해 삭제하지 않았습니다: ${error.message}`); return; }
+    if (!confirm(customerDeleteText(c.name, count ?? 0, (sites ?? []).map(s => s.site_name as string)))) return;
+    const err = masterResultError(await supabase.from('dgflow_customers').delete().eq('id', c.id).select('id'), '삭제');
+    if (err) { alert(err); return; }
     load();
   }
 
@@ -257,7 +265,7 @@ function CustomersTab() {
                 <TableCell>
                   <div className="flex justify-end gap-1.5">
                     <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(c)}><Pencil /></Button>
-                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(c.id)}><Trash2 /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(c)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -293,17 +301,20 @@ function SitesTab() {
     // 목록은 거래처 이름(customer)을 붙여 읽는다 — 그 칸까지 보내면 표에 없는 열이라 DB 가 거절하고
     // 오류도 안 보여 "수정했는데 그대로" 가 됐다 (2026-11-10 전체 점검)
     const { customer: _customer, ...row } = editing as Site & { customer?: unknown };
-    const { error } = editing.id
-      ? await supabase.from('dgflow_sites').update(row).eq('id', editing.id)
-      : await supabase.from('dgflow_sites').insert(row);
-    if (error) { alert(`저장하지 못했습니다: ${error.message}`); return; }
+    if (!row.customer_id) { alert('거래처를 선택하세요.'); return; }
+    const res = editing.id
+      ? await supabase.from('dgflow_sites').update(row).eq('id', editing.id).select('id')
+      : await supabase.from('dgflow_sites').insert(row).select('id');
+    const err = masterResultError(res, '저장');
+    if (err) { alert(err); return; }
     setEditing(null);
     load();
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    await supabase.from('dgflow_sites').delete().eq('id', id);
+  async function handleDelete(s: Site) {
+    if (!confirm(`"${s.site_name}" 현장을 삭제하시겠습니까?`)) return;
+    const err = masterResultError(await supabase.from('dgflow_sites').delete().eq('id', s.id).select('id'), '삭제');
+    if (err) { alert(err); return; }
     load();
   }
 
@@ -361,7 +372,7 @@ function SitesTab() {
                 <TableCell>
                   <div className="flex justify-end gap-1.5">
                     <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(s)}><Pencil /></Button>
-                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(s.id)}><Trash2 /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(s)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -392,18 +403,19 @@ function RawGlassTab() {
   async function handleSave() {
     if (!editing) return;
     const { area_m2, ...rest } = editing as RawGlass;
-    if (editing.id) {
-      await supabase.from('dgflow_raw_glasses').update(rest).eq('id', editing.id);
-    } else {
-      await supabase.from('dgflow_raw_glasses').insert(rest);
-    }
+    const res = editing.id
+      ? await supabase.from('dgflow_raw_glasses').update(rest).eq('id', editing.id).select('id')
+      : await supabase.from('dgflow_raw_glasses').insert(rest).select('id');
+    const err = masterResultError(res, '저장');
+    if (err) { alert(err); return; }
     setEditing(null);
     load();
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('삭제하시겠습니까?')) return;
-    await supabase.from('dgflow_raw_glasses').delete().eq('id', id);
+  async function handleDelete(g: RawGlass) {
+    if (!confirm(`"${g.glass_type}" 원판을 삭제하시겠습니까?`)) return;
+    const err = masterResultError(await supabase.from('dgflow_raw_glasses').delete().eq('id', g.id).select('id'), '삭제');
+    if (err) { alert(err); return; }
     load();
   }
 
@@ -453,7 +465,7 @@ function RawGlassTab() {
                 <TableCell>
                   <div className="flex justify-end gap-1.5">
                     <Button variant="outline" size="icon-sm" title="수정" onClick={() => setEditing(g)}><Pencil /></Button>
-                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(g.id)}><Trash2 /></Button>
+                    <Button variant="destructive" size="icon-sm" title="삭제" onClick={() => handleDelete(g)}><Trash2 /></Button>
                   </div>
                 </TableCell>
               </TableRow>

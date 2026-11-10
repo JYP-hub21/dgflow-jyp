@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 import { isIsoDate } from '@/lib/production/daily-report';
 import { DELIVERY_TABLE } from '@/lib/production/delivery';
 import { loadDeliveries } from '@/lib/production/delivery-store';
 import { isMissingTable } from '@/lib/production/bokcheung-store';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
+import { proRataArea } from '@/lib/production/produced-quantity';
 
 /**
  * 납품 기록 (2026-11-06 회의).
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '생산 현황을 볼 권한이 없습니다.' }, { status: 403 });
   }
   const id = request.nextUrl.searchParams.get('work_order_id');
-  if (!id) return NextResponse.json({ error: '작업의뢰서를 지정해 주세요.' }, { status: 400 });
+  if (!id) return NextResponse.json({ error: '작업의뢰서를 지정하세요.' }, { status: 400 });
   try {
     return NextResponse.json(await loadDeliveries(createServiceRoleClient(), [id]));
   } catch (e) {
@@ -46,10 +48,17 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceRoleClient();
-  const { data: items, error: readError } = await supabase
-    .from('dgflow_work_order_items').select('id, width_mm, height_mm').eq('work_order_id', body.work_order_id);
-  if (readError) return NextResponse.json({ error: readError.message }, { status: 500 });
-  const byId = new Map((items ?? []).map(i => [i.id as string, i]));
+  type ItemRow = { id: string; width_mm: number; height_mm: number; quantity: number; area_m2: number | null };
+  let items: ItemRow[];
+  try {
+    // 1,000줄에서 잘리지 않게 끝까지 읽는다 (2026-11-10 점검)
+    items = await fetchAll<ItemRow>((from, to) => supabase
+      .from('dgflow_work_order_items').select('id, width_mm, height_mm, quantity, area_m2')
+      .eq('work_order_id', body.work_order_id!).order('id').range(from, to));
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : '품목을 읽지 못했습니다.' }, { status: 500 });
+  }
+  const byId = new Map(items.map(i => [i.id, i]));
 
   const rows = [];
   for (const e of entries) {
@@ -60,7 +69,8 @@ export async function POST(request: NextRequest) {
       work_order_item_id: item.id,
       delivery_date: body.delivery_date,
       quantity: e.quantity,
-      area_m2: Math.round(item.width_mm * item.height_mm * e.quantity! / 1_000_000 * 100) / 100,
+      // 작업의뢰서 면적(ERP 규칙)을 수량 비율로 — 가로×세로×수량을 한 번에 반올림하면 의뢰서와 어긋났다 (2026-11-10 점검)
+      area_m2: proRataArea(item, e.quantity!),
       note: body.note?.trim().slice(0, 200) || null,
       created_by: user.id,
     });

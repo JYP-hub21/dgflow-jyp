@@ -25,12 +25,12 @@ export async function POST(request: NextRequest) {
   const id = String(body.id ?? '');
   if (!UUID.test(id)) return bad('잘못된 요청입니다.');
   const files = (Array.isArray(body.files) ? body.files : []) as FileMeta[];
-  if (files.length === 0) return bad('발주서 파일을 올리세요.');
-  if (files.some(f => !UUID.test(String(f.id)) || !f.file_name || !(f.chunk_count > 0))) return bad('파일 정보가 잘못됐습니다.');
+  if (files.length === 0) return bad('발주서 파일을 업로드하세요.');
+  if (files.some(f => !UUID.test(String(f.id)) || !f.file_name || !(f.chunk_count > 0))) return bad('파일 정보가 잘못되었습니다.');
 
   const supabase = createServiceRoleClient();
 
-  if (!body.assignee_id) return bad('담당자를 고르세요.');
+  if (!body.assignee_id) return bad('담당자를 선택하세요.');
   const { data: assignee } = await supabase
     .from('dgflow_users').select('id, role, permissions, status, is_active').eq('id', body.assignee_id).maybeSingle();
   if (!assignee || assignee.status !== 'active' || !assignee.is_active || !canProcess(assignee)) {
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   // 조각이 빠짐없이 올라왔나
   for (const f of files) {
     const { data: objs } = await supabase.storage.from(PO_BUCKET).list(`${id}/${f.id}`, { limit: 1000 });
-    if ((objs?.length ?? 0) < f.chunk_count) return bad(`${f.file_name} 이(가) 다 올라가지 않았습니다. 다시 올려 주세요.`);
+    if ((objs?.length ?? 0) < f.chunk_count) return bad(`${f.file_name} 의 업로드가 완료되지 않았습니다. 다시 업로드하세요.`);
   }
 
   // 같은 날 동시에 접수하면 번호가 겹칠 수 있다 — 겹치면 다음 번호로 다시

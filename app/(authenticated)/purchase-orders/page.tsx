@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { format } from 'date-fns';
 import { ChevronRight, Inbox, Upload } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
@@ -13,6 +12,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import { StageBadge, StageSteps } from '@/components/purchase-order/StageBadge';
 import StorageUsage from '@/components/purchase-order/StorageUsage';
 import SiteBadge from '@/components/work-order/SiteBadge';
+import { kstDateTime } from '@/lib/kst-date';
 
 type View = 'todo' | 'mine' | 'open' | 'all';
 
@@ -31,7 +31,21 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
     : processor ? 'todo' : 'mine';
 
   const supabase = createServiceRoleClient();
-  const all = await listPurchaseOrders(supabase);
+  // 포장 · 진행률을 다 못 읽으면 단계가 틀리게 보인다 — 틀린 목록 대신 알린다 (2026-11-10 점검)
+  const all = await listPurchaseOrders(supabase).catch((e: unknown) => {
+    console.error('[purchase-orders] 목록 읽기 실패', e);
+    return null;
+  });
+  if (!all) {
+    return (
+      <div className="mx-auto max-w-6xl space-y-5">
+        <PageHeader title="발주서" />
+        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+          발주서 목록을 끝까지 읽지 못했습니다. 잠시 뒤 새로 고침하세요.
+        </CardContent></Card>
+      </div>
+    );
+  }
 
   const active = (p: PoSummary) => p.derived !== 'done' && p.derived !== 'cancelled';
   const lists: Record<View, PoSummary[]> = {
@@ -43,8 +57,8 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
   const shown = lists[view];
   // 앞의 둘은 사이드바 메뉴 이름과 같다 — 받은 발주서(업무지원부) · 올린 발주서(공사관리부)
   const tabs: { key: View; label: string; hidden?: boolean }[] = [
-    { key: 'todo', label: '받은 발주서', hidden: !processor },
-    { key: 'mine', label: '올린 발주서' },
+    { key: 'todo', label: '수신 발주서', hidden: !processor },
+    { key: 'mine', label: '등록 발주서' },
     { key: 'open', label: '진행 중' },
     { key: 'all', label: '전체' },
   ];
@@ -53,10 +67,10 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
     <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
         title="발주서"
-        description="발주서를 올리고 담당자를 지목하면, 담당자가 언제 확인했고 지금 어디까지 왔는지 여기서 보입니다."
+        description="발주서를 등록하고 담당자를 지목하면, 담당자의 확인 시각과 현재 진행 단계를 이곳에서 확인할 수 있습니다."
         actions={hasPermission(user, 'order:submit') && (
           <Link href="/purchase-orders/new" className={buttonVariants()}>
-            <Upload />발주서 올리기
+            <Upload />발주서 등록
           </Link>
         )}
       />
@@ -99,7 +113,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
               <TableRow>
                 <TableHead className="pl-5">접수번호</TableHead>
                 <TableHead>현장 · 거래처</TableHead>
-                <TableHead>올린 사람 → 담당자</TableHead>
+                <TableHead>등록자 → 담당자</TableHead>
                 <TableHead>담당자 확인</TableHead>
                 <TableHead>진행</TableHead>
                 <TableHead>납기</TableHead>
@@ -113,7 +127,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
                 <TableRow key={p.id} className={p.derived === 'cancelled' ? 'opacity-50' : ''}>
                   <TableCell className="pl-5">
                     <Link href={`/purchase-orders/${p.id}`} className="font-bold text-brand-800 hover:underline">{p.intake_number}</Link>
-                    <p className="text-xs text-muted-foreground">{format(new Date(p.created_at), 'MM/dd HH:mm')}</p>
+                    <p className="text-xs text-muted-foreground">{kstDateTime(p.created_at)}</p>
                   </TableCell>
                   <TableCell className="max-w-[260px]">
                     <p className="truncate font-medium">{p.site_name || '-'}</p>
@@ -122,7 +136,7 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
                   <TableCell className="text-sm">{p.creator_name} → <b>{p.assignee_name ?? '-'}</b></TableCell>
                   <TableCell className="text-sm">
                     {p.checked_at
-                      ? <span className="text-success">✓ {format(new Date(p.checked_at), 'MM/dd HH:mm')}</span>
+                      ? <span className="text-success">✓ {kstDateTime(p.checked_at)}</span>
                       : p.derived === 'cancelled' ? '-' : <span className="font-semibold text-warning">미확인</span>}
                   </TableCell>
                   <TableCell>
@@ -153,8 +167,8 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
 }
 
 function Empty({ view }: { view: View }) {
-  const text = view === 'todo' ? '받은 발주서가 없습니다.'
-    : view === 'mine' ? '올린 발주서가 없습니다.' : '발주서가 없습니다.';
+  const text = view === 'todo' ? '수신 발주서가 없습니다.'
+    : view === 'mine' ? '등록한 발주서가 없습니다.' : '발주서가 없습니다.';
   return (
     <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
       <Inbox className="h-8 w-8" />{text}

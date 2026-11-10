@@ -1,4 +1,5 @@
 import type { createServerSupabaseClient } from '@/lib/supabase/server';
+import { expectedArea } from '@/lib/work-order/verify';
 
 type Supabase = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -18,13 +19,30 @@ export async function syncProducedQuantity(supabase: Supabase, itemId: string): 
   return total;
 }
 
+/**
+ * 생산 · 납품 기록 한 줄의 면적 — 품목에 저장된 면적을 수량 비율로 나눈다.
+ *
+ * 작업의뢰서 면적은 회사 ERP 규칙(장당 2자리 반올림 · 최소 3재 0.28㎡)으로 찍혀 있는데, 기록은 가로×세로×수량을
+ * 한 번에 반올림해 1719×1820×15 가 의뢰서 46.95 · 기록 46.93 으로 어긋났다 (2026-11-10 점검).
+ * 품목 면적 ÷ 의뢰 수량 × 이번 수량으로 맞춘다. 이미 저장된 기록은 그대로다.
+ * 품목 면적이 없거나 의뢰 수량이 0 이면 ERP 규칙으로 계산한다.
+ */
+export function proRataArea(
+  item: { width_mm: number; height_mm: number; quantity: number; area_m2: number | string | null },
+  quantity: number,
+): number {
+  const area = item.area_m2 === null || item.area_m2 === '' ? NaN : Number(item.area_m2);
+  if (item.quantity > 0 && Number.isFinite(area)) return Math.round(area / item.quantity * quantity * 100) / 100;
+  return expectedArea(item.width_mm, item.height_mm, quantity);
+}
+
 export async function calculateItemArea(supabase: Supabase, itemId: string, quantity: number): Promise<number> {
   if (!itemId) return 0;
   const { data } = await supabase
     .from('dgflow_work_order_items')
-    .select('width_mm, height_mm')
+    .select('width_mm, height_mm, quantity, area_m2')
     .eq('id', itemId)
     .single();
   if (!data) return 0;
-  return Math.round(data.width_mm * data.height_mm * quantity / 1_000_000 * 100) / 100;
+  return proRataArea(data, quantity);
 }

@@ -36,7 +36,7 @@ export default function LinesEditor({ lines, storage, onSaved, onClose }: {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.code === 'NO_TABLE'
-        ? '호기 표가 아직 데이터베이스에 없습니다. 배포할 때 함께 만들면 쓸 수 있습니다.'
+        ? '호기 표가 아직 데이터베이스에 없습니다. 배포 시 함께 생성하면 사용할 수 있습니다.'
         : body.error || '저장하지 못했습니다.');
       await onSaved();
       onClose();
@@ -54,7 +54,7 @@ export default function LinesEditor({ lines, storage, onSaved, onClose }: {
         <button type="button" onClick={onClose} aria-label="닫기" className="rounded-md p-1 text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
       </div>
       {storage === 'none' && (
-        <p className="rounded-lg bg-warning-50 px-3 py-2 text-xs">호기 표가 아직 데이터베이스에 없어 지금은 1호기 · 2호기만 씁니다. 배포할 때 표를 함께 만들면 여기서 고칠 수 있습니다.</p>
+        <p className="rounded-lg bg-warning-50 px-3 py-2 text-xs">호기 표가 아직 데이터베이스에 없어 현재는 1호기 · 2호기만 사용합니다. 배포 시 표를 함께 생성하면 여기서 수정할 수 있습니다.</p>
       )}
       <div className="space-y-2">
         {draft.map((l, i) => (
@@ -66,7 +66,7 @@ export default function LinesEditor({ lines, storage, onSaved, onClose }: {
             <label className="flex items-center gap-1.5 text-sm">
               <input type="checkbox" className="h-4 w-4 accent-brand-800" checked={l.is_active}
                 onChange={e => setDraft(d => d.map((x, k) => (k === i ? { ...x, is_active: e.target.checked } : x)))} />
-              쓰는 중
+              사용 중
             </label>
           </div>
         ))}

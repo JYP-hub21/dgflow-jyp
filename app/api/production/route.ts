@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   // 생산관리부가 받았다고 확인한 의뢰서에만 생산을 넣는다 (화면도 막지만 서버에서 한 번 더)
   if (work_order_id && await needsReceipt(createServiceRoleClient(), work_order_id)) {
     return NextResponse.json({
-      error: '수신 확인 전인 작업의뢰서입니다. 생산관리부가 받았다고 확인한 뒤에 생산을 입력할 수 있습니다.',
+      error: '수신 확인 전인 작업의뢰서입니다. 생산관리부가 수신을 확인한 뒤에 생산을 입력할 수 있습니다.',
       code: 'RECEIPT_REQUIRED',
     }, { status: 409 });
   }
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     const total = (done || []).reduce((s, l) => s + l.quantity_completed, 0);
     if (total + qty > item.quantity) {
       return NextResponse.json(
-        { error: `의뢰 ${item.quantity}조를 넘습니다 (이미 ${total}조 + 이번 ${qty}조). 다른 곳에서 먼저 입력했는지 확인해 주세요.`, code: 'OVER_ORDERED' },
+        { error: `의뢰 ${item.quantity}조를 넘습니다 (이미 ${total}조 + 이번 ${qty}조). 다른 곳에서 먼저 입력했는지 확인하세요.`, code: 'OVER_ORDERED' },
         { status: 400 },
       );
     }

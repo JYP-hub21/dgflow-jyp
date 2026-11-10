@@ -194,15 +194,14 @@
   .no-print { display: none !important; }
 }
 
-/* 작업의뢰서 A4 인쇄 — 양식만 남기고 여백을 종이에 맞춘다 */
-@page {
-  size: A4 portrait;
-  margin: 0;
-}
-
+/*
+ * 작업의뢰서 쪽(.wo-page) — 화면에서는 종이처럼 그림자, 인쇄에서는 쪽마다 넘긴다.
+ * 여백 0 인 @page 는 작업의뢰서 보기 화면에만 넣는다(preview/page.tsx) — 예전에는 여기 전역에 있어
+ * 다른 화면을 인쇄해도 여백이 0 이라 가장자리가 잘렸다 (2026-11-10 점검).
+ */
+.wo-page { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
 @media print {
-  #work-order-sheet {
-    box-shadow: none !important;
-    page-break-after: avoid;
-  }
+  .wo-sheet { gap: 0 !important; }
+  .wo-page { box-shadow: none !important; break-after: page; }
+  .wo-page:last-child { break-after: auto; }
 }

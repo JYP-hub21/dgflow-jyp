@@ -54,9 +54,9 @@ function presets(): { key: string; label: string; from: string; to: string }[] {
  *  · 기간 합계: 기간을 골라 날짜별로 무엇을 몇 장 만들었나 (예전 일간 생산일지)
  */
 const VIEW_DESCRIPTIONS = {
-  bokcheung: '회사 복층생산일지 양식 그대로입니다. 종류와 수량외만 입력하면 엑셀로 내려받을 수 있습니다.',
-  weekly: '회사 주간생산일지 양식 그대로입니다. 한 주의 근무와 투입 인원을 입력하면 엑셀로 내려받을 수 있습니다.',
-  period: '기간을 고르면 날짜마다 복층생산일지 시트가 한 장씩 든 엑셀로 내려받습니다. 아래는 그 기간에 생산한 내역입니다.',
+  bokcheung: '회사 복층생산일지 양식 그대로입니다. 종류와 수량외만 입력하면 엑셀로 다운로드할 수 있습니다.',
+  weekly: '회사 주간생산일지 양식 그대로입니다. 한 주의 근무와 투입 인원을 입력하면 엑셀로 다운로드할 수 있습니다.',
+  period: '기간을 선택하면 날짜마다 복층생산일지 시트가 한 장씩 포함된 엑셀을 다운로드합니다. 아래는 해당 기간의 생산 내역입니다.',
 };
 
 export default function ProductionLogPage() {
@@ -218,7 +218,7 @@ function PeriodReport() {
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card py-12 text-center">
               <CalendarDays className="h-8 w-8 text-muted-foreground" />
               <p className="font-semibold">이 기간에 입력된 생산실적이 없습니다</p>
-              <p className="text-sm text-muted-foreground">기간을 바꿔 보세요.</p>
+              <p className="text-sm text-muted-foreground">다른 기간을 선택하세요.</p>
             </div>
           ) : (
             // 최근 날짜가 위로

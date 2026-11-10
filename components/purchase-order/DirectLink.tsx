@@ -43,9 +43,14 @@ export default function PickExistingWorkOrder({ poId }: { poId: string }) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(json.error ?? '연결하지 못했습니다.'); return; }
-      toast.success(json.mode === 'package'
-        ? `작업의뢰서 ${c.work_order_number} 연결 완료 (${json.label}) — ${json.summary}`
-        : `작업의뢰서 ${c.work_order_number} 연결 완료`);
+      // 딱 맞는 포장이 없으면 가장 가까운 포장에 붙고 'ERP 엑셀과 다름' 이 남는다 — 초록 성공으로 덮지 않는다 (2026-11-10 점검)
+      if (json.mode === 'package' && json.ok === false) {
+        toast.warning(`작업의뢰서 ${c.work_order_number} 를 ${json.label} 에 연결했지만 ERP 엑셀과 다릅니다 — ${json.summary}`, { duration: 10000 });
+      } else {
+        toast.success(json.mode === 'package'
+          ? `작업의뢰서 ${c.work_order_number} 연결 완료 (${json.label}) — ${json.summary}`
+          : `작업의뢰서 ${c.work_order_number} 연결 완료`);
+      }
       setList(prev => prev?.filter(x => x.id !== c.id) ?? null);
       router.refresh();
     } finally {

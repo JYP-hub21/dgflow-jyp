@@ -25,7 +25,7 @@ export async function PUT(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!hasAnyPermission(user, ['production:input', 'admin:master'])) {
-    return NextResponse.json({ error: '호기를 고칠 권한이 없습니다.' }, { status: 403 });
+    return NextResponse.json({ error: '호기를 수정할 권한이 없습니다.' }, { status: 403 });
   }
   const body = await request.json().catch(() => null);
   const input = Array.isArray(body?.lines) ? body.lines : null;
@@ -44,7 +44,7 @@ export async function PUT(request: NextRequest) {
     names.add(name);
     rows.push({ line_number: n, name, sort_order: i + 1, is_active: l?.is_active !== false, updated_at: new Date().toISOString() });
   }
-  if (!rows.some(r => r.is_active)) return NextResponse.json({ error: '쓰는 호기가 하나는 있어야 합니다.' }, { status: 400 });
+  if (!rows.some(r => r.is_active)) return NextResponse.json({ error: '사용 중인 호기가 하나 이상 있어야 합니다.' }, { status: 400 });
 
   const { error } = await createServiceRoleClient().from(LINES_TABLE).upsert(rows, { onConflict: 'line_number' });
   if (error) {

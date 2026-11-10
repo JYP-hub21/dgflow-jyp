@@ -63,7 +63,7 @@ export default function Sidebar({ userName, user, department, badges = {}, login
   return (
     <>
       {/* 폰 — 위에 붙는 띠. 햄버거 · 로고 */}
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b bg-background px-4 md:hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b bg-background px-4 md:hidden print:hidden">
         <button type="button" onClick={() => setOpen(true)}
           aria-label="메뉴 열기" className="-ml-2 rounded-lg p-2 hover:bg-accent">
           <Menu className="h-5 w-5" />
@@ -82,7 +82,7 @@ export default function Sidebar({ userName, user, department, badges = {}, login
 
       <aside
         className={cn(
-          'flex h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar',
+          'flex h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar print:hidden',
           // 폰: 화면 밖에 두고 열릴 때만 밀어 넣는다
           'fixed inset-y-0 left-0 z-50 transition-transform md:static md:translate-x-0',
           open ? 'translate-x-0' : '-translate-x-full'

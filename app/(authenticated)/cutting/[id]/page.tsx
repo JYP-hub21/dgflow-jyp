@@ -78,7 +78,7 @@ export default function CuttingInputPage() {
     // 실패하면 입력을 비우지 않고 알린다 — 예전에는 응답을 안 보고 칸을 비웠다 (2026-11-10 전체 점검)
     if (!res || !res.ok) {
       const body = res ? await res.json().catch(() => ({})) : {};
-      alert(`재단 기록을 저장하지 못했습니다${body.error ? `: ${body.error}` : res ? ` (${res.status})` : ' — 인터넷 연결을 확인해 주세요'}`);
+      alert(`재단 기록을 저장하지 못했습니다${body.error ? `: ${body.error}` : res ? ` (${res.status})` : ' — 인터넷 연결을 확인하세요'}`);
       setSaving(false);
       return;
     }
@@ -100,7 +100,7 @@ export default function CuttingInputPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">재단 기록 추가</CardTitle>
-          <p className="text-sm text-muted-foreground"><span className="text-destructive">*</span> 표시는 꼭 적어야 합니다.</p>
+          <p className="text-sm text-muted-foreground"><span className="text-destructive">*</span> 표시는 필수 입력 항목입니다.</p>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

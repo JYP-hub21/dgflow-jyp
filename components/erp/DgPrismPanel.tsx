@@ -26,22 +26,22 @@ interface Result {
  * merge 는 시트가 둘 이상일 때만 보인다.
  */
 const QUICK: { label: string; text: string; merge?: boolean }[] = [
-  { label: '발주서 지시대로', text: '발주서에 적힌 포장 지시와 싣는 순서대로 짜 주세요.' },
+  { label: '발주서 지시대로', text: '발주서에 적힌 포장 지시와 싣는 순서대로 구성해 주세요.' },
   { label: '시트 합치기', text: '이 시트들을 합쳐서 한 번에 규격정리해 주세요:', merge: true },
-  { label: '싣는 순서 바꾸기', text: '싣는 순서를 이렇게 바꿔 주세요:' },
-  { label: '품목 빼기', text: '이번 ERP 에서는 이 품목을 빼 주세요:' },
-  { label: '이상한 곳 찾기', text: '이 발주서에서 확인해야 할 이상한 곳을 찾아 주세요.' },
+  { label: '싣는 순서 변경', text: '싣는 순서를 다음과 같이 변경해 주세요:' },
+  { label: '품목 제외', text: '이번 ERP 에서는 다음 품목을 제외해 주세요:' },
+  { label: '이상 항목 점검', text: '이 발주서에서 확인이 필요한 이상 항목을 점검해 주세요.' },
 ];
 
 /** 처음 화면에 보여 줄 "할 수 있는 일" — 빈 칸 대신 무엇을 시킬 수 있는지 알려 준다 */
 const CAPABILITIES: { icon: React.ElementType; title: string; text: string }[] = [
-  { icon: Boxes, title: '포장 짜기', text: '발주서 지시 · 합계 행 · 동·호로 나누고, 원하는 대로 다시 나눠요' },
-  { icon: Layers, title: '시트 · 파일 합치기', text: '여러 시트, 여러 발주서 파일도 말만 하면 불러와 한 번에 정리해요' },
-  { icon: ArrowDownUp, title: '싣는 순서', text: '동순서 · 포장 순서 · 포장 안 발주서 순서를 바꿔요' },
-  { icon: Eraser, title: '품목 빼기', text: '이번 ERP 에 넣지 않을 품목을 말하면 빼요' },
-  { icon: TextCursorInput, title: '위치 글자', text: '위치 칸에 붙은 필요 없는 말을 지우거나 바꿔요' },
-  { icon: Tag, title: '사내 품명', text: '규격정리 오른쪽 품명을 ERP 품목명으로 제안해요' },
-  { icon: CircleHelp, title: '질문', text: '몇 장인지, 이상한 곳이 있는지 물어보세요' },
+  { icon: Boxes, title: '포장 구성', text: '발주서 지시 · 합계 행 · 동·호 기준으로 나누고, 요청에 따라 다시 나눕니다' },
+  { icon: Layers, title: '시트 · 파일 합치기', text: '여러 시트와 여러 발주서 파일도 요청하면 불러와 한 번에 정리합니다' },
+  { icon: ArrowDownUp, title: '싣는 순서', text: '동순서 · 포장 순서 · 포장 내 발주서 순서를 변경합니다' },
+  { icon: Eraser, title: '품목 제외', text: '이번 ERP 에 넣지 않을 품목을 지정하면 제외합니다' },
+  { icon: TextCursorInput, title: '위치 문구', text: '위치 칸의 불필요한 문구를 삭제하거나 변경합니다' },
+  { icon: Tag, title: '사내 품명', text: '규격정리 오른쪽 품명에 ERP 품목명을 제안합니다' },
+  { icon: CircleHelp, title: '질문', text: '수량이 몇 조인지, 이상 항목이 있는지 질문하세요' },
 ];
 
 /**
@@ -78,8 +78,8 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
   active: boolean;
   /** 받은 계획을 미리보기에 반영한다 */
   onResult: (applied: AppliedPlan, plan: AiPlan) => void;
-  /** 그 시트들을 불러온다 — 이름이 맞지 않으면 false */
-  onLoadSheets: (names: string[]) => boolean;
+  /** 그 시트들을 불러온다 — 이름이 맞지 않으면 false, 다른 표기로 이미 불러온 시트들이면 'already'(다시 읽지 않는다) */
+  onLoadSheets: (names: string[]) => boolean | 'already';
   /** 직접 짜기로 넘어가 손으로 고친다 */
   onEdit: () => void;
 }) {
@@ -127,13 +127,23 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
         const wanted = plan.sheets.map(s => s.trim()).filter(Boolean);
         const same = wanted.length === names.length && wanted.every(w => names.includes(w));
         if (carry || same || wanted.length === 0) {
-          throw new Error(`DG 프리즘이 시트(${wanted.join(', ') || '없음'})를 다시 불러 달라고 했지만 이미 불러온 상태입니다. 요청을 조금 바꿔 다시 보내 주세요.`);
+          throw new Error(`DG 프리즘이 시트(${wanted.join(', ') || '없음'})를 다시 불러오도록 요청했지만 이미 불러온 상태입니다. 요청 내용을 수정해 다시 전송하세요.`);
         }
-        resend.current = { instruction, history: prevHistory, previous: prevPlan, usage: body.usage, loaded: wanted };
-        setNote(`${plan.reply || ''} ${wanted.join(' + ')} 시트를 불러와 이어서 짜고 있어요…`.trim());
-        if (!onLoadSheets(wanted)) {
+        const pending = { instruction, history: prevHistory, previous: prevPlan, usage: body.usage as AiUsage, loaded: wanted };
+        resend.current = pending;
+        setNote(`${plan.reply || ''} ${wanted.join(' + ')} 시트를 불러와 이어서 구성하는 중입니다…`.trim());
+        const loaded = onLoadSheets(wanted);
+        if (!loaded) {
           resend.current = null;
-          throw new Error(`"${wanted.join(', ')}" 시트를 찾지 못했어요. 시트 이름을 확인해 주세요.`);
+          throw new Error(`"${wanted.join(', ')}" 시트를 찾지 못했습니다. 시트 이름을 확인하세요.`);
+        }
+        if (loaded === 'already') {
+          // '1차' 처럼 다른 표기로 이미 불러온 시트('① 1차')를 달라고 했다 — 불러온 시트가 그대로라 sheetKey 가 안 바뀌어
+          // 위 이어 보내기(effect)가 영영 안 돌고 '읽는 중' 에 멈췄다. 지금 시트 이름을 알려 주며 바로 한 번 더 보낸다 —
+          // carry 가 있으니 또 시트를 달라고 하면 오류로 끝난다 (2026-11-10 점검)
+          resend.current = null;
+          await send(instruction, { ...pending, loaded: names });
+          return;
         }
         return; // sheetKey 가 바뀌면 이어서 보낸다 — busy 는 그때 다시 켜진다
       }
@@ -192,7 +202,7 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
               DG 프리즘
               <span className="rounded-md bg-brand-50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 ring-1 ring-inset ring-brand-600/20">AI</span>
             </p>
-            <p className="break-keep text-[13px] text-muted-foreground">발주서 규격정리 전문가 — 묻거나 시키면 포장 · 순서 · 시트 합치기까지 해 드려요</p>
+            <p className="break-keep text-[13px] text-muted-foreground">발주서 규격정리 전문가 — 질문하거나 지시하면 포장 · 순서 · 시트 합치기까지 처리합니다</p>
           </div>
         </header>
 
@@ -209,7 +219,7 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                 </li>
               ))}
             </ul>
-            <p className="break-keep text-xs text-muted-foreground">가로 · 세로 · 수량 숫자는 발주서에서 읽은 그대로 두고, 바꾸지 않아요.</p>
+            <p className="break-keep text-xs text-muted-foreground">가로 · 세로 · 수량 숫자는 발주서에서 읽은 값을 그대로 유지하며, 변경하지 않습니다.</p>
           </div>
         )}
 
@@ -233,7 +243,7 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                 {result.plan.understanding && (
                   <details className="group text-xs text-muted-foreground">
                     <summary className="flex cursor-pointer list-none items-center gap-1 font-medium hover:text-foreground">
-                      <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />발주서를 이렇게 읽었어요
+                      <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />발주서 해석 내용
                     </summary>
                     <p className="mt-1 break-keep leading-relaxed">{result.plan.understanding}</p>
                   </details>
@@ -272,7 +282,7 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                         <div className="min-w-0 flex-1">
                           <p className="flex flex-wrap items-baseline gap-x-2">
                             <b>{p.label}</b>
-                            <span className="tabular text-xs text-muted-foreground">{p.rows.length}행 · {sumQty(p.rows).toLocaleString()}장</span>
+                            <span className="tabular text-xs text-muted-foreground">{p.rows.length}행 · {sumQty(p.rows).toLocaleString()}조</span>
                             {src?.row_order === 'source' && <span className="rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">발주서 순서 유지</span>}
                           </p>
                           {src?.reason && <p className="break-keep text-xs text-muted-foreground">{src.reason}</p>}
@@ -291,15 +301,15 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                 <p className="flex items-start gap-1.5 font-semibold text-destructive">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="break-keep">
-                    품목 {result.applied.unassigned.length}행({sumQty(result.applied.unassigned).toLocaleString()}장)이 어느 포장에도 들어가지 않았어요
+                    품목 {result.applied.unassigned.length}행({sumQty(result.applied.unassigned).toLocaleString()}조)이 어느 포장에도 포함되지 않았습니다
                   </span>
                 </p>
                 <p className="break-keep text-xs text-muted-foreground">
-                  {shorten(label(result.applied.unassigned))} — 이대로 받으면 ERP 엑셀의 _미배정 시트로 따로 내려가요. 다시 짜 달라고 하면 대부분 바로잡혀요.
+                  {shorten(label(result.applied.unassigned))} — 이대로 다운로드하면 ERP 엑셀의 _미배정 시트에 별도로 포함됩니다. 재구성을 요청하면 대부분 바로잡힙니다.
                 </p>
                 <Button size="sm" variant="outline" disabled={busy}
-                  onClick={() => void send(`${label(result.applied!.unassigned)} 행이 어느 포장에도 들어가지 않았어요. 빠진 행까지 모두 포장에 넣어 다시 짜 주세요.`)}>
-                  <RotateCcw />빠진 행까지 넣어 다시 짜기
+                  onClick={() => void send(`${label(result.applied!.unassigned)} 행이 어느 포장에도 포함되지 않았습니다. 누락된 행까지 모두 포장에 넣어 다시 구성해 주세요.`)}>
+                  <RotateCcw />누락 행 포함 재구성
                 </Button>
               </div>
             )}
@@ -309,11 +319,11 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
               const notes = [
                 ...result.plan.cautions,
                 ...(a && a.duplicates.length > 0 ? [`두 포장에 겹친 행 ${a.duplicates.length}개(${shorten(label(a.duplicates))})는 앞 포장에 남겼습니다.`] : []),
-                ...(a && a.emptyLabels.length > 0 ? [`품목이 없어 뺀 포장: ${a.emptyLabels.join(', ')}`] : []),
+                ...(a && a.emptyLabels.length > 0 ? [`품목이 없어 제외한 포장: ${a.emptyLabels.join(', ')}`] : []),
               ];
               return notes.length > 0 && (
                 <ul className="space-y-1 rounded-lg border border-warning/40 bg-warning-50 px-3 py-2 text-sm text-amber-900">
-                  <li className="text-xs font-semibold">확인해 주세요</li>
+                  <li className="text-xs font-semibold">확인 필요 사항</li>
                   {notes.map((n, i) => (
                     <li key={i} className="flex gap-1.5"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" /><span className="break-keep">{n}</span></li>
                   ))}
@@ -323,12 +333,17 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
 
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="tabular text-xs text-muted-foreground">
-                {result.retried && '빠진 행이 있어 한 번 더 물었습니다 · '}
+                {result.retried && '누락된 행이 있어 한 번 더 요청했습니다 · '}
                 이번 요청 약 {estimateKrw(result.usage).toLocaleString()}원
               </p>
               <div className="flex gap-1.5">
                 <Button size="sm" variant="ghost" onClick={reset} disabled={busy}><RotateCcw />처음부터</Button>
-                {result.applied && <Button size="sm" variant="outline" onClick={onEdit} disabled={busy || !active}><PencilRuler />직접 짜기로 고치기</Button>}
+                {result.applied && (
+                  <Button size="sm" variant="outline" onClick={onEdit} disabled={busy || !active}
+                    title="포장과 함께 제외 품목 · 위치 수정 · 사내 품명 · 발주서 순서도 그대로 유지한 채 전환합니다">
+                    <PencilRuler />직접 구성으로 수정
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -339,15 +354,15 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
           <label htmlFor="dg-prism-request" className="block text-[13px] font-semibold">
             {result ? '이어서 요청' : 'DG 프리즘에게 요청'}
             <span className="ml-1.5 font-normal text-muted-foreground">
-              {result ? '— 고칠 점이나 궁금한 것을 적으면 위 결과를 바탕으로 이어서 해요' : '— 질문도 되고 지시도 돼요. 길게 적어도 되고, 비우면 발주서대로 짜요'}
+              {result ? '— 수정할 내용이나 질문을 입력하면 위 결과를 바탕으로 이어서 처리합니다' : '— 질문과 지시 모두 가능합니다. 길게 입력해도 되며, 비워 두면 발주서대로 구성합니다'}
             </span>
           </label>
           <Textarea id="dg-prism-request" ref={box} value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={onKey}
             disabled={busy} rows={result ? 2 : 4} maxLength={MAX_INSTRUCTION}
             className="bg-card text-sm leading-relaxed shadow-xs"
             placeholder={result
-              ? '예) 이 두 포장은 하나로 합쳐 주세요. / 이 포장은 모두 몇 장이에요? / 위치 칸에서 이 말은 빼 주세요.'
-              : '예) 포장은 발주서 지시대로 하고, 싣는 순서만 바꿔 주세요. / 이 시트들을 합쳐서 정리해 주세요. / 몇 장이에요?'} />
+              ? '예) 이 두 포장은 하나로 합쳐 주세요. / 이 포장은 모두 몇 조인지 알려 주세요. / 위치 칸에서 이 문구는 삭제해 주세요.'
+              : '예) 포장은 발주서 지시대로 하고, 싣는 순서만 변경해 주세요. / 이 시트들을 합쳐서 정리해 주세요. / 전체 수량이 몇 조인지 알려 주세요.'} />
           {!result && (
             <div className="flex flex-wrap gap-1.5">
               {QUICK.filter(q => !q.merge || canMerge).map(q => (
@@ -360,17 +375,17 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
           )}
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="tabular text-xs text-muted-foreground">
-              {busy ? '' : ready ? `${draft.length.toLocaleString()} / ${MAX_INSTRUCTION.toLocaleString()}자 · Ctrl+Enter 로 보내기` : '발주서를 놓으면 보낼 수 있어요'}
+              {busy ? '' : ready ? `${draft.length.toLocaleString()} / ${MAX_INSTRUCTION.toLocaleString()}자 · Ctrl+Enter 로 전송` : '발주서를 업로드하면 요청할 수 있습니다'}
             </span>
             <Button onClick={() => void send()} disabled={!ready || busy || (!!result && !draft.trim())}
               className={cn(ready && !busy && 'shadow-md shadow-brand-600/20')}>
               {busy ? <Loader2 className="animate-spin" /> : <Send />}
-              {busy ? 'DG 프리즘이 읽는 중…' : result ? '이어서 요청' : draft.trim() ? 'DG 프리즘에게 요청' : '발주서대로 짜 달라고 하기'}
+              {busy ? 'DG 프리즘 분석 중…' : result ? '이어서 요청' : draft.trim() ? 'DG 프리즘에게 요청' : '발주서대로 구성 요청'}
             </Button>
           </div>
           {busy && (
             <p className="flex items-center gap-1.5 break-keep text-xs text-brand-800">
-              <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse" />{note || '발주서를 꼼꼼히 읽고 판단하는 중이에요. 보통 30초–2분 걸려요.'}
+              <Sparkles className="h-3.5 w-3.5 shrink-0 animate-pulse" />{note || '발주서를 분석하는 중입니다. 보통 30초–2분 소요됩니다.'}
             </p>
           )}
           {error && <p className="break-keep rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</p>}
@@ -391,10 +406,10 @@ function ApplyDetails({ applied, label, sumQty }: {
   return (
     <ul className="space-y-1 border-t bg-muted/30 px-3.5 py-2 text-xs">
       {applied.excluded.length > 0 && (
-        <li><b>뺀 품목</b> {applied.excluded.length}행 · {sumQty(applied.excluded).toLocaleString()}장 <span className="text-muted-foreground">({shorten(label(applied.excluded))})</span></li>
+        <li><b>제외 품목</b> {applied.excluded.length}행 · {sumQty(applied.excluded).toLocaleString()}조 <span className="text-muted-foreground">({shorten(label(applied.excluded))})</span></li>
       )}
       {applied.locationEdits.map((e, i) => (
-        <li key={i}><b>위치 고치기</b> &lsquo;{e.find}&rsquo; → {e.replace ? <>&lsquo;{e.replace}&rsquo;</> : '지움'} <span className="text-muted-foreground">({e.keys ? `${e.keys.length}행` : '전체'})</span></li>
+        <li key={i}><b>위치 수정</b> &lsquo;{e.find}&rsquo; → {e.replace ? <>&lsquo;{e.replace}&rsquo;</> : '삭제'} <span className="text-muted-foreground">({e.keys ? `${e.keys.length}행` : '전체'})</span></li>
       ))}
       {names.length > 0 && (
         <li><b>규격정리 사내 품명</b> {names.map(([f, t]) => `${f} → ${t}`).join(' · ')}</li>

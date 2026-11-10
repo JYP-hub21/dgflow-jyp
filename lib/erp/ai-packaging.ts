@@ -172,7 +172,7 @@ export function sheetTextForAi(matrix: unknown[][]): string {
 
 function cellText(c: unknown): string {
   if (c === null || c === undefined) return '';
-  const s = c instanceof Date ? c.toISOString().slice(0, 10) : String(c);
+  const s = c instanceof Date ? new Date(c.getTime() + 12 * 3600_000).toISOString().slice(0, 10) : String(c); // SheetJS 날짜는 한국에서 전날 23:59:08 로 나와 그대로 자르면 하루 앞 — 12시간 더해 날짜만 (2026-11-10 점검, erp-list toIsoDate 와 같은 방법)
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length > MAX_CELL ? `${t.slice(0, MAX_CELL)}…` : t;
 }

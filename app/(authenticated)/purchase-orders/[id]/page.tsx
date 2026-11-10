@@ -1,6 +1,5 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { format } from 'date-fns';
 import { ArrowRight, CheckCircle2, Clock, FileSpreadsheet, History, ScanLine } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
@@ -13,8 +12,10 @@ import { StageBadge, StageSteps } from '@/components/purchase-order/StageBadge';
 import { FileDownload, PackageRow, PoActions } from '@/components/purchase-order/PoControls';
 import PickExistingWorkOrder from '@/components/purchase-order/DirectLink';
 import { isManualPackage } from '@/lib/purchase-order/manual';
+import { kstDateTime } from '@/lib/kst-date';
 
-const when = (iso: string) => format(new Date(iso), 'MM/dd HH:mm');
+// 서버(UTC)에서 그리므로 한국 시각으로 바꿔 찍는다 — date-fns format 은 9시간 이르게 나왔다 (2026-11-10 점검)
+const when = kstDateTime;
 
 const EVENT_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
   submitted: () => '발주서를 등록했습니다',
@@ -27,7 +28,7 @@ const EVENT_TEXT: Record<string, (d: Record<string, unknown>) => string> = {
   unlinked: d => `작업의뢰서 ${d.work_order_number ?? ''} 연결을 해제했습니다 (${d.package})`,
   cancelled: () => '접수를 취소했습니다',
   edited: () => '내용을 수정했습니다',
-  purged: () => '저장 공간 정리로 파일을 삭제했습니다',
+  purged: d => `저장 공간 정리로 파일을 삭제했습니다${Array.isArray(d.files) && d.files.length ? ` — ${d.files.join(', ')}` : ''}`,
 };
 
 export default async function PurchaseOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -60,7 +61,7 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
         <CardContent className="space-y-5 pt-6">
           <StageSteps stage={po.derived} />
           <div className="grid gap-3 text-sm sm:grid-cols-3">
-            <Fact label="올린 사람" value={po.creator_name} sub={when(po.created_at)} />
+            <Fact label="등록자" value={po.creator_name} sub={when(po.created_at)} />
             <Fact label="담당자" value={po.assignee_name ?? '-'} />
             <Fact
               label="담당자 확인"
@@ -105,8 +106,8 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
       )}
       {!cancelled && po.derived === 'erp_ready' && (
         <NextStep
-          title="다음 단계 — 회사 ERP 에 넣고 작업의뢰서 받아 오기"
-          text="아래 ERP 엑셀을 받아 회사 ERP 에 넣으세요. ERP 가 뽑아 준 작업의뢰서를 포장마다 올리면 자동으로 대조합니다."
+          title="다음 단계 — 회사 ERP 입력 후 작업의뢰서 등록"
+          text="아래 ERP 엑셀을 다운로드해 회사 ERP 에 입력하세요. ERP 에서 발행된 작업의뢰서를 포장별로 등록하면 자동으로 대조합니다."
         />
       )}
 
@@ -115,10 +116,10 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
         <CardHeader><CardTitle className="text-base">파일</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <FileList title="발주서 원본" poId={po.id} files={orderFiles} />
-          {madeFiles.length > 0 && <FileList title="만든 파일 (ERP 업로드 · 규격정리)" poId={po.id} files={madeFiles} />}
+          {madeFiles.length > 0 && <FileList title="생성 파일 (ERP 업로드 · 규격정리)" poId={po.id} files={madeFiles} />}
           {canErp && !cancelled && po.derived !== 'submitted' && po.derived !== 'checked' && po.packages_linked < po.packages_total && (
             <Link href={`/erp-upload?po=${po.id}`} className="inline-block text-sm font-medium text-brand-800 hover:underline">
-              ERP 엑셀 다시 만들기 · 다른 차수 추가 →
+              ERP 엑셀 재생성 · 다른 차수 추가 →
             </Link>
           )}
         </CardContent>

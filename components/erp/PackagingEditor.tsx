@@ -232,7 +232,7 @@ export default function PackagingEditor({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Boxes className="h-4 w-4 text-muted-foreground" />
-            포장 직접 짜기
+            포장 직접 구성
             <span className="text-xs font-normal text-muted-foreground">
               발주서 {rows.length}행 · {total.toLocaleString()}조
             </span>
@@ -243,7 +243,7 @@ export default function PackagingEditor({
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
-          자동으로 나눈 결과에서 시작합니다. 행을 골라 다른 포장으로 옮기면 ERP 엑셀 시트가 그대로 바뀝니다.
+          자동으로 나눈 결과에서 시작합니다. 행을 선택해 다른 포장으로 옮기면 ERP 엑셀 시트에 그대로 반영됩니다.
         </p>
       </CardHeader>
 
@@ -296,12 +296,12 @@ export default function PackagingEditor({
               >
                 <TriangleAlert className="h-4 w-4" />
                 미배정 {leftover.length}행
-                <span className="font-normal opacity-70">{onlyUnassigned ? '· 전체 보기' : '· 눌러서 보기'}</span>
+                <span className="font-normal opacity-70">{onlyUnassigned ? '· 전체 보기' : '· 클릭하여 보기'}</span>
               </button>
             ) : (
               <span className="flex h-9 items-center gap-1.5 rounded-lg border border-success/30 bg-success-50 px-3 font-semibold text-success">
                 <Check className="h-4 w-4" />
-                모든 행이 배정됐습니다
+                모든 행이 배정되었습니다
               </span>
             )}
           </div>
@@ -363,7 +363,7 @@ export default function PackagingEditor({
           <div className="fixed inset-x-4 bottom-4 z-40 flex flex-wrap items-center gap-2 rounded-xl border border-brand-600/40 bg-brand-50/95 p-3 shadow-xl backdrop-blur md:left-[calc(16rem+1.5rem)] md:right-6">
             <Badge>{selected.size}행 · {quantityOf([...selected]).toLocaleString()}조 선택됨</Badge>
             <Button size="sm" onClick={packSelectedAsNew}>
-              <Plus />새 포장으로 만들기
+              <Plus />새 포장 생성
             </Button>
             <span className="text-sm font-semibold text-brand-900">또는 기존 포장으로 →</span>
             {packages.map(pkg => (
@@ -381,8 +381,8 @@ export default function PackagingEditor({
         )}
 
         <p className="text-sm text-muted-foreground">
-          <b className="text-foreground">행을 누른 채 위아래로 끌면</b> 여러 행이 한 번에 골라집니다.
-          {' '}<b className="text-foreground">Shift</b> 를 누르고 클릭하면 사이의 행이 전부 골라집니다.
+          <b className="text-foreground">행을 누른 채 위아래로 끌면</b> 여러 행이 한 번에 선택됩니다.
+          {' '}<b className="text-foreground">Shift</b> 를 누르고 클릭하면 사이의 행이 전부 선택됩니다.
         </p>
 
         {/* 행 목록 */}

@@ -102,7 +102,7 @@ export default function UsersPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      <PageHeader title="사용자 관리" description="가입 신청을 승인하고, 사람마다 쓸 수 있는 기능을 정합니다." />
+      <PageHeader title="사용자 관리" description="가입 신청을 승인하고, 사용자별 사용 가능한 기능을 지정합니다." />
       {/* 부서 칸 추천 — 세 부서 이름이 맞아야 사이드바에 '내 부서' 가 표시된다 */}
       <datalist id="department-options">
         {DEPARTMENTS.map(d => <option key={d.key} value={d.name} />)}
@@ -139,7 +139,7 @@ export default function UsersPage() {
                         <UserCheck />승인
                       </Button>
                       <Button variant="outline" disabled={saving} onClick={() => {
-                        if (!confirm(`${u.name}(${u.login_id}) 님의 가입 신청을 거절할까요? 신청 내용이 지워집니다.`)) return;
+                        if (!confirm(`${u.name}(${u.login_id}) 님의 가입 신청을 거절하시겠습니까? 신청 내용이 삭제됩니다.`)) return;
                         run(() => send(`/api/users/${u.id}`, 'DELETE'), `${u.name} 님의 가입 신청을 거절했습니다.`, () => {});
                       }}>
                         <UserX />거절
@@ -208,7 +208,7 @@ export default function UsersPage() {
               <div className="flex gap-2">
                 <Button disabled={saving} onClick={() => run(
                   () => send('/api/auth/register', 'POST', creating),
-                  `${creating.name} 님 계정을 만들었습니다.`,
+                  `${creating.name} 님 계정을 생성했습니다.`,
                   () => setCreating(null),
                 )}>
                   <Save />{saving ? '등록 중...' : '등록'}
@@ -237,14 +237,14 @@ export default function UsersPage() {
                 <TextField label="직책" value={editing.position ?? ''} onChange={v => setEditing({ ...editing, position: v })} />
                 <div>
                   <Label className="mb-1.5 text-[13px] font-semibold"><KeyRound className="mr-1 inline h-3.5 w-3.5" />비밀번호 초기화</Label>
-                  <Input placeholder="바꿀 때만 입력" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                  <Input placeholder="변경 시에만 입력" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
                 </div>
               </div>
               <label className="flex h-10 items-center gap-2 text-sm">
                 <input type="checkbox" className="h-5 w-5 accent-brand-800" checked={editing.is_active}
                   disabled={editing.id === me.id}
                   onChange={e => setEditing({ ...editing, is_active: e.target.checked })} />
-                사용 중 <span className="text-muted-foreground">(끄면 로그인할 수 없습니다. 퇴사자는 지우지 말고 끄세요)</span>
+                사용 중 <span className="text-muted-foreground">(해제하면 로그인할 수 없습니다. 퇴사자는 삭제하지 말고 사용 중지하세요)</span>
               </label>
               {canChangeRole && editing.id !== me.id && (
                 <RolePicker value={editing.role} onChange={role => setEditing({ ...editing, role })} />
@@ -348,7 +348,7 @@ function PermissionSummary({ user }: { user: UserRow }) {
   if (user.role === 'master') return <span className="font-semibold text-brand-800">전체 기능</span>;
   const { blocks, extras } = deptBlocksOf(user.permissions);
   if (blocks.length === 0 && extras.length === 0) {
-    return <span className="font-medium text-warning">부서 권한 없음 — 대시보드만 보입니다</span>;
+    return <span className="font-medium text-warning">부서 권한 없음 — 대시보드만 표시됩니다</span>;
   }
   return (
     <span className="flex flex-wrap items-center gap-1.5">
@@ -398,7 +398,7 @@ function PermissionPicker({ me, role, value, onChange }: {
   if (role === 'master') {
     return (
       <p className="rounded-lg bg-card px-4 py-3 text-sm text-muted-foreground">
-        마스터는 모든 기능을 씁니다. 기능을 골라 주려면 역할을 사원으로 두세요.
+        마스터는 모든 기능을 사용합니다. 기능을 개별 지정하려면 역할을 사원으로 설정하세요.
       </p>
     );
   }
@@ -428,7 +428,7 @@ function PermissionPicker({ me, role, value, onChange }: {
   return (
     <div className="space-y-3">
       <div>
-        <Label className="mb-1.5 text-[13px] font-semibold">부서 권한 <span className="font-normal text-muted-foreground">— 누르면 그 부서 메뉴가 통째로 열리고 닫힙니다</span></Label>
+        <Label className="mb-1.5 text-[13px] font-semibold">부서 권한 <span className="font-normal text-muted-foreground">— 선택하면 해당 부서 메뉴 전체가 허용되거나 해제됩니다</span></Label>
         <div className="grid gap-2 sm:grid-cols-3">
           {DEPARTMENTS.map(d => {
             const s = DEPT_STYLE[d.key];

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const file = form.get('file');
 
   if (!(file instanceof File)) {
-    return NextResponse.json({ error: 'PDF 파일을 올려 주세요.' }, { status: 400 });
+    return NextResponse.json({ error: 'PDF 파일을 업로드하세요.' }, { status: 400 });
   }
   if (file.type && file.type !== 'application/pdf') {
     return NextResponse.json({ error: 'PDF 파일만 올릴 수 있습니다.' }, { status: 400 });
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     // 글자가 없으면 종이를 스캔한 PDF 다 — 그림뿐이라 읽을 수 없다
     if (text.replace(/\s/g, '').length < 50) {
       return NextResponse.json(
-        { error: '글자가 박혀 있지 않은 PDF예요 (스캔본 · 사진). ERP에서 작업의뢰서를 PDF로 다시 뽑아 올려 주세요. 안 되면 아래 표에 직접 입력하세요.' },
+        { error: '텍스트가 포함되지 않은 PDF입니다 (스캔본 · 사진). ERP에서 작업의뢰서를 PDF로 다시 출력해 업로드하세요. 불가능하면 아래 표에 직접 입력하세요.' },
         { status: 422 }
       );
     }

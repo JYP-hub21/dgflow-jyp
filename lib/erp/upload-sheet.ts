@@ -127,7 +127,7 @@ export function buildErpUpload(
   if (groups.length === 0) {
     const build = buildSheet(items, '전체', '전체', 'fallback-single');
     build.review.unshift(
-      '포장 단위를 찾지 못해 전체를 한 장으로 묶었습니다. 실제 포장 단위에 맞게 직접 나눠 주세요.',
+      '포장 단위를 찾지 못해 전체를 한 장으로 묶었습니다. 실제 포장 단위에 맞게 직접 나누세요.',
     );
     return {
       sheets: [build],
@@ -162,12 +162,12 @@ export function buildErpUpload(
     const where = [...new Set(unassigned.map(u => [u.location_dong, u.location_line].filter(Boolean).join(' ') || '위치 불명'))];
     review.push(
       `어느 포장에도 들어가지 못한 품목이 ${unassigned.length}건 있습니다 (${where.slice(0, 6).join(', ')}${where.length > 6 ? ' 외' : ''}). ` +
-        '포장 단위를 직접 지정하거나 발주서의 동·호 표기를 확인해 주세요.',
+        '포장 단위를 직접 지정하거나 발주서의 동·호 표기를 확인하세요.',
     );
   }
 
   if (sheets.length === 0) {
-    review.push('포장 단위에 걸리는 품목이 없습니다. 발주서의 동·호 표기를 확인해 주세요.');
+    review.push('포장 단위에 걸리는 품목이 없습니다. 발주서의 동·호 표기를 확인하세요.');
   }
 
   return {
@@ -228,7 +228,7 @@ function buildSheet(
     if (picked.ambiguous) {
       rowReview.push(
         `합친 호들의 실명이 서로 다른데 포함 관계가 아닙니다 (${rooms.join(' / ')}). ` +
-          `"${picked.room}" 을 넣었으니 확인해 주세요.`,
+          `"${picked.room}" 을 적용했으니 확인하세요.`,
       );
     }
 

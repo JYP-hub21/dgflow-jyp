@@ -105,18 +105,22 @@ describe('작업의뢰서 상태 — 회의: 100% 생산해도 대기로 나온�
     expect(workOrderStage('pending', { quantity: 10, produced: 3 })).toBe('producing');
     expect(workOrderStage('pending', { quantity: 10, produced: 10 })).toBe('produced');
     expect(workOrderStage('in_progress', { quantity: 10, produced: 10, delivered: 4 })).toBe('delivering');
-    expect(workOrderStage('in_progress', { quantity: 10, produced: 10, delivered: 10 })).toBe('delivered');
+    // 납품 완료는 저장된 status(completed — statusFor 가 품목마다 따진 값)로 정한다 (2026-11-10 점검)
+    expect(workOrderStage('completed', { quantity: 10, produced: 10, delivered: 10 })).toBe('delivered');
     // 재고가 함께 나가 생산보다 납품이 많아도 납품 완료
-    expect(workOrderStage('in_progress', { quantity: 40, produced: 36, delivered: 40 })).toBe('delivered');
+    expect(workOrderStage('completed', { quantity: 40, produced: 36, delivered: 40 })).toBe('delivered');
+    // 합으로는 다 나갔어도 status 가 진행 중이면(다른 품목이 남음) 납품 중
+    expect(workOrderStage('in_progress', { quantity: 20, produced: 20, delivered: 20 })).toBe('delivering');
     // 지난 의뢰서를 완료로 가져온 건 — 기록이 없어도 완료
     expect(workOrderStage('completed', { quantity: 10, produced: 0 })).toBe('done');
   });
 
   it('전량 납품하면 끝난 건으로 저장한다 — 생산 현황 목록에서 빠진다', () => {
-    expect(statusFor({ quantity: 10, produced: 0 })).toBe('pending');
-    expect(statusFor({ quantity: 10, produced: 5 })).toBe('in_progress');
-    expect(statusFor({ quantity: 10, produced: 10 })).toBe('in_progress');
-    expect(statusFor({ quantity: 10, produced: 10, delivered: 10 })).toBe('completed');
+    const item = (produced_quantity: number, delivered = 0, quantity = 10) => ({ quantity, produced_quantity, delivered });
+    expect(statusFor([item(0)])).toBe('pending');
+    expect(statusFor([item(5)])).toBe('in_progress');
+    expect(statusFor([item(10)])).toBe('in_progress');
+    expect(statusFor([item(10, 10)])).toBe('completed');
   });
 });
 

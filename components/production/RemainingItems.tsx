@@ -73,7 +73,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
       </Card>
       {untouched > 0 && (
         <p className="text-sm text-muted-foreground">
-          그중 <b className="text-foreground">{untouched}건</b>은 아직 한 장도 만들지 않았습니다 (<span className="font-semibold text-warning">미착수</span> 표시).
+          그중 <b className="text-foreground">{untouched}건</b>은 아직 생산을 시작하지 않았습니다 (<span className="font-semibold text-warning">미착수</span> 표시).
         </p>
       )}
 
@@ -109,7 +109,7 @@ export default function RemainingItems({ groups, today }: { groups: RemainingGro
               </span>
               {g.delivery_date && (
                 <span className={cn('tabular text-sm', overdue ? 'font-semibold text-destructive' : 'text-muted-foreground')}>
-                  납기 {g.delivery_date}{overdue && ' (지남)'}
+                  납기 {g.delivery_date}{overdue && ' (경과)'}
                 </span>
               )}
               <span className="tabular text-sm">남은 <b className="text-base">{groupQty}</b>조</span>

@@ -97,7 +97,7 @@ export default function ColumnMapper({
             )}
           </CardTitle>
           <Button size="sm" variant="outline" onClick={() => setOpen(v => !v)}>
-            {open ? '접기' : '열이 잘못 읽혔나요?'}
+            {open ? '접기' : '열 지정 변경'}
           </Button>
         </div>
         {!open && (
@@ -112,7 +112,7 @@ export default function ColumnMapper({
       {open && (
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            열 이름이 실제 내용과 다른 발주서가 있습니다. 직접 골라 주시면 결과가 바로 다시 계산됩니다.
+            열 이름이 실제 내용과 다른 발주서가 있습니다. 직접 지정하면 결과가 바로 다시 계산됩니다.
           </p>
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -160,7 +160,7 @@ export default function ColumnMapper({
               저장해 두면 같은 거래처의 다음 발주서는 이 지정대로 자동으로 읽습니다.
               {reconcileOk
                 ? ' 지금 검산이 전부 맞으므로 저장하기 좋은 상태입니다.'
-                : ' 검산이 맞지 않는 상태입니다 — 열을 먼저 맞춰 주세요.'}
+                : ' 검산이 맞지 않는 상태입니다 — 열을 먼저 지정하세요.'}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <Input

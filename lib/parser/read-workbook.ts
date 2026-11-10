@@ -41,7 +41,9 @@ function readInWorker(buffer: ArrayBuffer): Promise<XLSX.WorkBook> {
 
     worker.onerror = () => done(() => reject(new Error('워커를 띄우지 못했습니다.')));
 
-    // 버퍼 소유권을 넘긴다 — 복사하지 않으므로 큰 파일에서도 즉시 건너간다
-    worker.postMessage(buffer, [buffer]);
+    // 복사본의 소유권을 넘긴다. 원본을 넘기면(transfer) 이쪽 버퍼가 비어(detached) 워커가 실패했을 때
+    // 아래 동기 경로가 빈 버퍼를 읽는다 (2026-11-10 점검). 파싱하는 동안만 파일 크기만큼 더 든다.
+    const copy = buffer.slice(0);
+    worker.postMessage(copy, [copy]);
   });
 }

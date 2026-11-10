@@ -69,7 +69,7 @@ export function detectPackaging(
   if (derived.length > 0) {
     const hint = topLines.find(l => /포장/.test(l))?.trim() ?? '';
     notes.push(
-      '포장 단위를 발주서에서 읽지 못해 동별로 나눴습니다. 실제 포장 단위를 확인해 주세요.' +
+      '포장 단위를 발주서에서 읽지 못해 동별로 나눴습니다. 실제 포장 단위를 확인하세요.' +
         (hint ? ` (발주서 문구: "${collapse(hint)}")` : ''),
     );
     return { groups: derived, source: 'derived', evidence: hint, dongOrder, notes };

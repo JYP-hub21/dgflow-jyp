@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { USER_ROLES } from '@/types/user';
-import { workOrderLabels } from '@/lib/work-order/labels';
+import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { hasAnyPermission, hasPermission, ORDER_ANY } from '@/lib/auth/role-guard';
 import { listPurchaseOrders, type PoSummary } from '@/lib/purchase-order/server';
 import { STAGE_LABEL, type PoStage } from '@/lib/purchase-order/stage';
@@ -15,7 +15,9 @@ import ProductionTrend, { TrendLegend, type TrendPoint } from '@/components/dash
 import { DEFAULT_LINES, lineName } from '@/lib/production/lines';
 import { loadLines } from '@/lib/production/lines-store';
 import { cn } from '@/lib/utils';
-import { fetchAll } from '@/lib/supabase/fetch-all';
+import { fetchAll, fetchAllIn } from '@/lib/supabase/fetch-all';
+import { doneInMonth, NO_PROGRESS, progressByWorkOrder, type ItemQty } from '@/lib/dashboard/work-orders';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 /*
   대시보드 — 열면 한눈에 보이는 시각화 (2026-10-30 피드백 "조잡하다, 거의 시각화 자료처럼").
@@ -24,12 +26,38 @@ import { fetchAll } from '@/lib/supabase/fetch-all';
   메뉴 안내는 사이드바 부서 구역이 맡아서 여기에는 두지 않는다.
 */
 
-interface ItemQty { quantity: number; produced_quantity: number }
+interface OpenWorkOrderRow {
+  id: string;
+  work_order_number: string;
+  delivery_date: string | null;
+  customer_label: string | null;
+  site_label: string | null;
+  /** 주문에서 온 의뢰서의 거래처 · 현장 (workOrderLabels 가 읽는다) */
+  order: unknown;
+}
 
-function progressOf(items: ItemQty[]) {
-  const total = items.reduce((s, i) => s + i.quantity, 0);
-  const done = items.reduce((s, i) => s + i.produced_quantity, 0);
-  return { total, done, percent: total > 0 ? Math.round(done / total * 100) : 0 };
+/**
+ * 끝나지 않은(status 가 completed 가 아닌) 작업의뢰서와 품목별 진행 — 끝까지 나눠 읽는다.
+ * status 는 전량 '납품' 해야 completed 라서, 생산이 남았는지는 품목 수량으로 따로 가른다 (2026-11-10 점검).
+ */
+async function loadOpenWorkOrders(supabase: SupabaseClient) {
+  const wos = await fetchAll<OpenWorkOrderRow>((a, b) => supabase.from('dgflow_work_orders')
+    .select(`
+      id, work_order_number, delivery_date, customer_label, site_label,
+      order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))
+    `)
+    .in('status', ['pending', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .order('id')
+    .range(a, b));
+  const items = await fetchAllIn<ItemQty>(wos.map(w => w.id), (chunk, a, b) => supabase
+    .from('dgflow_work_order_items')
+    .select('work_order_id, quantity, produced_quantity')
+    .in('work_order_id', chunk)
+    .order('id')
+    .range(a, b));
+  const progress = progressByWorkOrder(items);
+  return wos.map(wo => ({ ...wo, labels: workOrderLabels(wo as WorkOrderLabelSource), progress: progress.get(wo.id) ?? NO_PROGRESS }));
 }
 
 /** 한국 시간 기준 'YYYY-MM-DD' (서버가 UTC 여도 날짜가 밀리지 않게) */
@@ -57,22 +85,17 @@ export default async function DashboardPage() {
   const from = kst(-13);
   const monthStart = `${today.slice(0, 8)}01`;
 
-  const [{ data: activeOrders }, { data: recentLogs }, { data: monthLogs }, pos, { lines }] = await Promise.all([
-    supabase.from('dgflow_work_orders')
-      .select(`
-        *,
-        order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name)),
-        items:dgflow_work_order_items(quantity, produced_quantity)
-      `)
-      .in('status', ['pending', 'in_progress'])
-      .order('created_at', { ascending: false }),
+  const [openOrders, { data: recentLogs }, { data: monthLogs }, posOrNull, { lines }] = await Promise.all([
+    // 못 읽으면 빈 목록 대신 '읽지 못했다' 로 보인다
+    loadOpenWorkOrders(supabase).catch((e: unknown) => { console.error('[dashboard] 작업의뢰서', e); return null; }),
     // 한 달 생산 기록이 1,000줄을 넘으면 잘려 이번 달 면적 · 막대가 적게 나왔다 — 끝까지 나눠 읽는다
     fetchAll((a, b) => supabase.from('dgflow_production_logs').select('production_date, quantity_completed, area_m2, line_number')
       .gte('production_date', from).lte('production_date', today).order('id').range(a, b)).then(data => ({ data }), () => ({ data: [] })),
-    fetchAll((a, b) => supabase.from('dgflow_production_logs').select('quantity_completed, area_m2')
+    // work_order_id — 이번 달 생산이 있었던 의뢰서로 '이번 달 완료' 발주 건을 가른다
+    fetchAll((a, b) => supabase.from('dgflow_production_logs').select('quantity_completed, area_m2, work_order_id')
       .gte('production_date', monthStart).order('id').range(a, b)).then(data => ({ data }), () => ({ data: [] })),
     // 발주 건은 권한이 있어야 읽히는 표라 서비스 키로 — 화면에는 건수와 이름만 보인다
-    listPurchaseOrders(createServiceRoleClient()),
+    listPurchaseOrders(createServiceRoleClient()).catch((e: unknown) => { console.error('[dashboard] 발주서', e); return null; }),
     // 호기 이름 — 못 읽으면 1호기 · 2호기
     loadLines(supabase).catch(() => ({ lines: DEFAULT_LINES })),
   ]);
@@ -80,13 +103,10 @@ export default async function DashboardPage() {
   const canOpenWorkOrders = user ? hasPermission(user, 'production:view') : false;
   const canOpenOrders = user ? hasAnyPermission(user, ORDER_ANY) : false;
 
-  // ── 작업의뢰서
-  const active = (activeOrders || []).map(wo => ({
-    ...wo,
-    labels: workOrderLabels(wo),
-    progress: progressOf(wo.items as ItemQty[]),
-  }));
-  const remaining = active.reduce((s, wo) => s + (wo.progress.total - wo.progress.done), 0);
+  // ── 작업의뢰서 — 생산이 남은 것만 (다 만들고 납품만 남은 의뢰서는 따로 센다)
+  const active = (openOrders ?? []).filter(wo => wo.progress.remaining > 0);
+  const deliveryOnly = (openOrders ?? []).filter(wo => wo.progress.produced_all).length;
+  const remaining = active.reduce((s, wo) => s + wo.progress.remaining, 0);
   const byDue = [...active].sort((a, b) =>
     (a.delivery_date ?? '9999').localeCompare(b.delivery_date ?? '9999') || b.progress.percent - a.progress.percent);
 
@@ -119,9 +139,12 @@ export default async function DashboardPage() {
   const monthArea = (monthLogs || []).reduce((s, l) => s + Number(l.area_m2 || 0), 0);
 
   // ── 발주서
+  const pos = posOrNull ?? [];
   const live = pos.filter(p => p.derived !== 'cancelled');
+  // '이번 달 완료' — 접수일이 아니라 완료된 달로 센다(마지막 생산 기록 · 마지막 연결 중 늦은 쪽, doneInMonth)
+  const producedThisMonth = new Set((monthLogs || []).map(l => l.work_order_id as string));
   const countOf = (s: PoStage) => s === 'done'
-    ? live.filter(p => p.derived === 'done' && p.created_at >= monthStart).length
+    ? live.filter(p => p.derived === 'done' && doneInMonth(p, monthStart, producedThisMonth)).length
     : live.filter(p => p.derived === s).length;
   const stageCounts = STAGES.map(s => ({ ...s, count: countOf(s.stage) }));
   const maxStage = Math.max(1, ...stageCounts.map(s => s.count));
@@ -149,7 +172,7 @@ export default async function DashboardPage() {
       {mineUnseen > 0 && (
         <Link href="/purchase-orders?view=todo"
           className="flex items-center justify-between rounded-xl border border-warning/40 bg-warning-50 px-4 py-3 text-sm font-semibold">
-          받은 발주서 {mineUnseen}건을 아직 확인하지 않았습니다
+          수신 발주서 {mineUnseen}건을 아직 확인하지 않았습니다
           <ArrowRight className="h-4 w-4" />
         </Link>
       )}
@@ -158,7 +181,8 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Kpi label="오늘 생산" value={todayQty.toLocaleString()} unit="조" sub={`어제 ${yesterdayQty.toLocaleString()}조`} />
         <Kpi label="이번 달 생산 면적" value={monthArea.toLocaleString(undefined, { maximumFractionDigits: 1 })} unit="M²" sub={`이번 달 ${monthQty.toLocaleString()}조`} />
-        <Kpi label="진행 중 작업의뢰서" value={String(active.length)} unit="건" sub={`남은 수량 ${remaining.toLocaleString()}조`} />
+        <Kpi label="생산이 남은 작업의뢰서" value={openOrders ? String(active.length) : '-'} unit="건"
+          sub={`남은 수량 ${remaining.toLocaleString()}조${deliveryOnly > 0 ? ` · 납품만 남은 ${deliveryOnly}건` : ''}`} />
         <Kpi label="처리 중 발주서" value={String(waiting)} unit="건" sub={`생산 중 ${producing}건`} />
       </div>
 
@@ -173,6 +197,7 @@ export default async function DashboardPage() {
         {/* 발주서 단계 */}
         <Panel title="발주서 단계" sub={`진행 ${live.filter(p => p.derived !== 'done').length}건`}
           right={canOpenOrders ? <MoreLink href="/purchase-orders?view=open" /> : null}>
+          {!posOrNull && <p className="mb-3 text-xs text-destructive">발주서를 읽지 못했습니다. 새로 고침하세요.</p>}
           <div className="space-y-2.5">
             {stageCounts.map(s => (
               <div key={s.stage} className="flex items-center gap-3">
@@ -197,9 +222,9 @@ export default async function DashboardPage() {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {/* 작업의뢰서 진행률 — 납기 가까운 순 */}
-        <Panel className="xl:col-span-2" title="작업의뢰서 진행률" sub="납기 가까운 순"
+        <Panel className="xl:col-span-2" title="작업의뢰서 진행률" sub="생산 잔여 · 납기 임박순"
           right={canOpenWorkOrders ? <MoreLink href="/production" /> : null}>
-          {byDue.length === 0 ? <Empty text="진행 중인 작업의뢰서가 없습니다." /> : (
+          {byDue.length === 0 ? <Empty text={openOrders ? '생산이 남은 작업의뢰서가 없습니다.' : '작업의뢰서를 읽지 못했습니다. 새로 고침하세요.'} /> : (
             <div className="-mx-2 space-y-0.5">
               {byDue.slice(0, 8).map(wo => (
                 <Row key={wo.id} href={canOpenWorkOrders ? `/work-orders/${wo.id}` : null}>
@@ -224,11 +249,11 @@ export default async function DashboardPage() {
         </Panel>
 
         {/* 멈춰 있는 발주서 */}
-        <Panel title="멈춰 있는 발주서" sub={stalled.length > 0 ? `${stalled.length}건` : undefined}>
+        <Panel title="지연 발주서" sub={stalled.length > 0 ? `${stalled.length}건` : undefined}>
           {stalled.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <CheckCircle2 className="h-8 w-8 text-success" />
-              <p className="text-sm text-muted-foreground">오래 멈춘 발주서가 없습니다.</p>
+              <p className="text-sm text-muted-foreground">지연된 발주서가 없습니다.</p>
             </div>
           ) : (
             <div className="-mx-2 space-y-0.5">

@@ -20,7 +20,7 @@ export default async function WorkOrderPreviewPage({ params }: { params: Promise
 
   const { data: items } = await supabase
     .from('dgflow_work_order_items')
-    .select('product_name, width_mm, height_mm, quantity, area_m2, remark, sort_order')
+    .select('item_no, product_name, width_mm, height_mm, quantity, area_m2, remark, sort_order')
     .eq('work_order_id', id)
     .order('sort_order');
 
@@ -34,12 +34,15 @@ export default async function WorkOrderPreviewPage({ params }: { params: Promise
     request_date: workOrder.request_date,
     delivery_date: workOrder.delivery_date,
     packaging_group: workOrder.packaging_group,
-    notes: workOrder.notes,
+    // '지난 작업의뢰서 가져오기' 가 notes 에 남기는 내부 메모(ERP 주문번호 · 가져온 날)는 종이에 찍지 않는다 (2026-11-10 점검)
+    notes: /지난 작업의뢰서 가져오기/.test(workOrder.notes ?? '') ? null : workOrder.notes,
     items: (items ?? []) as SheetData['items'],
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 print:space-y-0">
+      {/* 작업의뢰서만 여백 0 — 쪽(.wo-page) 안에 여백을 그려 두었다. 다른 화면 인쇄는 기본 여백을 쓴다 */}
+      <style>{'@page { size: A4 portrait; margin: 0; }'}</style>
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href={`/work-orders/${id}`} className={buttonVariants({ variant: 'ghost', size: 'sm', className: '-ml-2 text-muted-foreground' })}>
@@ -50,10 +53,8 @@ export default async function WorkOrderPreviewPage({ params }: { params: Promise
         <WorkOrderPdfButton targetId="work-order-sheet" fileName={`작업의뢰서_${data.work_order_number}`} />
       </div>
 
-      <div className="flex justify-center overflow-x-auto">
-        <div className="shadow-lg print:shadow-none">
-          <WorkOrderSheet data={data} />
-        </div>
+      <div className="flex justify-center overflow-x-auto print:block print:overflow-visible">
+        <WorkOrderSheet data={data} />
       </div>
     </div>
   );

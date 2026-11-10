@@ -18,7 +18,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
 
   const qty = Number(quantity_completed);
   if (!Number.isInteger(qty) || qty <= 0) {
-    return NextResponse.json({ error: '수량은 1 이상이어야 합니다. 없앨 기록은 삭제하세요.' }, { status: 400 });
+    return NextResponse.json({ error: '수량은 1 이상이어야 합니다. 불필요한 기록은 삭제하세요.' }, { status: 400 });
   }
 
   const supabase = await createServerSupabaseClient();

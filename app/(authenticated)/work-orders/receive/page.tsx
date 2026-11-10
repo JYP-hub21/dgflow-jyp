@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { FileSpreadsheet } from 'lucide-react';
@@ -13,10 +13,13 @@ import PageHeader from '@/components/layout/PageHeader';
 import StepTitle from '@/components/ui/step-title';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-import { verifyScan, expectedArea } from '@/lib/work-order/verify';
-import type { ScanCheck, WorkOrderInput } from '@/lib/work-order/verify';
-import { parseWorkOrderSheet } from '@/lib/work-order/excel';
+import { verifyScan, expectedArea, mismatchLines } from '@/lib/work-order/verify';
+import type { ScanCheck, WorkOrderInput, WorkOrderItemInput } from '@/lib/work-order/verify';
+import { parseWorkOrderSheet, type ParsedWorkOrder } from '@/lib/work-order/excel';
 import type { ParsedPdf } from '@/lib/work-order/pdf';
+import {
+  EMPTY_ORIGIN, isOtherNumber, markEdited, needsHandConfirm, pickBatch, replacedLabel, sameItems, type RowsOrigin,
+} from './file-load';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
 import { readWorkbookFile } from '@/lib/excel/read-file';
@@ -76,6 +79,24 @@ function resolveNames(rows: Row[]): string[] {
   });
 }
 
+/** 파일에서 읽은 품목 → 표의 줄. 품명은 블록 첫 행에만 남긴다 — 아래는 상속으로 따라온다 */
+function toRows(items: WorkOrderItemInput[]): Row[] {
+  return items.map((item, i) => ({
+    no: item.no,
+    product_name: i === 0 || item.product_name !== items[i - 1].product_name ? item.product_name : '',
+    width_mm: item.width_mm,
+    height_mm: item.height_mm,
+    quantity: item.quantity,
+    area_m2: item.area_m2,
+    remark: item.remark ?? '',
+  }));
+}
+
+/** 무엇이든 적힌 줄인가 (빈 줄은 갈아 끼워도 잃을 게 없다) */
+function hasContent(r: Row): boolean {
+  return !!(r.width_mm || r.height_mm || r.quantity || r.product_name.trim() || r.remark.trim());
+}
+
 /** 계산한 면적. 규격·수량이 덜 채워졌으면 0 */
 function areaOf(row: Row): number {
   if (row.area_m2 !== '') return Number(row.area_m2);
@@ -126,6 +147,14 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   const [editId, setEditId] = useState<string | null>(null);
   /** 수정 확인 창 — 같은 번호를 다시 올렸거나 화면에서 고쳤을 때 무엇이 바뀌는지 */
   const [revision, setRevision] = useState<{ id: string; plan: RevisionPlan } | null>(null);
+  /**
+   * 표의 품목이 어디서 왔나 — 빈 표 · 손으로 친 것 · 파일 · 등록된 의뢰서(수정).
+   * 새 파일은 파일 · 등록된 품목을 바로 갈아 끼우고, 손으로 친 것만 확인을 받는다 (./file-load.ts, 2026-11-10 점검)
+   */
+  const [rowsOrigin, setRowsOrigin] = useState<RowsOrigin>(EMPTY_ORIGIN);
+  // 파일을 읽는 동안(서버 왕복) 사람이 표를 고쳤을 수 있다 — 적용할 때는 그 순간의 값을 본다
+  const live = useRef({ rows, rowsOrigin, head });
+  useEffect(() => { live.current = { rows, rowsOrigin, head }; });
   // 파일을 상자에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
     onFiles: (files) => void handleFiles(files), accept: '.xlsx,.xls,.csv,.pdf', disabled: reading,
@@ -181,152 +210,181 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           area_m2: item.area_m2 ?? '',
           remark: item.remark ?? '',
         })));
+        setRowsOrigin({ kind: 'db', name: j.head.work_order_number ?? '', edited: false });
       })
       .catch(() => toast.error('작업의뢰서를 불러오지 못했습니다.'));
     return () => { stale = true; };
   }, []);
 
   /**
-   * 올린 파일들을 **엑셀 먼저, PDF 나중에** 순서대로 처리한다.
+   * 올린 파일을 읽어 표 · 머리글을 **다 읽은 뒤 한 번에** 바꾼다.
    *
-   * 기본은 PDF 하나다(머리글 + 품목이 다 있다, 2026-11-09). 엑셀은 안내하지 않지만 올리면 지금처럼 읽는다 —
-   * 동시에 돌리면 둘 다 비어 있던 시점의 `rows` 를 보고 각자 품목을 채워 나중에 끝난 쪽이 이기므로 순서를 고정하고,
-   * 엑셀이 있으면 품목은 엑셀 것을 쓴다(PDF 와 같은 값이다).
+   * 기본은 PDF 하나다(머리글 + 품목이 다 있다, 2026-11-09). 엑셀은 안내하지 않지만 올리면 읽는다 —
+   * 엑셀과 PDF 를 **한 번에 같이** 놓으면 품목은 엑셀 것(PDF 와 같은 값이다), 머리글은 PDF 것을 쓴다.
+   * 예전에는 둘을 동시에 돌리면 늦게 끝난 쪽이 표를 덮어서 '엑셀 먼저, PDF 나중' 순서를 고정했었다 — 지금도 그 순서로 읽고,
+   * 표에는 둘 다 읽은 뒤 한 번만 적용한다.
+   *
+   * 2026-11-10 점검: 예전에는 표에 품목이 이미 있으면 새 PDF 는 머리글만 바꿨다(`fillItems: !itemsFilled`) —
+   * 2090 다음에 2573 을 올리면 머리글은 2573, 품목 · 소계 · 합계는 2090 이 남고 검산은 2090 을 2090 과 맞춰 초록이 떴다.
+   * 수정 화면에서 고친 ERP 파일을 다시 올려도 품목이 안 바뀌었다. 이제 새 파일의 품목이 이전 파일 · 등록된 품목을 갈아 끼운다.
    */
   async function handleFiles(files: File[]) {
-    const isPdf = (f: File) => f.name.toLowerCase().endsWith('.pdf');
-    const excels = files.filter((f) => !isPdf(f));
-    const pdfs = files.filter(isPdf);
+    const batch = pickBatch(files);
+    if ('error' in batch) { toast.error(batch.error); return; }
+    if (!batch.pdf && !batch.excel) return;
 
     setReading(true);
     try {
-      let itemsFilled = rows.some((r) => r.width_mm && r.height_mm && r.quantity);
-      for (const file of excels) {
-        if (await handleExcel(file)) itemsFilled = true;
-      }
-      for (const file of pdfs) {
-        await handlePdf(file, { fillItems: !itemsFilled });
-        itemsFilled = true;
-      }
+      const excel = batch.excel ? await readExcel(batch.excel) : null;
+      const pdf = batch.pdf ? await readPdf(batch.pdf) : null;
+      if (!excel && !pdf) return;
+      applyFiles({
+        excel: excel && batch.excel ? { parsed: excel, name: batch.excel.name } : null,
+        pdf: pdf && batch.pdf ? { parsed: pdf, name: batch.pdf.name } : null,
+      });
     } finally {
       setReading(false);
     }
   }
 
-  /**
-   * PDF 로 머리글과 품목을 채운다 — ERP 가 뽑은 PDF 는 글자가 박혀 있어 그대로 읽힌다.
-   * 엑셀을 먼저 읽었으면 품목은 엑셀 것을 두고 머리글만 채운다.
-   */
-  async function handlePdf(file: File, opts: { fillItems: boolean }) {
+  /** ERP 가 뽑은 PDF 를 서버에서 읽는다 — 글자가 박혀 있어 그대로 읽힌다. 못 읽으면 알리고 null */
+  async function readPdf(file: File): Promise<ParsedPdf | null> {
     try {
       const form = new FormData();
       form.append('file', file);
       const res = await fetch('/api/work-orders/pdf', { method: 'POST', body: form });
       const json = await res.json();
-
       if (!res.ok) {
         toast.error(json.error ?? 'PDF 를 읽지 못했습니다.');
-        return;
+        return null;
       }
-
       const parsed = json.data as ParsedPdf;
-      const h = parsed.head;
-      setHead((prev) => ({
-        work_order_number: h.work_order_number ?? prev.work_order_number,
-        customer_label: h.customer_label ?? prev.customer_label,
-        site_label: h.site_label ?? prev.site_label,
-        request_date: h.request_date ?? prev.request_date,
-        delivery_date: h.delivery_date ?? prev.delivery_date,
-      }));
-
-      const filled = Object.values(h).filter(Boolean).length;
       // 글자는 있는데 작업의뢰서 모양이 아니다 — 다른 PDF 를 올렸을 때
-      if (filled === 0 && parsed.items.length === 0) {
-        toast.error('작업의뢰서 내용을 찾지 못했어요. ERP에서 뽑은 작업의뢰서 PDF가 맞는지 확인해 주세요.');
-        return;
+      if (Object.values(parsed.head).filter(Boolean).length === 0 && parsed.items.length === 0) {
+        toast.error('작업의뢰서 내용을 찾지 못했습니다. ERP에서 출력한 작업의뢰서 PDF가 맞는지 확인하세요.');
+        return null;
       }
-
-      if (opts.fillItems && parsed.items.length > 0) {
-        setRows(
-          parsed.items.map((item, i) => ({
-            no: item.no,
-            product_name:
-              i === 0 || item.product_name !== parsed.items[i - 1].product_name
-                ? item.product_name
-                : '',
-            width_mm: item.width_mm,
-            height_mm: item.height_mm,
-            quantity: item.quantity,
-            area_m2: item.area_m2,
-            remark: item.remark ?? '',
-          }))
-        );
-        setSubtotals(parsed.printed_subtotals);
-        setPrintedTotal({
-          quantity: parsed.printed_total ? String(parsed.printed_total.quantity) : '',
-          area_m2: parsed.printed_total ? String(parsed.printed_total.area_m2) : '',
-        });
-        setFromExcel(true);
-      }
-
-      setLoaded(l => ({ ...l, pdf: file.name }));
-      toast.success(opts.fillItems && parsed.items.length > 0
-        ? `의뢰 정보 ${filled}칸과 품목 ${parsed.items.length}행을 읽었습니다.`
-        : `의뢰 정보 ${filled}칸을 채웠습니다.`);
+      return parsed;
     } catch {
       toast.error('PDF 를 읽지 못했습니다.');
+      return null;
     }
   }
 
-  /** ERP 엑셀을 읽어 표를 채운다. 머리글은 엑셀에 없어서 PDF 나 사람이 채운다 */
-  async function handleExcel(file: File): Promise<boolean> {
-      try {
-        // xlsx · xls · csv (csv 는 한글 인코딩을 가려 읽는다)
-        const wb = await readWorkbookFile(file);
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const sheet = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-          header: 1, defval: null, raw: true,
-        });
-        const parsed = parseWorkOrderSheet(sheet);
-
-        if (parsed.items.length === 0) {
-          toast.error(parsed.warnings[0] ?? '작업의뢰서 표를 찾지 못했습니다.');
-          return false;
-        }
-
-        setRows(
-          parsed.items.map((item, i) => ({
-            no: item.no,
-            // 품명은 블록 첫 행에만 남긴다 — 아래는 상속으로 따라온다
-            product_name:
-              i === 0 || item.product_name !== parsed.items[i - 1].product_name
-                ? item.product_name
-                : '',
-            width_mm: item.width_mm,
-            height_mm: item.height_mm,
-            quantity: item.quantity,
-            area_m2: item.area_m2,
-            remark: item.remark ?? '',
-          }))
-        );
-        setSubtotals(parsed.printed_subtotals);
-        setPrintedTotal({
-          quantity: parsed.printed_total ? String(parsed.printed_total.quantity) : '',
-          area_m2: parsed.printed_total ? String(parsed.printed_total.area_m2) : '',
-        });
-        if (parsed.customer_label) {
-          setHead((h) => ({ ...h, customer_label: h.customer_label || parsed.customer_label! }));
-        }
-        setFromExcel(true);
-
-        parsed.warnings.forEach((w) => toast.warning(w));
-        setLoaded(l => ({ ...l, excel: file.name }));
-        toast.success(`품목 ${parsed.items.length}행을 읽었습니다.`);
-        return true;
-      } catch {
-        toast.error('엑셀을 읽지 못했습니다. ERP 에서 내려받은 파일이 맞는지 확인하세요.');
-        return false;
+  /** ERP 엑셀을 읽는다. 머리글은 엑셀에 없어서 PDF 나 사람이 채운다. 못 읽으면 알리고 null */
+  async function readExcel(file: File): Promise<ParsedWorkOrder | null> {
+    try {
+      // xlsx · xls · csv (csv 는 한글 인코딩을 가려 읽는다)
+      const wb = await readWorkbookFile(file);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const sheet = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+        header: 1, defval: null, raw: true,
+      });
+      const parsed = parseWorkOrderSheet(sheet);
+      if (parsed.items.length === 0) {
+        toast.error(parsed.warnings[0] ?? '작업의뢰서 표를 찾지 못했습니다.');
+        return null;
       }
+      parsed.warnings.forEach((w) => toast.warning(w));
+      return parsed;
+    } catch {
+      toast.error('엑셀을 읽지 못했습니다. ERP 에서 다운로드한 파일이 맞는지 확인하세요.');
+      return null;
+    }
+  }
+
+  /** 읽은 파일을 표 · 머리글 · 검산 칸에 적용한다. 무엇을 바꿨는지 알린다 */
+  function applyFiles({ excel, pdf }: {
+    excel: { parsed: ParsedWorkOrder; name: string } | null;
+    pdf: { parsed: ParsedPdf; name: string } | null;
+  }) {
+    const now = live.current;
+    const h = pdf?.parsed.head ?? null;
+    const fileNumber = h?.work_order_number?.trim() || null;
+    const shownNumber = now.head.work_order_number.trim();
+
+    // 수정 중인 의뢰서와 번호가 다른 파일 — 의뢰번호(수정 대상)는 바꾸지 않는다
+    if (editId && isOtherNumber(shownNumber, fileNumber)) {
+      const ok = window.confirm(
+        `업로드한 파일은 의뢰번호 ${fileNumber} 입니다.\n지금 수정 중인 작업의뢰서는 ${shownNumber} 입니다.\n\n`
+        + `그래도 이 파일의 품목 · 업체명 · 현장명 · 날짜로 변경하시겠습니까?\n(의뢰번호는 ${shownNumber} 그대로 둡니다)`);
+      if (!ok) { toast.info('파일 내용을 적용하지 않았습니다.'); return; }
+    }
+
+    // 품목은 엑셀 > PDF. 같이 놓았는데 둘이 다르면 다른 의뢰서를 섞어 놓은 것일 수 있다
+    const doc = excel ?? (pdf && pdf.parsed.items.length > 0 ? pdf : null);
+    if (excel && pdf && pdf.parsed.items.length > 0 && !sameItems(excel.parsed.items, pdf.parsed.items)) {
+      toast.warning(`엑셀(${excel.name})과 PDF(${pdf.name})의 품목이 다릅니다 — 같은 작업의뢰서인지 확인하세요. 품목은 엑셀 기준으로 입력했습니다.`, { duration: 15000 });
+    }
+
+    const prevRows = now.rows.filter(hasContent);
+    const prevItems = now.rows
+      .filter((r) => r.width_mm && r.height_mm && r.quantity)
+      .map((r) => ({ width_mm: Number(r.width_mm), height_mm: Number(r.height_mm), quantity: Number(r.quantity) }));
+    let itemsApplied = false;
+    let replaced: string | null = null;
+
+    if (doc) {
+      const p = doc.parsed;
+      const keepHand = needsHandConfirm(now.rowsOrigin, prevRows.length) && !window.confirm(
+        `표에 직접 ${now.rowsOrigin.kind === 'hand' ? '입력한' : '수정한'} 품목 ${prevRows.length}행이 있습니다.\n${doc.name} 의 품목 ${p.items.length}행으로 변경하시겠습니까?\n\n`
+        + `[취소] 를 누르면 표는 그대로 두고 의뢰 정보와 문서의 소계 · 합계만 채웁니다.`);
+      if (keepHand) {
+        // 사람이 친 품목을 이 문서의 소계 · 합계와 대조한다
+        if (p.printed_total) {
+          setSubtotals(p.printed_subtotals);
+          setPrintedTotal({ quantity: String(p.printed_total.quantity), area_m2: String(p.printed_total.area_m2) });
+          setFromExcel(true);
+        }
+      } else {
+        if (!sameItems(prevItems, p.items)) replaced = replacedLabel(now.rowsOrigin, prevRows.length);
+        setRows(toRows(p.items));
+        setSubtotals(p.printed_subtotals);
+        setPrintedTotal({
+          quantity: p.printed_total ? String(p.printed_total.quantity) : '',
+          area_m2: p.printed_total ? String(p.printed_total.area_m2) : '',
+        });
+        setFromExcel(true);
+        setRowsOrigin({ kind: 'file', name: doc.name, edited: false });
+        itemsApplied = true;
+      }
+    } else if (pdf && now.rowsOrigin.kind !== 'empty' && prevRows.length > 0) {
+      // 머리글만 있는 PDF — 품목은 그대로라 다른 의뢰서의 품목이 남았을 수 있다
+      toast.warning(`${pdf.name} 에서 품목을 읽지 못했습니다 — 표의 품목은 그대로입니다. 이 의뢰서의 품목이 맞는지 확인하세요.`, { duration: 15000 });
+    }
+
+    // 다른 의뢰서로 바뀌면 새 파일에 없는 칸은 비운다 — 앞 의뢰서의 납품일 같은 값이 남지 않게
+    const numberChanged = !editId && isOtherNumber(shownNumber, fileNumber);
+    if (h) {
+      setHead((prev) => {
+        const pick = (v: string | null, old: string) => v ?? (numberChanged ? '' : old);
+        return {
+          work_order_number: editId ? prev.work_order_number : (fileNumber ?? prev.work_order_number),
+          customer_label: pick(h.customer_label, prev.customer_label),
+          site_label: pick(h.site_label, prev.site_label),
+          request_date: pick(h.request_date, prev.request_date),
+          delivery_date: pick(h.delivery_date, prev.delivery_date),
+        };
+      });
+    }
+    const excelCustomer = excel?.parsed.customer_label;
+    if (excelCustomer) setHead((x) => ({ ...x, customer_label: x.customer_label || excelCustomer }));
+
+    setLoaded((l) => ({
+      pdf: pdf ? pdf.name : l.pdf,
+      excel: itemsApplied ? excel?.name : l.excel,
+    }));
+
+    const filled = h ? Object.values(h).filter(Boolean).length : 0;
+    const got = [
+      ...(h ? [`의뢰 정보 ${filled}칸`] : []),
+      ...(itemsApplied && doc ? [`품목 ${doc.parsed.items.length}행`] : []),
+    ].join('과 ');
+    const notes = [
+      ...(numberChanged ? [`의뢰번호가 변경되었습니다 (${shownNumber} → ${fileNumber}).`] : []),
+      ...(replaced ? [`${replaced}은 이 파일의 품목으로 변경했습니다.`] : []),
+    ];
+    if (got) toast.success([`${got}을 읽었습니다.`, ...notes].join(' '), notes.length ? { duration: 10000 } : undefined);
   }
 
   const names = useMemo(() => resolveNames(rows), [rows]);
@@ -364,6 +422,13 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
     return verifyScan(input);
   }, [filledItems, printedTotal, subtotals]);
 
+  // 면적이 규격 · 수량과 안 맞는 줄 — 계산은 늘 했는데 어디에도 안 보였다. 경고만, 저장은 막지 않는다 (2026-11-10 점검)
+  const rowWarnings = useMemo(
+    () => verifyScan({ items: filledItems, printed_subtotals: [], printed_total: null }).row_warnings,
+    [filledItems],
+  );
+  const warnByNo = useMemo(() => new Map(rowWarnings.map((w) => [w.no, w])), [rowWarnings]);
+
   function addRow() {
     setRows((prev) => [...prev, { ...EMPTY }]);
   }
@@ -387,6 +452,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   function setCell(idx: number, key: keyof Row, value: string) {
+    setRowsOrigin(markEdited);
     setRows((prev) =>
       prev.map((row, i) => {
         if (i !== idx) return row;
@@ -412,10 +478,11 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       .filter(({ row }) => row.width_mm && row.height_mm && row.quantity);
 
     if (picked.length === 0) {
-      toast.error('복제할 행이 없습니다. 규격과 수량을 먼저 채우세요.');
+      toast.error('복제할 행이 없습니다. 규격과 수량을 먼저 입력하세요.');
       return;
     }
 
+    setRowsOrigin(markEdited);
     setRows([
       ...rows,
       ...picked.map(({ row, name }, i) => ({
@@ -426,7 +493,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         remark: row.remark.replace('(外)', '(內)').replace('外', '內'),
       })),
     ]);
-    toast.success(`${picked.length}행을 복제했습니다. 새 블록의 품명만 고치세요.`);
+    toast.success(`${picked.length}행을 복제했습니다. 새 블록의 품명만 수정하세요.`);
   }
 
   async function suggestLink(workOrderId: string, number: string) {
@@ -435,7 +502,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
     const best = ((await res.json()).data ?? [])[0] as
       { package_id: string; package_label: string; intake_number: string; site_name: string | null; ok: boolean; summary: string } | undefined;
     if (!best) return;
-    toast.info(`${number} 는 발주 ${best.intake_number}${best.site_name ? ` (${best.site_name})` : ''} · ${best.package_label} 에서 나온 것 같습니다 — ${best.summary}`, {
+    toast.info(`${number} 는 발주 ${best.intake_number}${best.site_name ? ` (${best.site_name})` : ''} · ${best.package_label} 에서 발행된 것으로 보입니다 — ${best.summary}`, {
       duration: 30000,
       action: {
         label: '연결',
@@ -481,6 +548,18 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { toast.error(json.error ?? '수정하지 못했습니다.'); return; }
       toast.success(`작업의뢰서 ${head.work_order_number} 를 수정했습니다.`);
+      // 등록 화면에서 이미 있는 번호를 올려 수정으로 넘어온 경우 — 수정(PUT)은 품목 · 의뢰 정보만 바꾼다.
+      // 이 화면에서 고른 외주 · 발주서 연결이 조용히 버려지던 것을 알린다 (2026-11-10 점검)
+      if (!editId) {
+        const skipped = [
+          ...(site.site === 'outsource' ? ['생산 공장(외주)'] : []),
+          ...(poId ? ['발주서 연결'] : []),
+        ];
+        if (skipped.length > 0) {
+          toast.warning(`${skipped.join(' · ')}은 이번 수정에 반영되지 않았습니다 — 이미 등록된 작업의뢰서라 원래 설정을 그대로 둡니다. `
+            + `생산 공장은 작업의뢰서 화면에서, 발주서 연결은 발주서 화면의 '등록된 작업의뢰서에서 선택' 으로 하세요.`, { duration: 20000 });
+        }
+      }
       setRevision(null);
       if (me && hasPermission(me, 'production:view')) router.push(`/work-orders/${revision.id}`);
       else if (editId) router.push('/work-orders/receive');
@@ -491,6 +570,12 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
   }
 
   async function handleSave() {
+    // 검산이 빨간데도 그냥 저장되던 것 — 어긋난 곳을 보여 주고 확인을 받는다 (2026-11-10 점검, lib/work-order/verify.ts)
+    const mismatch = check ? mismatchLines(check) : [];
+    if (mismatch.length > 0 && !window.confirm(
+      `검산이 맞지 않습니다 — 표의 품목이 의뢰서의 소계 · 합계와 다릅니다.\n\n${mismatch.join('\n')}\n\n`
+      + `누락된 행이나 오타가 없는지 확인하세요. 그래도 저장하시겠습니까?`)) return;
+
     if (editId) {
       setSaving(true);
       try { await previewRevision(editId); } finally { setSaving(false); }
@@ -550,7 +635,9 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           body: JSON.stringify({ work_order_id: workOrderId }),
         });
         const lj = await linked.json().catch(() => ({}));
-        if (!linked.ok) toast.error(lj.error ?? '발주서에 붙이지 못했습니다.');
+        if (!linked.ok) toast.error(lj.error ?? '발주서에 연결하지 못했습니다.');
+        // 딱 맞는 포장이 없으면 가장 가까운 포장에 붙고 ok:false 가 온다 — 다른 곳을 경고로 (2026-11-10 점검)
+        else if (lj.mode === 'package' && lj.ok === false) toast.warning(`발주서 ${lj.label}에 연결했지만 ERP 엑셀과 다릅니다 — ${lj.summary}`, { duration: 15000 });
         else toast.success(lj.mode === 'package' ? `발주서 ${lj.label}에 연결했습니다 — ${lj.summary}` : '선택한 발주서에 연결했습니다.');
         // 발주서 화면에서 왔으면 그리로 돌아간다
         if (target && target.po.id === poId) { router.push(`/purchase-orders/${poId}`); return; }
@@ -576,13 +663,13 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         back={editId ? { href: `/work-orders/${editId}`, label: '작업의뢰서로' } : undefined}
         title={editId ? `작업의뢰서 ${head.work_order_number} 수정` : '작업의뢰서 등록'}
         description={editId
-          ? '수정할 내용을 표에서 바꾸거나, 수정된 ERP 파일을 다시 올리세요. 저장 전에 바뀌는 내용을 확인할 수 있고 생산 기록은 유지됩니다.'
-          : 'ERP 에서 내려받은 작업의뢰서를 올리면 채워집니다. 엑셀과 PDF 를 같이 올리면 손댈 것이 없습니다. 이미 등록된 의뢰번호를 올리면 수정으로 처리합니다.'}
+          ? '수정할 내용을 표에서 변경하거나, 수정된 ERP 파일을 다시 업로드하세요. 저장 전에 변경 내용을 확인할 수 있으며 생산 기록은 유지됩니다.'
+          : 'ERP 에서 다운로드한 작업의뢰서를 업로드하면 자동으로 입력됩니다. 엑셀과 PDF 를 함께 업로드하면 추가 입력이 필요 없습니다. 이미 등록된 의뢰번호를 업로드하면 수정으로 처리합니다.'}
         actions={!editId &&
           // 지난 것은 한 장씩 올리지 않고 ERP 목록 엑셀 하나로 한꺼번에
           <Link href="/work-orders/receive/import"
             className="inline-flex h-10 items-center gap-2 rounded-lg border border-input bg-card px-4 text-sm font-semibold hover:bg-muted">
-            <FileSpreadsheet className="h-4 w-4" />지난 작업의뢰서 한꺼번에 가져오기
+            <FileSpreadsheet className="h-4 w-4" />지난 작업의뢰서 일괄 가져오기
           </Link>
         }
       />
@@ -602,17 +689,17 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       )}
 
       <Card>
-        <CardHeader><StepTitle step={1}>파일 올리기</StepTitle></CardHeader>
+        <CardHeader><StepTitle step={1}>파일 업로드</StepTitle></CardHeader>
         <CardContent>
           <label {...dropProps} className={cn('group block cursor-pointer rounded-xl border-2 border-dashed border-input bg-muted/30 p-5 transition-colors hover:border-brand-600 hover:bg-brand-50/40',
             dragging && 'border-brand-600 bg-brand-50')}>
             <div className="flex flex-col items-center gap-1 text-center">
               <span className="flex items-center gap-2 text-base font-bold">
                 <Upload className="h-5 w-5 text-brand-800" />
-                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 PDF 올리기'}
+                {reading ? '읽는 중입니다…' : dragging ? '여기에 놓으세요' : '작업의뢰서 PDF 업로드'}
               </span>
               <span className="text-sm text-muted-foreground">
-                <b className="text-foreground">ERP에서 뽑은 작업의뢰서 PDF 하나면</b> 의뢰번호 · 업체명 · 현장명 · 날짜와 품목 · 규격 · 수량 · 비고가 모두 채워집니다.
+                <b className="text-foreground">ERP에서 출력한 작업의뢰서 PDF 하나로</b> 의뢰번호 · 업체명 · 현장명 · 날짜와 품목 · 규격 · 수량 · 비고가 모두 입력됩니다.
                 클릭하여 선택하거나 파일을 끌어다 놓으세요.
               </span>
             </div>
@@ -623,7 +710,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
               <p className={cn('mt-3 text-center text-sm font-semibold', loaded.pdf ? 'text-success' : 'text-foreground')}>
                 {loaded.pdf
                   ? 'PDF를 읽었습니다. 아래 내용을 확인한 뒤 등록하세요.'
-                  : '품목을 읽었습니다. 의뢰번호 · 업체명 · 현장명 · 날짜는 직접 입력하거나 작업의뢰서 PDF를 올려 주세요.'}
+                  : '품목을 읽었습니다. 의뢰번호 · 업체명 · 현장명 · 날짜는 직접 입력하거나 작업의뢰서 PDF를 업로드하세요.'}
                 {loaded.excel && <span className="block text-xs font-normal text-muted-foreground">엑셀 {loaded.excel} 도 읽었습니다 — 품목은 엑셀 기준</span>}
               </p>
             )}
@@ -636,9 +723,9 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
               }} />
           </label>
           <p className="mt-3 text-center text-sm text-muted-foreground">
-            파일이 없으면 아래 표에 직접 쳐도 됩니다 —
+            파일이 없으면 아래 표에 직접 입력해도 됩니다 —
             면적은 자동으로 계산되고, <b>Enter</b> 로 다음 행이 생깁니다.
-            품명이 같은 행은 비워 두면 위 품명을 물려받습니다.
+            품명이 같은 행은 비워 두면 위 품명이 그대로 적용됩니다.
           </p>
         </CardContent>
       </Card>
@@ -702,7 +789,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
             <TableBody>
               {rows.map((row, idx) => (
                 <TableRow key={idx}>
-                  <TableCell className="tabular py-2 pl-5 text-muted-foreground" title={row.no === '' ? '손으로 더한 줄 — 앞 번호에 이어 붙인 번호' : '작업의뢰서에 찍힌 번호'}>{numbers[idx]}</TableCell>
+                  <TableCell className="tabular py-2 pl-5 text-muted-foreground" title={row.no === '' ? '직접 추가한 행 — 앞 번호에 이어 붙인 번호' : '작업의뢰서에 찍힌 번호'}>{numbers[idx]}</TableCell>
                   <TableCell className="py-2">
                     {/* 비우면 위 품명을 물려받는다. 뭘 물려받는지 흐리게 보여 준다 */}
                     <Input value={row.product_name} data-row={idx} data-cell="name"
@@ -726,9 +813,16 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
                       onKeyDown={(e) => handleKeyDown(e, idx, false)}
                       onChange={(e) => setCell(idx, 'quantity', e.target.value)} />
                   </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {areaOf(row) ? areaOf(row).toFixed(2) : '—'}
-                  </TableCell>
+                  {(() => {
+                    const warn = row.width_mm && row.height_mm && row.quantity ? warnByNo.get(Number(numbers[idx])) : undefined;
+                    return (
+                      <TableCell className={cn('text-right tabular-nums text-muted-foreground', warn && 'font-semibold text-warning')}
+                        title={warn ? `규격 · 수량으로 계산하면 ${warn.expected_area.toFixed(2)}M²` : undefined}>
+                        {warn && <TriangleAlert className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}
+                        {areaOf(row) ? areaOf(row).toFixed(2) : '—'}
+                      </TableCell>
+                    );
+                  })()}
                   <TableCell className="py-2">
                     <Input value={row.remark} data-row={idx} data-cell="remark"
                       onKeyDown={(e) => handleKeyDown(e, idx, true)}
@@ -736,7 +830,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
                   </TableCell>
                   <TableCell className="py-2 pr-5">
                     <Button variant="destructive" size="icon-sm" title="행 삭제"
-                      onClick={() => setRows(rows.filter((_, i) => i !== idx))}>
+                      onClick={() => { setRowsOrigin(markEdited); setRows(rows.filter((_, i) => i !== idx)); }}>
                       <Trash2 />
                     </Button>
                   </TableCell>
@@ -744,6 +838,18 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
               ))}
             </TableBody>
           </Table>
+          {rowWarnings.length > 0 && (
+            <p className="flex items-start gap-1.5 border-t border-warning/40 bg-warning-50 px-5 py-2.5 text-sm">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <span>
+                <b>면적이 규격 · 수량으로 계산한 값과 다른 줄 {rowWarnings.length}개</b>
+                {' — '}
+                {rowWarnings.slice(0, 6).map((w) => `No.${w.no} ${w.printed_area.toFixed(2)} (계산 ${w.expected_area.toFixed(2)})`).join(' · ')}
+                {rowWarnings.length > 6 && ` 외 ${rowWarnings.length - 6}줄`}.
+                {' '}의뢰서에 그렇게 인쇄되어 있으면 그대로 두세요 — 저장은 가능합니다.
+              </span>
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -751,7 +857,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
         <CardHeader>
           <StepTitle step={4}>
             검산 <span className="font-normal text-muted-foreground">
-              — {fromExcel ? '엑셀의 소계 · 합계와 대조합니다' : '의뢰서 맨 밑 합계를 그대로 넣으세요'}
+              — {fromExcel ? '업로드한 파일의 소계 · 합계와 대조합니다' : '의뢰서 하단 합계를 그대로 입력하세요'}
             </span>
           </StepTitle>
         </CardHeader>
@@ -776,7 +882,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
           </p>
           <Button onClick={handleSave} disabled={saving} size="lg" className="w-full sm:w-auto">
             <Save />
-            {saving ? '저장 중…' : editId ? '수정 내용 확인' : '등록하고 생산실적 입력으로'}
+            {saving ? '저장 중…' : editId ? '수정 내용 확인' : '등록 후 생산실적 입력'}
           </Button>
         </div>
       </div>
@@ -869,17 +975,17 @@ function TotalCheck({ check, counted }: {
         {ok ? (
           <><span className="flex h-7 w-7 items-center justify-center rounded-full bg-success text-white"><Check className="h-4 w-4" /></span> 합계가 맞습니다</>
         ) : (
-          <><span className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white"><TriangleAlert className="h-4 w-4" /></span> 합계가 어긋납니다 — 빠뜨린 행이나 오타가 있습니다</>
+          <><span className="flex h-7 w-7 items-center justify-center rounded-full bg-destructive text-white"><TriangleAlert className="h-4 w-4" /></span> 합계가 일치하지 않습니다 — 누락된 행이나 오타가 있습니다</>
         )}
       </div>
       {!ok && (
         <div className="text-sm mt-2 space-y-0.5 tabular-nums">
           {!check.total!.quantity_ok && (
-            <div>수량 — 친 것 {counted.qty} / 의뢰서 {check.total!.printed.quantity}
+            <div>수량 — 입력 {counted.qty} / 의뢰서 {check.total!.printed.quantity}
               {' '}(차이 {counted.qty - check.total!.printed.quantity})</div>
           )}
           {!check.total!.area_ok && (
-            <div>면적 — 친 것 {counted.area.toFixed(2)} / 의뢰서 {check.total!.printed.area_m2.toFixed(2)}</div>
+            <div>면적 — 입력 {counted.area.toFixed(2)} / 의뢰서 {check.total!.printed.area_m2.toFixed(2)}</div>
           )}
         </div>
       )}

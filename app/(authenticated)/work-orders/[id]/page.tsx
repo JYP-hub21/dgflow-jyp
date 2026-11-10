@@ -18,6 +18,8 @@ import ProductionByDate from '@/components/production/ProductionByDate';
 import RemarkText from '@/components/production/RemarkText';
 import Link from 'next/link';
 import { workOrderLabels } from '@/lib/work-order/labels';
+import { fetchAll } from '@/lib/supabase/fetch-all';
+import type { DateLog } from '@/lib/production/by-date';
 import { cn } from '@/lib/utils';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -76,20 +78,31 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   const totalProduced = woItems.reduce((s, i) => s + i.produced_quantity, 0);
   const overallProgress = totalQty > 0 ? Math.round(totalProduced / totalQty * 100) : 0;
 
-  // 복층 생산 기록 — 전부 (예전에는 최근 20건만 보여 한 달씩 만든 의뢰서는 앞이 잘렸다). 날짜별로 접어 보인다
-  const { data: productionLogs } = await supabase
+  // 복층 생산 기록 — 전부 (예전에는 최근 20건만 보여 한 달씩 만든 의뢰서는 앞이 잘렸다). 날짜별로 접어 보인다.
+  // '전부' 라 해 놓고 range 가 없어 1,000줄에서 조용히 잘렸다 → 끝까지 나눠 읽는다. id 를 뒤에 걸어 쪽 경계에서 줄이 겹치거나 빠지지 않게 (2026-11-10 점검)
+  const productionLogs = await fetchAll<DateLog>((from, to) => supabase
     .from('dgflow_production_logs')
     .select('work_order_item_id, production_date, quantity_completed, area_m2, shift, line_number')
     .eq('work_order_id', id)
-    .order('production_date', { ascending: false });
+    .order('production_date', { ascending: false })
+    .order('id')
+    .range(from, to)).catch(() => [] as DateLog[]);
 
-  // 재단 이력
-  const { data: cuttingLogs } = await supabase
-    .from('dgflow_cutting_logs')
-    .select('*, created_by_user:dgflow_users!created_by(name)')
-    .eq('work_order_id', id)
-    .order('cutting_date', { ascending: false })
-    .limit(20);
+  // 재단 이력 — 최근 20건만 보이고, 제목에는 전체 건수를 따로 센다 (예전에는 20건에서 멈춰 보였다, 2026-11-10 점검)
+  const CUTTING_SHOWN = 20;
+  const [{ data: cuttingLogs }, { count: cuttingTotal }] = await Promise.all([
+    supabase
+      .from('dgflow_cutting_logs')
+      .select('*, created_by_user:dgflow_users!created_by(name)')
+      .eq('work_order_id', id)
+      .order('cutting_date', { ascending: false })
+      .limit(CUTTING_SHOWN),
+    supabase
+      .from('dgflow_cutting_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('work_order_id', id),
+  ]);
+  const cuttingCount = cuttingTotal ?? (cuttingLogs ?? []).length;
 
   // 이 작업의뢰서가 나온 발주 건 (ERP 업로드 엑셀의 포장)
   const { data: source } = await supabase
@@ -314,7 +327,9 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">재단 이력 <span className="font-normal text-muted-foreground">{(cuttingLogs || []).length}건</span></CardTitle>
+            <CardTitle className="text-lg">재단 이력 <span className="font-normal text-muted-foreground">
+              {cuttingCount}건{cuttingCount > (cuttingLogs ?? []).length && ` · 최근 ${(cuttingLogs ?? []).length}건만 보입니다`}
+            </span></CardTitle>
           </CardHeader>
           <CardContent>
             {(!cuttingLogs || cuttingLogs.length === 0) ? (

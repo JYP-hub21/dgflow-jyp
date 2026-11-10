@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { fetchAllIn } from '@/lib/supabase/fetch-all';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { SITE_SELECT, toWorkOrderSite } from '@/lib/work-order/site';
 import { loadDeliveries, loadDeliveriesBetween } from '@/lib/production/delivery-store';
 import {
-  dailyDeliveryTotals, deliveredByWorkOrder, deliveriesByDateAndOrder, deliveryTodo, isMonth, monthRange, shiftMonth,
+  dailyDeliveryTotals, deliveredByItem, deliveriesByDateAndOrder, deliveryTodo, isMonth, monthRange, shiftMonth,
   type DeliveryTodo,
 } from '@/lib/production/delivery';
 import PageHeader from '@/components/layout/PageHeader';
@@ -46,7 +47,7 @@ export default async function DeliveriesPage({ searchParams }: {
     .select(`
       id, work_order_number, status, delivery_date, created_at, customer_label, site_label, ${SITE_SELECT},
       order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name)),
-      items:dgflow_work_order_items(quantity, produced_quantity)
+      items:dgflow_work_order_items(id, quantity, produced_quantity)
     `)
     .in('status', ['pending', 'in_progress']);
   const search = searchCondition(q);
@@ -60,7 +61,8 @@ export default async function DeliveriesPage({ searchParams }: {
     loadDeliveries(service, openIds),
   ]);
   const storage = monthLogs.storage === 'none' || openLogs.storage === 'none' ? 'none' : 'db';
-  const deliveredMap = deliveredByWorkOrder(openLogs.logs);
+  // 품목별 납품 — 미납 · 바로 나갈 수량은 품목마다 따진다 (2026-11-10 점검: 한 품목을 더 내보내면 다른 품목 미납이 사라졌다)
+  const deliveredItems = deliveredByItem(openLogs.logs);
   const lastDelivered = new Map<string, string>();
   for (const l of openLogs.logs) {
     const prev = lastDelivered.get(l.work_order_id);
@@ -76,7 +78,7 @@ export default async function DeliveriesPage({ searchParams }: {
       created: wo.created_at as string,
       labels: workOrderLabels(wo as unknown as WorkOrderLabelSource),
       site: toWorkOrderSite(wo),
-      todo: deliveryTodo(wo.items as { quantity: number; produced_quantity: number }[], deliveredMap.get(wo.id as string) ?? 0),
+      todo: deliveryTodo(wo.items as { id: string; quantity: number; produced_quantity: number }[], deliveredItems),
       last: lastDelivered.get(wo.id as string) ?? null,
     }))
     .filter(r => r.todo.remaining > 0)
@@ -97,15 +99,23 @@ export default async function DeliveriesPage({ searchParams }: {
   const daily = dailyDeliveryTotals(monthLogs.logs, range.from, month === thisMonth ? today : range.to);
   const historyIds = [...new Set(monthLogs.logs.map(l => l.work_order_id))];
   const historyOrders = new Map<string, { number: string; customer: string | null; site: string | null }>();
+  // 의뢰서 이름 읽기 — 묶음으로 나눠 읽고, 실패하면 알린다. 예전에는 오류를 버려 모든 줄이 '삭제된 의뢰서' 로 보였다 (2026-11-10 점검)
+  let historyError: string | null = null;
   if (view === 'history' && historyIds.length > 0) {
-    const { data } = await supabase
-      .from('dgflow_work_orders')
-      .select(`id, work_order_number, customer_label, site_label,
-        order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`)
-      .in('id', historyIds);
-    for (const wo of data || []) {
-      const labels = workOrderLabels(wo as unknown as WorkOrderLabelSource);
-      historyOrders.set(wo.id as string, { number: wo.work_order_number as string, customer: labels.customer ?? null, site: labels.site ?? null });
+    try {
+      const data = await fetchAllIn<Record<string, unknown>>(historyIds, (chunk, from, to) => supabase
+        .from('dgflow_work_orders')
+        .select(`id, work_order_number, customer_label, site_label,
+          order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`)
+        .in('id', chunk)
+        .order('id')
+        .range(from, to));
+      for (const wo of data) {
+        const labels = workOrderLabels(wo as unknown as WorkOrderLabelSource);
+        historyOrders.set(wo.id as string, { number: wo.work_order_number as string, customer: labels.customer ?? null, site: labels.site ?? null });
+      }
+    } catch (e) {
+      historyError = e instanceof Error ? e.message : String(e);
     }
   }
   const monthTotal = monthLogs.logs.reduce((s, l) => s + l.quantity, 0);
@@ -116,8 +126,8 @@ export default async function DeliveriesPage({ searchParams }: {
       <PageHeader
         title="납품"
         description={view === 'history'
-          ? '날짜별로 현장에 납품한 수량입니다. 의뢰번호를 누르면 그 의뢰서의 납품을 입력하거나 고칠 수 있습니다.'
-          : '아직 다 나가지 않은 작업의뢰서입니다. 납품일은 현장에 들어가는 날짜 기준으로 입력하세요.'}
+          ? '날짜별로 현장에 납품한 수량입니다. 의뢰번호를 누르면 해당 의뢰서의 납품을 입력하거나 수정할 수 있습니다.'
+          : '납품이 완료되지 않은 작업의뢰서입니다. 납품일은 현장에 들어가는 날짜 기준으로 입력하세요.'}
       />
 
       {storage === 'none' && (
@@ -128,16 +138,16 @@ export default async function DeliveriesPage({ searchParams }: {
 
       {/* 요약 */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <SummaryCard label="납품할 작업의뢰서" value={`${todos.length}건`} />
-        <SummaryCard label="바로 나갈 수 있는 수량" value={`${readyQty.toLocaleString()}조`}
-          sub={readyOrders > 0 ? `생산 끝나고 아직 안 나간 것 · ${readyOrders}건` : '생산 끝나고 안 나간 것 없음'} tone="brand" />
+        <SummaryCard label="납품 대상 작업의뢰서" value={`${todos.length}건`} />
+        <SummaryCard label="즉시 납품 가능 수량" value={`${readyQty.toLocaleString()}조`}
+          sub={readyOrders > 0 ? `생산 완료 · 미납품 ${readyOrders}건` : '생산 완료 · 미납품 없음'} tone="brand" />
         <SummaryCard label="오늘 납품" value={`${todayQty.toLocaleString()}조`} sub={today} />
         <SummaryCard label="이번 달 납품" value={`${monthQty.toLocaleString()}조`} sub={`${monthArea.toFixed(2)}M²`} />
       </div>
 
       <nav className="flex gap-2">
         <Link href="/deliveries" className={chipClass(view === 'todo')}>
-          납품할 것<span className="tabular opacity-80">{todos.length}</span>
+          납품 대기<span className="tabular opacity-80">{todos.length}</span>
         </Link>
         <Link href={`/deliveries?view=history${month !== thisMonth ? `&month=${month}` : ''}`} className={chipClass(view === 'history')}>
           납품 기록
@@ -171,7 +181,12 @@ export default async function DeliveriesPage({ searchParams }: {
               <DeliveryTrend data={daily} />
             </CardContent>
           </Card>
-          <HistoryList days={days} orders={historyOrders} />
+          {historyError && (
+            <p className="break-keep rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive">
+              작업의뢰서 정보를 불러오지 못해 의뢰번호 · 거래처가 비어 보입니다. 새로고침하세요. ({historyError})
+            </p>
+          )}
+          <HistoryList days={days} orders={historyOrders} failed={!!historyError} />
         </>
       )}
     </div>
@@ -205,7 +220,7 @@ function TodoList({ rows, today }: { rows: TodoRow[]; today: string }) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed bg-card py-10 text-center text-sm text-muted-foreground">
-        납품할 작업의뢰서가 없습니다.
+        납품 대상 작업의뢰서가 없습니다.
       </div>
     );
   }
@@ -297,9 +312,11 @@ function TodoList({ rows, today }: { rows: TodoRow[]; today: string }) {
   );
 }
 
-function HistoryList({ days, orders }: {
+function HistoryList({ days, orders, failed }: {
   days: ReturnType<typeof deliveriesByDateAndOrder>;
   orders: Map<string, { number: string; customer: string | null; site: string | null }>;
+  /** 의뢰서 정보를 못 읽었다 — 못 찾은 줄을 '삭제된 의뢰서' 라고 하지 않는다 */
+  failed: boolean;
 }) {
   if (days.length === 0) {
     return (
@@ -321,7 +338,7 @@ function HistoryList({ days, orders }: {
               const wo = orders.get(o.work_order_id);
               return (
                 <div key={o.work_order_id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5 text-sm">
-                  <Link href={`/deliveries/${o.work_order_id}`} className="font-bold text-brand-800 hover:underline">{wo?.number ?? '삭제된 의뢰서'}</Link>
+                  <Link href={`/deliveries/${o.work_order_id}`} className="font-bold text-brand-800 hover:underline">{wo?.number ?? (failed ? '의뢰서 보기' : '삭제된 의뢰서')}</Link>
                   <span className="font-medium">{wo?.customer ?? ''}</span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{wo?.site ?? ''}{o.notes.length > 0 && ` · ${o.notes.join(' · ')}`}</span>
                   <span className="tabular shrink-0"><b>{o.quantity}조</b><span className="ml-2 text-muted-foreground">{o.area_m2.toFixed(2)}M²</span></span>

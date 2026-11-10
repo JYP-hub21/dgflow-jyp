@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const options = body.options as ImportOptions | undefined;
   if (!options || typeof options.producedFromShipped !== 'boolean' || !['active', 'archive'].includes(options.remainingStatus)) {
-    return NextResponse.json({ error: '가져오기 방식(출고 수량 · 잔여 의뢰서)을 정해 주세요.' }, { status: 400 });
+    return NextResponse.json({ error: '가져오기 방식(출고 수량 · 잔여 의뢰서)을 선택하세요.' }, { status: 400 });
   }
   const orders = Array.isArray(body.orders) ? (body.orders as ErpListOrder[]) : [];
   const itemTotal = orders.reduce((s, o) => s + (Array.isArray(o?.items) ? o.items.length : 0), 0);

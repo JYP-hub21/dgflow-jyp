@@ -119,7 +119,7 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
             {showDone ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             완료 {done.length}건
             <span className="text-muted-foreground font-normal">
-              {showDone ? '' : '— 눌러서 확인'}
+              {showDone ? '' : '— 클릭하여 확인'}
             </span>
           </button>
           {showDone && (

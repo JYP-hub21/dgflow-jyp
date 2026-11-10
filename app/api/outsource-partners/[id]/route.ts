@@ -9,7 +9,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (!hasAnyPermission(user, SITE_EDITORS)) {
-    return NextResponse.json({ error: '외주 업체를 고칠 권한이 없습니다.' }, { status: 403 });
+    return NextResponse.json({ error: '외주 업체를 수정할 권한이 없습니다.' }, { status: 403 });
   }
   const { id } = await params;
   const body = await request.json().catch(() => ({}));

@@ -84,6 +84,40 @@ describe.skipIf(!HAS_FILE)('ERP 작업의뢰서 PDF 읽기 — 26-2090.pdf', () 
   });
 });
 
+describe('소계 · 합계에 천 단위 쉼표 (2026-11-10 점검)', () => {
+  // 1,000 조 · 1,000㎡ 를 넘으면 ERP 가 쉼표를 찍는다 — 예전에는 그 줄을 못 읽어 검산이 사라졌다
+  const TEXT = [
+    '1 24T 5CL+14A+5CL X1,500 2,000 1,200 3,600.00 1동',
+    '소계 1,200 3,600.00',
+    '2 X800 600 30 14.40 2동',
+    '소계 30 14.40',
+    '합계 1,230 3,614.40',
+  ].join('\n');
+
+  it('쉼표 붙은 소계 · 합계를 읽는다', () => {
+    const parsed = parseWorkOrderPdfText(TEXT);
+    expect(parsed.printed_subtotals.map((s) => [s.after_no, s.quantity, s.area_m2])).toEqual([
+      [1, 1200, 3600], [2, 30, 14.4],
+    ]);
+    expect(parsed.printed_total).toEqual({ quantity: 1230, area_m2: 3614.4 });
+  });
+
+  it('품목 줄의 수량 · 면적에 쉼표가 있어도 읽는다', () => {
+    const parsed = parseWorkOrderPdfText(TEXT);
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.items[0]).toMatchObject({ no: 1, width_mm: 1500, height_mm: 2000, quantity: 1200, area_m2: 3600, remark: '1동' });
+    expect(parsed.items[1]).toMatchObject({ no: 2, product_name: '24T 5CL+14A+5CL', quantity: 30, area_m2: 14.4, remark: '2동' });
+    expect(verifyScan(parsed).ok).toBe(true);
+  });
+
+  it('쉼표 없는 작은 숫자는 예전과 같다', () => {
+    const parsed = parseWorkOrderPdfText('3 22T X702 1,759 4 4.92 2공구 14동\n소계 4 4.92\n합 계 64 48.24');
+    expect(parsed.items[0]).toMatchObject({ quantity: 4, area_m2: 4.92, remark: '2공구 14동' });
+    expect(parsed.printed_subtotals).toEqual([{ after_no: 3, quantity: 4, area_m2: 4.92 }]);
+    expect(parsed.printed_total).toEqual({ quantity: 64, area_m2: 48.24 });
+  });
+});
+
 describe('머리글 읽기 규칙', () => {
   const SAMPLE = [
     '의뢰번호:26-2286',

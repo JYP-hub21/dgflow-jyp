@@ -233,11 +233,11 @@ export default function BokcheungLog() {
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card py-12 text-center">
               <CalendarDays className="h-8 w-8 text-muted-foreground" />
               <p className="font-semibold">{sheet.date} 에 입력된 복층 생산실적이 없습니다</p>
-              <p className="text-sm text-muted-foreground">날짜를 바꿔 보세요. 빈 양식도 엑셀로 내려받을 수 있습니다.</p>
+              <p className="text-sm text-muted-foreground">다른 날짜를 선택하세요. 빈 양식도 엑셀로 다운로드할 수 있습니다.</p>
             </div>
           ) : (
             <p className="break-keep text-sm text-muted-foreground">
-              <b className="text-foreground">종류</b>와 <b className="text-foreground">수량외</b>만 입력하면 회사 복층생산일지 양식 그대로 엑셀이 나옵니다.
+              <b className="text-foreground">종류</b>와 <b className="text-foreground">수량외</b>만 입력하면 회사 복층생산일지 양식 그대로 엑셀이 생성됩니다.
               가로 · 세로는 그날 그 줄에서 작업의뢰서 순서가 가장 앞인 품목입니다.
               {missingType > 0 && <span className="font-semibold text-warning"> 종류가 빈 줄 {missingType}개</span>}
             </p>
@@ -276,7 +276,7 @@ export default function BokcheungLog() {
           <p className="break-keep text-xs text-muted-foreground">
             합계는 종류 칸 값으로 셉니다 (회사 수식과 같이 B종(U3-2) 칸이 U3 를 셉니다). 종류가 빈 줄은 합계에 들어가지 않습니다.
             누계는 올해 1월 1일부터 이날까지 시스템에 입력된 복층 생산실적입니다.
-            {sheet.excluded.quantity > 0 && ` 복층이 아닌 품목 ${sheet.excluded.quantity}조(${sheet.excluded.names.join(', ')})은 이 일지에서 뺐습니다.`}
+            {sheet.excluded.quantity > 0 && ` 복층이 아닌 품목 ${sheet.excluded.quantity}조(${sheet.excluded.names.join(', ')})은 이 일지에서 제외했습니다.`}
           </p>
         </>
       )}
@@ -287,7 +287,7 @@ export default function BokcheungLog() {
 }
 
 function SaveBadge({ state, canEdit }: { state: SaveState; canEdit: boolean }) {
-  if (!canEdit) return <span className="text-xs text-muted-foreground">보기 전용 — 생산 입력 권한이 있어야 고칠 수 있습니다</span>;
+  if (!canEdit) return <span className="text-xs text-muted-foreground">보기 전용 — 생산 입력 권한이 있어야 수정할 수 있습니다</span>;
   if (state === 'saving') return <span className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />저장 중…</span>;
   if (state === 'saved') return <span className="flex items-center gap-1 text-xs font-medium text-success"><Check className="h-3.5 w-3.5" />저장됨</span>;
   if (state === 'local') return <span className="flex items-center gap-1 text-xs font-medium text-warning"><CloudOff className="h-3.5 w-3.5" />이 PC에 임시 저장</span>;

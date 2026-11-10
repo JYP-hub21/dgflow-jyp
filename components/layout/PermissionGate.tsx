@@ -27,7 +27,7 @@ export function NoPermission({ user, permission }: { user: PermissionSubject; pe
   return (
     <div className="mx-auto mt-10 max-w-md rounded-xl border border-border bg-card p-8 text-center">
       <ShieldOff className="mx-auto h-10 w-10 text-muted-foreground" />
-      <p className="mt-4 font-semibold text-foreground">이 화면을 쓸 권한이 없습니다</p>
+      <p className="mt-4 font-semibold text-foreground">이 화면에 접근할 권한이 없습니다</p>
       <p className="mt-1 text-sm text-muted-foreground">
         필요한 권한: <b className="text-foreground">{needed}</b>
         <br />관리자에게 권한을 요청하세요.

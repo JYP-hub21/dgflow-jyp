@@ -51,10 +51,10 @@ export function useFileDrop({ onFiles, accept, multiple = true, disabled = false
       const good = all.filter(fits);
       const bad = all.filter(f => !fits(f));
       if (bad.length > 0) {
-        toast.error(`넣을 수 없는 파일입니다: ${bad.map(f => f.name).join(', ')} (${exts.join(' · ')} 만 받습니다)`);
+        toast.error(`업로드할 수 없는 파일입니다: ${bad.map(f => f.name).join(', ')} (${exts.join(' · ')} 형식만 가능합니다)`);
       }
       if (good.length === 0) return;
-      if (!multiple && good.length > 1) toast.info(`파일은 하나만 받아서 ${good[0].name} 만 읽었습니다.`);
+      if (!multiple && good.length > 1) toast.info(`파일은 하나만 업로드할 수 있어 ${good[0].name} 만 읽었습니다.`);
       onFiles(multiple ? good : good.slice(0, 1));
     },
   };

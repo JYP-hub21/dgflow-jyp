@@ -41,8 +41,8 @@ describe('납품 메뉴 계산', () => {
   });
 
   it('할 일 — 미납 · 바로 나갈 수 있는 수량(재고로 더 나가도 음수가 안 된다)', () => {
-    const items = [{ quantity: 10, produced_quantity: 10 }, { quantity: 4, produced_quantity: 2 }];
-    expect(deliveryTodo(items, 3)).toEqual({ quantity: 14, produced: 12, delivered: 3, remaining: 11, ready: 9 });
-    expect(deliveryTodo(items, 13)).toMatchObject({ remaining: 1, ready: 0 });
+    const items = [{ id: 'a', quantity: 10, produced_quantity: 10 }, { id: 'b', quantity: 4, produced_quantity: 2 }];
+    expect(deliveryTodo(items, new Map([['a', 3]]))).toEqual({ quantity: 14, produced: 12, delivered: 3, remaining: 11, ready: 9 });
+    expect(deliveryTodo(items, new Map([['a', 10], ['b', 3]]))).toMatchObject({ remaining: 1, ready: 0 });
   });
 });

@@ -30,7 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown, Layers, X } from 'lucide-react';
+import { Download, AlertTriangle, Loader2, Info, FileSpreadsheet, Inbox, Save, Sparkles, CheckCircle2, ScanSearch, Boxes, FileDown, Layers, X, ChevronDown, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { chipClass, chipCountClass } from '@/components/ui/chip';
 import StepTitle from '@/components/ui/step-title';
@@ -81,10 +81,10 @@ const SPLIT_LABEL: Record<SplitMode, string> = {
   ai: 'DG 프리즘',
   'sheet-total': '발주서 합계 행 단위',
   detected: '발주서 포장 지시문',
-  'by-dong': '동별로 나누기',
-  'by-unit': '동·호별로 나누기',
-  single: '나누지 않기 (전체 한 장)',
-  manual: '직접 짜기',
+  'by-dong': '동별 분리',
+  'by-unit': '동·호별 분리',
+  single: '분리 안 함 (전체 한 장)',
+  manual: '직접 구성',
 };
 
 /** 발주서 접수함에서 열었을 때 — 그 건의 발주서를 바로 읽고, 결과를 그 건에 저장한다 */
@@ -149,12 +149,26 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   const [signature, setSignature] = useState('');
 
   const [profiles, setProfiles] = useState<FormProfile[]>([]);
+  /**
+   * 최신 프로파일 목록 — 변환(run)은 이것을 읽는다. 발주 건에서 파일 하나를 바로 열 때는 첫 화면의 run 이
+   * 붙잡은 빈 목록(아직 받는 중)으로 변환해 저장된 양식이 한 번도 적용되지 않았다 (2026-11-10 점검).
+   */
+  const profilesRef = useRef<FormProfile[]>([]);
+  /** 프로파일 받기가 끝나면 풀리는 약속 — 파일을 다 읽은 뒤 변환하기 전에 기다린다 */
+  const profilesLoaded = useRef<Promise<void> | null>(null);
+  const setProfileList = (next: FormProfile[]) => { profilesRef.current = next; setProfiles(next); };
   const [appliedProfile, setAppliedProfile] = useState<FormProfile | null>(null);
 
   /** 사원이 직접 짠 포장. splitMode === 'manual' 일 때만 쓴다 */
   const [manualPackages, setManualPackages] = useState<ManualPackage[]>([]);
   /** DG 프리즘(AI)이 짠 계획 — 사람이 요청을 보내 받은 것. splitMode === 'ai' 일 때 쓴다 */
   const [aiPlan, setAiPlan] = useState<AppliedPlan | null>(null);
+  /**
+   * '직접 짜기로 고치기' 로 DG 프리즘 포장에서 넘어왔을 때의 계획 — 포장 말고 DG 프리즘이 정한 것
+   * (뺀 품목 · 위치 고치기 · 사내 품명 · 발주서 순서)을 직접 짜기에서도 그대로 쓴다. 예전에는 포장만 넘어가
+   * 뺀 품목이 _미배정으로 되살아나고 나머지는 말없이 되돌아갔다 (2026-11-10 점검).
+   */
+  const [manualFromAi, setManualFromAi] = useState<AppliedPlan | null>(null);
   const [aiSummary, setAiSummary] = useState('');
   const [rules, setRules] = useState<PackagingRule[]>([]);
   const [ruleNotes, setRuleNotes] = useState<string[]>([]);
@@ -164,10 +178,10 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   // 저장된 양식 프로파일과 포장 방식을 미리 받아 둔다 (권한이 없으면 조용히 비운다)
   useEffect(() => {
-    fetch('/api/form-profiles')
+    profilesLoaded.current = fetch('/api/form-profiles')
       .then(r => (r.ok ? r.json() : { data: [] }))
-      .then(j => setProfiles((j.data ?? []) as FormProfile[]))
-      .catch(() => setProfiles([]));
+      .then(j => setProfileList((j.data ?? []) as FormProfile[]))
+      .catch(() => setProfileList([]));
 
     fetch('/api/packaging-rules')
       .then(r => (r.ok ? r.json() : { data: [] }))
@@ -204,7 +218,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         return blob.arrayBuffer();
       } }]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '발주서를 받지 못했습니다.');
+      setError(err instanceof Error ? err.message : '발주서를 불러오지 못했습니다.');
     } finally {
       setFetching(null);
     }
@@ -258,10 +272,12 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         failed.push(item.name);
       }
     }
+    // 저장된 양식 목록이 아직 오는 중이면 기다렸다가 변환한다 — 발주 건에서 바로 열면 파일이 먼저 올 수 있다 (2026-11-10 점검)
+    await profilesLoaded.current;
     setBusy(false);
     afterFilesChanged();
     // 변환(run)이 오류 칸을 비우므로 읽기 실패는 그 뒤에 적는다
-    if (failed.length > 0) setError(`엑셀 파일을 읽지 못했습니다 (${failed.join(', ')}). .xlsx 파일인지 확인해 주세요.`);
+    if (failed.length > 0) setError(`엑셀 파일을 읽지 못했습니다 (${failed.join(', ')}). .xlsx 파일인지 확인하세요.`);
   }
 
   function removeFile(key: number) {
@@ -271,6 +287,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
   function resetResult() {
     setAiPlan(null);
+    setManualFromAi(null);
     setScan(null);
     setMeta(null);
     setDetection(null);
@@ -305,9 +322,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         const sig = signatureFromRow(matrix[probe.header_row - 1]);
         const info = readMeta(firstWs);
 
-        // 2) 저장된 양식 프로파일이 있으면 적용한다
+        // 2) 저장된 양식 프로파일이 있으면 적용한다 — 목록은 ref 에서 (이 함수가 첫 화면 것이어도 최신 목록을 본다)
         const profile = useProfile
-          ? matchProfile(profiles, { signature: sig, customer: info.customer_name, site: info.site_name })
+          ? matchProfile(profilesRef.current, { signature: sig, customer: info.customer_name, site: info.site_name })
           : appliedProfile;
         let usedProfile = profile;
 
@@ -336,7 +353,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         if (pick.length > 1) {
           const siteNames = [...new Set(pick.map(r => readMeta(wsOf(r)).site_name.trim()).filter(Boolean))];
           if (new Set(siteNames.map(norm)).size > 1) {
-            merged.notes.unshift(`서로 다른 현장의 발주서를 합쳤습니다 (${siteNames.join(' / ')}). 한 ERP 엑셀에 다른 현장이 섞이지 않는지 확인해 주세요.`);
+            merged.notes.unshift(`서로 다른 현장의 발주서를 합쳤습니다 (${siteNames.join(' / ')}). 한 ERP 엑셀에 다른 현장이 섞이지 않는지 확인하세요.`);
           }
         }
 
@@ -362,6 +379,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         setDetection(found);
         setSplitMode(mode);
         setAiPlan(null);
+        setManualFromAi(null);
         setColumnOverrides(overrides);
         setLocationOverride(locationSource);
         setAppliedProfile(usedProfile);
@@ -377,7 +395,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         setBusy(false);
       }
     },
-    [hasFile, profiles, appliedProfile],
+    [appliedProfile],
   );
 
   const rows: WorkOrderSourceItem[] = useMemo(() => (scan ? rowsFromScan(scan) : []), [scan]);
@@ -390,13 +408,24 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     return groupsFor(scan, rows, detection, mode);
   }, [scan, rows, detection, manualPackages, aiPlan]);
 
-  /** DG 프리즘 방식일 때 — 사람이 빼 달라고 한 수량 (검산에 더해 맞춘다) */
   const aiActive = splitMode === 'ai' && !!aiPlan;
+  /**
+   * 지금 미리보기에 쓰는 DG 프리즘 계획 — DG 프리즘 방식이거나, 그 포장에서 '직접 짜기로 고치기' 로 넘어온 직접 짜기.
+   * 뺀 품목 · 위치 고치기 · 사내 품명 · 발주서 순서는 이것을 따른다.
+   */
+  const aiCarry: AppliedPlan | null = splitMode === 'ai' ? aiPlan : splitMode === 'manual' ? manualFromAi : null;
+  /** 사람이 빼 달라고 한 수량 (검산에 더해 맞춘다) */
   const excludedQty = useMemo(() => {
-    if (!aiActive || !aiPlan) return 0;
-    const ex = new Set(aiPlan.excluded);
+    if (!aiCarry) return 0;
+    const ex = new Set(aiCarry.excluded);
     return rows.reduce((sum, r) => (r.source_row !== undefined && ex.has(r.source_row) ? sum + r.quantity : sum), 0);
-  }, [aiActive, aiPlan, rows]);
+  }, [aiCarry, rows]);
+  /** 직접 짜기 편집기에 보일 행 — DG 프리즘이 뺀 품목은 빼고 보인다(안 그러면 미배정으로 붉게 뜬다) */
+  const editorRows = useMemo(() => {
+    if (!manualFromAi || manualFromAi.excluded.length === 0) return rows;
+    const ex = new Set(manualFromAi.excluded);
+    return rows.filter(r => r.source_row === undefined || !ex.has(r.source_row));
+  }, [manualFromAi, rows]);
 
   const autoBuild: ErpUploadBuild | null = useMemo(() => {
     if (!scan) return null;
@@ -407,25 +436,25 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           : splitMode === 'single' ? 'fallback-single'
             : 'derived';
     const ownOrder = splitMode === 'manual' || splitMode === 'ai';
-    if (!(splitMode === 'ai' && aiPlan)) {
+    if (!aiCarry) {
       return buildErpUpload(rows, groups, source, ownOrder ? [] : (detection?.dongOrder ?? []));
     }
-    // DG 프리즘 계획: 뺄 품목을 빼고, 발주서 순서를 지킬 행에 표시하고, 위치 글자를 고친다 (숫자는 건드리지 않는다)
-    const ex = new Set(aiPlan.excluded);
-    const keep = new Set(aiPlan.sourceOrder);
+    // DG 프리즘 계획(그 포장에서 넘어온 직접 짜기도): 뺄 품목을 빼고, 발주서 순서를 지킬 행에 표시하고, 위치 글자를 고친다 (숫자는 건드리지 않는다)
+    const ex = new Set(aiCarry.excluded);
+    const keep = new Set(aiCarry.sourceOrder);
     const rowsIn = rows
       .filter(r => r.source_row === undefined || !ex.has(r.source_row))
       .map(r => (r.source_row !== undefined && keep.has(r.source_row) ? { ...r, keep_source_order: true } : r));
     const out = buildErpUpload(rowsIn, groups, source, []);
-    if (aiPlan.locationEdits.length === 0) return out;
+    if (aiCarry.locationEdits.length === 0) return out;
     return {
       ...out,
       sheets: out.sheets.map(sh => ({
         ...sh,
-        rows: sh.rows.map(r => ({ ...r, location: editLocation(r.location, r.source_rows, aiPlan.locationEdits) })),
+        rows: sh.rows.map(r => ({ ...r, location: editLocation(r.location, r.source_rows, aiCarry.locationEdits) })),
       })),
     };
-  }, [scan, rows, detection, splitMode, groupsOf, aiPlan]);
+  }, [scan, rows, detection, splitMode, groupsOf, aiCarry]);
 
   /** 사람이 고친 행을 반영한 최종 결과 — 다운로드도 이걸 쓴다 */
   const build: ErpUploadBuild | null = useMemo(() => {
@@ -463,6 +492,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     if (mode === 'manual' && scan) {
       setManualPackages(seedFromGroups(rows, groupsOf(splitMode), filterByPackaging));
       setRuleNotes([]);
+      // DG 프리즘 포장에서 넘어오면 그 계획(뺀 품목 · 위치 · 사내 품명 · 발주서 순서)을 이어받는다. 직접 짜기를 다시 누르면 그대로 둔다
+      if (splitMode !== 'manual') setManualFromAi(splitMode === 'ai' ? aiPlan : null);
     }
     setSplitMode(mode);
     setEdits({});
@@ -472,9 +503,21 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   function applyPackagingRule(name: string) {
     const rule = rules.find(r => r.name === name);
     if (!rule) return;
+    // 행 번호로 저장된 포장 방식은 그 발주서(그 차수)에서만 맞는다 — CLAUDE.md "다음 차수에 적용하지 않는다".
+    // 권하는 칩에서는 뺐고, 직접 고를 때는 행 번호로 맞춘다는 것을 알리고 확인을 받는다 (2026-11-10 점검)
+    if (!rule.reusable) {
+      const byRows = rule.groups.filter(g => g.kind === 'rows').map(g => g.label);
+      const ok = confirm(
+        `"${rule.name}" 은 동·호나 품명이 아니라 행 번호로 저장된 포장 방식입니다 (${byRows.join(', ')}).\n\n` +
+          '저장한 그 발주서 · 그 차수에서만 맞습니다. 다른 차수나 다른 파일에 적용하면 같은 행 번호의 엉뚱한 품목이 묶입니다.\n\n' +
+          '행 번호 그대로 적용하시겠습니까?',
+      );
+      if (!ok) return;
+    }
     const result = applyRule(rule, rows);
     setManualPackages(result.packages);
     setRuleNotes(result.notes);
+    setManualFromAi(null);
     setSplitMode('manual');
     setEdits({});
     setOpenSheet(0);
@@ -520,13 +563,24 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     };
   }
 
-  /** 규격정리 인자 — DG 프리즘 포장이면 사내 품명 제안과 뺀 품목을 함께 (화면 미리보기 · 받기 · 발주 건 저장이 같은 값) */
+  /** 규격정리 인자 — DG 프리즘 계획이 있으면 사내 품명 제안과 뺀 품목을 함께 (화면 미리보기 · 받기 · 발주 건 저장이 같은 값) */
   function specArgs(): [Record<string, string> | undefined, number[]] {
-    return aiActive && aiPlan ? [aiPlan.productNames, aiPlan.excluded] : [undefined, []];
+    return aiCarry ? [aiCarry.productNames, aiCarry.excluded] : [undefined, []];
   }
-  function downloadSpec() {
+  /** 규격정리 엑셀 — 실물처럼 인쇄 머리글에 거래처 · 현장(시트) */
+  function specBlob(): Promise<Blob> {
+    return specSheetBlob(scan!, build!, ...specArgs(), {
+      customerName: meta?.customer_name || undefined,
+      siteName: [meta?.site_name, activeSheet].filter(Boolean).join(' ') || undefined,
+    });
+  }
+  async function downloadSpec() {
     if (!scan || !build) return;
-    save(specSheetBlob(scan, build, ...specArgs()), specSheetFileName(meta?.site_name || '', activeSheet));
+    try {
+      save(await specBlob(), specSheetFileName(meta?.site_name || '', activeSheet));
+    } catch (err) {
+      toast.error(err instanceof Error ? `규격정리를 만들지 못했습니다 — ${err.message}` : '규격정리를 만들지 못했습니다.');
+    }
   }
 
   /** DG 프리즘 계획을 미리보기에 반영한다 — 사람이 요청을 보내 받은 것이라 바로 그 포장 방식으로 바꾼다 */
@@ -539,8 +593,12 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     setOpenSheet(0);
   }
 
-  /** DG 프리즘이 다른 시트가 필요하다고 할 때 — 그 시트들을 파일 순서대로 불러온다 */
-  function loadSheetsForAi(names: string[]): boolean {
+  /**
+   * DG 프리즘이 다른 시트가 필요하다고 할 때 — 그 시트들을 파일 순서대로 불러온다.
+   * 이름이 맞지 않으면 false, 다른 표기('1차' ↔ '① 1차')로 이미 불러온 시트들이면 다시 읽지 않고 'already' —
+   * 그때는 불러온 시트가 바뀌지 않아(sheetKey 그대로) DG 프리즘이 다시 보내기를 기다리다 멈췄다 (2026-11-10 점검).
+   */
+  function loadSheetsForAi(names: string[]): boolean | 'already' {
     const refs = sheetRefs();
     const flat = (t: string) => t.replace(/\s/g, '');
     const wanted = new Set<string>();
@@ -554,6 +612,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     }
     const picked = refs.filter(r => wanted.has(r.id)).map(r => r.id);
     if (picked.length === 0) return false;
+    if (scan && picked.length === activeSheets.length && picked.every(id => activeSheets.includes(id))) return 'already';
     if (picked.length > 1) setMultiSheet(true);
     run(picked, {}, null, true);
     return true;
@@ -593,7 +652,34 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     a.href = url;
     a.download = name;
     a.click();
-    URL.revokeObjectURL(url);
+    // 누르자마자 주소를 없애면 Firefox · Safari 는 받기를 시작하지 못할 수 있다 — 발주서 받기처럼 1초 뒤에 (2026-11-10 점검)
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** 저장된 양식 지우기 — DELETE API 는 있는데 부르는 곳이 없었다 (2026-11-10 점검) */
+  async function deleteProfile(p: FormProfile) {
+    if (!p.id) return;
+    if (!confirm(`저장된 양식 "${p.name}" 을 삭제하시겠습니까?\n이 거래처의 다음 발주서부터 이 열 지정이 자동으로 적용되지 않습니다.`)) return;
+    const res = await fetch(`/api/form-profiles?id=${encodeURIComponent(p.id)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      toast.error((await res.json().catch(() => ({}))).error ?? '삭제하지 못했습니다.');
+      return;
+    }
+    setProfileList(profilesRef.current.filter(x => x.id !== p.id));
+    toast.success(`양식 "${p.name}" 을 삭제했습니다.`);
+  }
+
+  /** 저장된 포장 방식 지우기 */
+  async function deleteRule(rule: PackagingRule) {
+    if (!rule.id) return;
+    if (!confirm(`저장된 포장 방식 "${rule.name}" 을 삭제하시겠습니까?\n이 현장의 다음 차수에서 더 이상 선택할 수 없습니다.`)) return;
+    const res = await fetch(`/api/packaging-rules?id=${encodeURIComponent(rule.id)}`, { method: 'DELETE' });
+    if (!res.ok) {
+      toast.error((await res.json().catch(() => ({}))).error ?? '삭제하지 못했습니다.');
+      return;
+    }
+    setRules(prev => prev.filter(r => r.id !== rule.id));
+    toast.success(`포장 방식 "${rule.name}" 을 삭제했습니다.`);
   }
 
   /**
@@ -602,13 +688,13 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    */
   async function saveToPurchaseOrder() {
     if (!purchaseOrder || !build || !scan) return;
-    if (build.unassigned.length > 0 && !confirm(`포장에 배정되지 않은 품목이 ${build.unassigned.length}건 있습니다. 그대로 저장할까요?`)) return;
+    if (build.unassigned.length > 0 && !confirm(`포장에 배정되지 않은 품목이 ${build.unassigned.length}건 있습니다. 그대로 저장하시겠습니까?`)) return;
     setSavingPo(true);
     try {
       const supabase = createClient();
       const made = [
         { kind: 'erp' as const, blob: erpUploadBlob(build), file_name: erpUploadFileName(meta?.site_name || '', activeSheet) },
-        { kind: 'spec' as const, blob: specSheetBlob(scan, build, ...specArgs()), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
+        { kind: 'spec' as const, blob: await specBlob(), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
       ];
       const files = [];
       for (const m of made) {
@@ -655,7 +741,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     if (!res.ok) throw new Error((await res.json()).error ?? '저장하지 못했습니다.');
 
     const saved = (await res.json()).data as FormProfile;
-    setProfiles(prev => [saved, ...prev.filter(p => p.name !== saved.name)]);
+    setProfileList([saved, ...profilesRef.current.filter(p => p.name !== saved.name)]);
     setAppliedProfile(saved);
   }
 
@@ -672,8 +758,10 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
    * "직접 짜기" 안에 숨어 있으면 사원이 있는 줄도 모른다. 포장 분리 자리에서 바로 권한다.
    * 다만 **자동으로 적용하지는 않는다** — 차수마다 포장이 달라지는 현장이 있어
    * 조용히 바뀌면 사원이 알아채지 못한 채 ERP에 올리게 된다.
+   * **행 번호로 저장된 것(reusable = false)은 권하지 않는다** — CLAUDE.md "다음 차수에 적용하지 않는다" (2026-11-10 점검).
+   * 직접 짜기의 '저장된 포장 방식' 에서는 여전히 고를 수 있고, 그때 행 번호로 맞춘다는 확인을 받는다.
    */
-  const matchingRules = useMemo(() => {
+  const siteRules = useMemo(() => {
     const site = norm(meta?.site_name);
     const customer = norm(meta?.customer_name);
     if (!site && !customer) return [];
@@ -684,14 +772,27 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
         || (customer && c && (c.includes(customer) || customer.includes(c)));
     });
   }, [rules, meta]);
+  const matchingRules = siteRules.filter(r => r.reusable);
+  const rowOnlyRules = siteRules.length - matchingRules.length;
+
+  /** 직접 짜기가 DG 프리즘에게서 이어받은 것 — 한 줄로 */
+  const carried = manualFromAi
+    ? [
+        manualFromAi.excluded.length > 0 && `제외 품목 ${manualFromAi.excluded.length}행`,
+        manualFromAi.locationEdits.length > 0 && `위치 수정 ${manualFromAi.locationEdits.length}건`,
+        Object.keys(manualFromAi.productNames).length > 0 && `사내 품명 ${Object.keys(manualFromAi.productNames).length}개`,
+        manualFromAi.sourceOrder.length > 0 && `발주서 순서 ${manualFromAi.sourceOrder.length}행`,
+      ].filter(Boolean).join(' · ')
+    : '';
 
   /** 포장을 무엇을 근거로 나눴는지 한 줄로 */
   const packagingEvidence = !scan
     ? ''
     : splitMode === 'ai'
-      ? `DG 프리즘이 짠 포장 ${aiPlan?.packages.length ?? 0}개${aiPlan && aiPlan.excluded.length > 0 ? ` · 뺀 품목 ${aiPlan.excluded.length}행` : ''} — ${aiSummary}`
+      ? `DG 프리즘이 구성한 포장 ${aiPlan?.packages.length ?? 0}개${aiPlan && aiPlan.excluded.length > 0 ? ` · 제외 품목 ${aiPlan.excluded.length}행` : ''} — ${aiSummary}`
     : splitMode === 'manual'
-      ? `사원이 직접 짠 포장 ${manualPackages.filter(p => p.rows.length > 0).length}개`
+      ? `사원이 직접 구성한 포장 ${manualPackages.filter(p => p.rows.length > 0).length}개` +
+        (carried ? ` — DG 프리즘이 정한 ${carried}은 그대로 이어받았습니다 (이를 제외하고 구성하려면 다른 방식을 선택한 뒤 직접 구성을 누르세요)` : '')
       : splitMode === 'sheet-total'
         ? packagingEvidenceFromScan(scan)
         : splitMode === 'detected'
@@ -704,14 +805,14 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
       <div className="grid gap-5 lg:grid-cols-2">
         <Card className="gap-4">
           <CardHeader>
-            <StepTitle step={1}>발주서 놓기</StepTitle>
+            <StepTitle step={1}>발주서 업로드</StepTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {purchaseOrder && (
               <div className="space-y-2 rounded-xl border border-brand-600/30 bg-brand-50/70 px-4 py-3">
                 <p className="flex items-center gap-2 text-sm font-semibold text-brand-900">
                   <Inbox className="h-4 w-4" />발주 {purchaseOrder.intake_number} · {purchaseOrder.label}
-                  <span className="font-normal text-muted-foreground">— 만든 결과를 이 건에 저장합니다</span>
+                  <span className="font-normal text-muted-foreground">— 생성 결과를 이 건에 저장합니다</span>
                 </p>
                 {purchaseOrder.files.length > 1 && (
                   <div className="flex flex-wrap gap-2">
@@ -726,7 +827,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 )}
                 {fetching && (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />발주서를 받는 중 ({fetching.done}/{fetching.total})
+                    <Loader2 className="h-4 w-4 animate-spin" />발주서를 불러오는 중 ({fetching.done}/{fetching.total})
                   </p>
                 )}
               </div>
@@ -742,12 +843,12 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
               </span>
               <span className="break-keep text-lg font-bold text-foreground">
                 {dragging ? '여기에 놓으세요'
-                  : files.length > 1 ? `발주서 ${files.length}개를 올렸어요`
+                  : files.length > 1 ? `발주서 ${files.length}개를 업로드했습니다`
                     : files.length === 1 ? files[0].name
-                      : <>규격정리가 필요한 발주서 <span className="text-success">EXCEL</span> 놓기</>}
+                      : <>규격정리가 필요한 발주서 <span className="text-success">EXCEL</span> 업로드</>}
               </span>
               <span className="break-keep text-sm text-muted-foreground">
-                {hasFile ? '더 놓으면 발주서가 추가돼요 · 여러 개를 한꺼번에 놓아도 돼요' : '눌러서 고르거나 이 상자에 끌어다 놓으세요 · 여러 개 가능 · xlsx · xls · csv'}
+                {hasFile ? '파일을 더 끌어다 놓으면 발주서가 추가됩니다 · 여러 개를 한꺼번에 업로드할 수 있습니다' : '클릭하여 선택하거나 이 영역에 끌어다 놓으세요 · 여러 개 가능 · xlsx · xls · csv'}
               </span>
               <input type="file" accept=".xlsx,.xls,.csv" multiple className="hidden" onChange={handleFile} />
             </label>
@@ -760,7 +861,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     {files.length > 1 && <span className="font-bold text-success">{fileMark(i)}</span>}
                     <FileSpreadsheet className="h-4 w-4 shrink-0 text-success" />
                     <span className="truncate">{f.name}</span>
-                    <button type="button" onClick={() => removeFile(f.key)} disabled={busy} aria-label={`${f.name} 빼기`}
+                    <button type="button" onClick={() => removeFile(f.key)} disabled={busy} aria-label={`${f.name} 제외`}
                       className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
                   </li>
                 ))}
@@ -778,7 +879,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-semibold">
                     시트 선택 <span className="font-normal text-muted-foreground">
-                      {multiSheet ? '— 합칠 시트를 모두 누르세요' : activeSheets.length === 0 ? '— 누르거나 DG 프리즘에게 말로 골라 달라고 하세요' : '— 누른 시트를 변환합니다'}
+                      {multiSheet ? '— 합칠 시트를 모두 선택하세요' : activeSheets.length === 0 ? '— 시트를 선택하거나 DG 프리즘에게 선택을 요청하세요' : '— 선택한 시트를 변환합니다'}
                     </span>
                   </p>
                   <button type="button" onClick={() => {
@@ -817,7 +918,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   ))}
                 </div>
                 {activeSheets.length > 1 && (
-                  <p className="mt-2 text-xs font-medium text-brand-800">{activeSheet} 를 합쳐 한 번에 변환하고 있어요</p>
+                  <p className="mt-2 text-xs font-medium text-brand-800">{activeSheet} 를 합쳐 한 번에 변환하는 중입니다</p>
                 )}
               </div>
             )}
@@ -865,7 +966,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             <CardHeader className="flex flex-col gap-3 border-b lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <StepTitle step={2}>
-                  ERP 업로드 엑셀 <span className="font-normal text-muted-foreground">— 시트 {build.sheets.length}장 · 총 {build.total_quantity.toLocaleString()}장</span>
+                  ERP 업로드 엑셀 <span className="font-normal text-muted-foreground">— 시트 {build.sheets.length}장 · 총 {build.total_quantity.toLocaleString()}조</span>
                 </StepTitle>
                 <p className="mt-1.5 text-sm text-muted-foreground">
                   {[meta?.customer_name, meta?.site_name, activeSheet].filter(Boolean).join(' · ')}
@@ -879,10 +980,10 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   variant="outline"
                   size="lg"
                   onClick={downloadSpec}
-                  title="발주서 순서(좌) + ERP 순서(우) 2단 구조. 품명만 ERP 품목명으로 바꾸시면 됩니다"
+                  title="발주서 순서(좌) + ERP 순서(우) 2단 구조. 품명만 ERP 품목명으로 변경하면 됩니다"
                 >
                   <FileSpreadsheet />
-                  규격정리 받기
+                  규격정리 다운로드
                 </Button>
                 <Button
                   size="lg"
@@ -890,21 +991,21 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   variant={build.unassigned.length > 0 ? 'outline' : 'default'}
                   title={
                     build.unassigned.length > 0
-                      ? `포장에 배정되지 않은 품목이 ${build.unassigned.length}건 있습니다 — _미배정 시트로 내려갑니다`
+                      ? `포장에 배정되지 않은 품목이 ${build.unassigned.length}건 있습니다 — _미배정 시트에 포함됩니다`
                       : undefined
                   }
                 >
                   {build.unassigned.length > 0
                     ? <AlertTriangle className="text-warning" />
                     : <Download />}
-                  ERP 엑셀 받기 (시트 {build.sheets.length}장)
+                  ERP 엑셀 다운로드 (시트 {build.sheets.length}장)
                   {build.unassigned.length > 0 && (
                     <span className="text-[color-mix(in_oklch,var(--warning),black_35%)]">· 미배정 {build.unassigned.length}건</span>
                   )}
                 </Button>
                 {purchaseOrder && (
                   <Button size="lg" onClick={saveToPurchaseOrder} disabled={savingPo}
-                    title="ERP 엑셀 · 규격정리를 발주 건에 붙이고, 포장마다 돌아올 작업의뢰서를 기다립니다">
+                    title="ERP 엑셀 · 규격정리를 발주 건에 연결하고, 포장별 작업의뢰서 회신을 대기합니다">
                     {savingPo ? <Loader2 className="animate-spin" /> : <Save />}
                     {purchaseOrder.intake_number} 에 저장
                   </Button>
@@ -943,9 +1044,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 </div>
 
                 {/* 이 현장에 저장해 둔 포장 방식 — 권하기만 하고 자동 적용하지 않는다 */}
-                {matchingRules.length > 0 && splitMode !== 'manual' && (
+                {(matchingRules.length > 0 || rowOnlyRules > 0) && splitMode !== 'manual' && (
                   <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2 text-xs">
-                    <span className="text-muted-foreground">이 현장에 저장된 포장 방식:</span>
+                    {matchingRules.length > 0 && <span className="text-muted-foreground">이 현장에 저장된 포장 방식:</span>}
                     {matchingRules.map(rule => (
                       <button
                         key={rule.name}
@@ -957,9 +1058,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                         <span className={chipCountClass(false)}>{rule.groups.length}장 적용</span>
                       </button>
                     ))}
-                    {matchingRules.some(r => !r.reusable) && (
-                      <span className="text-[color-mix(in_oklch,var(--warning),black_35%)]">
-                        일부는 행 번호로 저장돼 다른 차수에는 맞지 않을 수 있습니다
+                    {rowOnlyRules > 0 && (
+                      <span className="text-muted-foreground">
+                        행 번호로 저장된 포장 방식 {rowOnlyRules}개는 다른 차수에 맞지 않아 권장하지 않습니다 — 같은 발주서라면 직접 구성의 &lsquo;저장된 포장 방식&rsquo; 에서 선택할 수 있습니다
                       </span>
                     )}
                   </div>
@@ -989,7 +1090,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                         <span className="mt-px">•</span>
                         <span>
                           아래 표에서 <span className="font-semibold">노란 배지</span>가 붙은 행은 자동으로
-                          확정할 수 없는 값입니다. <span className="font-semibold">표에서 바로 고치실 수 있습니다.</span>
+                          확정할 수 없는 값입니다. <span className="font-semibold">표에서 바로 수정할 수 있습니다.</span>
                         </span>
                       </li>
                     )}
@@ -1011,11 +1112,11 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                   ]} />
                 {resultView === 'spec' ? (
                   <p className="text-sm text-muted-foreground">
-                    엑셀을 받지 않아도 지금 포장 방식으로 규격정리가 어떻게 나오는지 아래에서 바로 볼 수 있어요.
+                    엑셀을 다운로드하지 않아도 현재 포장 방식의 규격정리 결과를 아래에서 바로 확인할 수 있습니다.
                   </p>
                 ) : (<>
                 <p className="mb-2 text-sm font-semibold">
-                  포장별 시트 <span className="font-normal text-muted-foreground">— 눌러서 아래에서 확인·수정</span>
+                  포장별 시트 <span className="font-normal text-muted-foreground">— 선택하여 아래에서 확인·수정</span>
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {build.sheets.map((s, i) => {
@@ -1042,7 +1143,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 
           {splitMode === 'manual' && (
             <PackagingEditor
-              rows={rows}
+              rows={editorRows}
               packages={manualPackages}
               onChange={next => { setManualPackages(next); setEdits({}); setOpenSheet(0); }}
               onResetToAuto={() => changeSplit(detection && detection.groups.length > 0 ? 'detected' : 'sheet-total')}
@@ -1062,7 +1163,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           {resultView === 'spec' && (
             <SpecSheetPreview
               blocks={specSheetBlocks(scan, build, ...specArgs())}
-              excludedRows={aiActive && aiPlan ? aiPlan.excluded.length : 0}
+              excludedRows={aiCarry ? aiCarry.excluded.length : 0}
               onDownload={downloadSpec}
             />
           )}
@@ -1092,6 +1193,90 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
           {build.unassigned.length > 0 && <UnassignedTable build={build} />}
         </>
       )}
+
+      {(profiles.length > 0 || rules.length > 0) && (
+        <SavedSettings profiles={profiles} rules={rules} onDeleteProfile={deleteProfile} onDeleteRule={deleteRule} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * 저장해 둔 거래처 양식 · 포장 방식 — 목록과 삭제 (2026-11-10 점검: 저장만 되고 지울 곳이 없었다).
+ * 평소에는 접어 둔다. 고치기는 화면에서 다시 저장(같은 이름이면 덮어씀)하면 된다.
+ */
+function SavedSettings({ profiles, rules, onDeleteProfile, onDeleteRule }: {
+  profiles: FormProfile[];
+  rules: PackagingRule[];
+  onDeleteProfile: (p: FormProfile) => void;
+  onDeleteRule: (r: PackagingRule) => void;
+}) {
+  return (
+    <details className="group rounded-xl border bg-card px-4 py-3 text-sm">
+      <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold">
+        <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+        저장된 양식 · 포장 방식
+        <span className="font-normal text-muted-foreground">거래처 양식 {profiles.length}개 · 포장 방식 {rules.length}개</span>
+      </summary>
+      <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <SavedList
+          title="거래처 양식 (열 지정)"
+          empty="저장된 양식이 없습니다."
+          items={profiles.map(p => ({
+            key: p.id ?? p.name,
+            name: p.name,
+            note: [p.customer_hint, p.site_hint].filter(Boolean).join(' · '),
+            badge: p.verified_at ? '검산 일치' : undefined,
+            onDelete: p.id ? () => onDeleteProfile(p) : undefined,
+          }))}
+        />
+        <SavedList
+          title="포장 방식"
+          empty="저장된 포장 방식이 없습니다."
+          items={rules.map(r => ({
+            key: r.id ?? r.name,
+            name: r.name,
+            note: [r.customer_hint, r.site_hint].filter(Boolean).join(' · ') || describeRule(r),
+            badge: r.reusable ? undefined : '이 차수 전용',
+            onDelete: r.id ? () => onDeleteRule(r) : undefined,
+          }))}
+        />
+      </div>
+    </details>
+  );
+}
+
+function SavedList({ title, empty, items }: {
+  title: string;
+  empty: string;
+  items: { key: string; name: string; note: string; badge?: string; onDelete?: () => void }[];
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-1.5 text-xs font-semibold text-muted-foreground">{title}</p>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{empty}</p>
+      ) : (
+        <ul className="divide-y rounded-lg border">
+          {items.map(it => (
+            <li key={it.key} className="flex items-center gap-2 px-3 py-1.5">
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 truncate font-medium">
+                  {it.name}
+                  {it.badge && <Badge variant={it.badge === '이 차수 전용' ? 'warning' : 'info'}>{it.badge}</Badge>}
+                </p>
+                {it.note && <p className="truncate text-xs text-muted-foreground">{it.note}</p>}
+              </div>
+              {it.onDelete && (
+                <Button size="xs" variant="ghost" onClick={it.onDelete} aria-label={`${it.name} 삭제`}
+                  className="shrink-0 text-muted-foreground hover:text-destructive">
+                  <Trash2 />삭제
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1099,9 +1284,9 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
 /** 발주서를 놓기 전 화면 — 놓고 나면 무엇이 나오는지 */
 function FlowPreview() {
   const steps = [
-    { icon: ScanSearch, title: '검산', text: '발주서에 적힌 계 · 합계와 우리가 읽은 수량을 대조해 잘못 읽은 곳을 바로 짚어요.' },
-    { icon: Boxes, title: '포장 나누기', text: '시트 한 장 = 포장 하나 = 작업의뢰서 한 장. 발주서 지시 · DG 프리즘 · 직접 짜기 중에서 골라요.' },
-    { icon: FileDown, title: 'ERP 엑셀 · 규격정리 받기', text: '위치 · 가로 · 세로 · 수량 양식의 ERP 업로드 엑셀과 규격정리 엑셀을 내려받아요.' },
+    { icon: ScanSearch, title: '검산', text: '발주서에 적힌 계 · 합계와 시스템이 읽은 수량을 대조해 잘못 읽은 곳을 바로 표시합니다.' },
+    { icon: Boxes, title: '포장 나누기', text: '시트 한 장 = 포장 하나 = 작업의뢰서 한 장. 발주서 지시 · DG 프리즘 · 직접 구성 중에서 선택합니다.' },
+    { icon: FileDown, title: 'ERP 엑셀 · 규격정리 다운로드', text: '위치 · 가로 · 세로 · 수량 양식의 ERP 업로드 엑셀과 규격정리 엑셀을 다운로드합니다.' },
   ];
   return (
     <div className="grid gap-3 md:grid-cols-3">
@@ -1126,7 +1311,7 @@ function UnassignedTable({ build }: { build: ErpUploadBuild }) {
           포장에 배정되지 않은 품목 {build.unassigned.length}건
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          버리지 않고 엑셀의 <code>_미배정</code> 시트에 함께 내려갑니다. ERP에 올리기 전에 처리해 주세요.
+          삭제하지 않고 엑셀의 <code>_미배정</code> 시트에 함께 포함됩니다. ERP에 업로드하기 전에 처리하세요.
         </p>
       </CardHeader>
       <CardContent>
@@ -1185,10 +1370,13 @@ function rowCountOf(ws: XLSX.WorkSheet | undefined): number {
   return Math.max(0, range.e.r - range.s.r + 1);
 }
 
-/** 헤더 행의 글자를 이어 붙인 지문 — 이미 읽어 둔 행에서 만든다 */
+/**
+ * 헤더 행의 글자를 이어 붙인 지문 — 이미 읽어 둔 행에서 만든다. `headerSignature`(lib/parser/form-profile)와 같은 모양.
+ * 예전에는 `/s+/` 라 빈칸 대신 영문 s 를 지웠다 (2026-11-10 점검) — 그때 저장된 양식은 지문 가산점만 못 받고, 거래처 · 현장으로는 그대로 맞는다.
+ */
 function signatureFromRow(row: unknown[] | undefined): string {
   return (row ?? [])
-    .map(c => String(c ?? '').replace(/s+/g, ''))
+    .map(c => String(c ?? '').replace(/\s+/g, ''))
     .filter(Boolean)
     .join('|');
 }
@@ -1240,7 +1428,17 @@ function asDate(value: string): string {
   const m = value.match(/(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   const d = new Date(value);
-  return !isNaN(d.getTime()) && d.getFullYear() > 2000 ? d.toISOString().split('T')[0] : value;
+  return !isNaN(d.getTime()) && d.getFullYear() > 2000 ? sheetDateYmd(d) : value;
+}
+
+/**
+ * SheetJS 날짜 칸(Date) → 'YYYY-MM-DD'.
+ * SheetJS 날짜는 그 PC 의 자정인데 한국에서는 52초 모자란 **전날 23:59:08** 로 나온다(1899년 서울 지방시 오차 —
+ * 2026-11-10 점검에서 46210 → "Mon Jul 06 2026 23:59:08 GMT+0900" 확인). 그래서 toISOString(UTC)으로 자르든
+ * 그 PC 날짜로 읽든 하루 앞이 됐다. 12시간을 더해 날짜만 읽는다 (lib/work-order/erp-list 의 toIsoDate 와 같은 방법).
+ */
+function sheetDateYmd(d: Date): string {
+  return new Date(d.getTime() + 12 * 3600_000).toISOString().slice(0, 10);
 }
 
 /** 거래처·현장 이름 비교용 — 법인 표기와 공백 차이를 지운다 */

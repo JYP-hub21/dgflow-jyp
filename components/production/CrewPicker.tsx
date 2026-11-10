@@ -26,6 +26,8 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
+  /** '명단에 추가' 실패 이유 — 예전에는 실패해도 아무것도 안 보였다 (2026-11-10 점검) */
+  const [addError, setAddError] = useState<string | null>(null);
 
   const found = useMemo(() => searchCrew(members, query), [members, query]);
   const extra = useMemo(() => {
@@ -44,15 +46,25 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
   async function addAndPick() {
     if (!typed) return;
     setAdding(true);
-    try { await onAdd(typed); pick(typed); } finally { setAdding(false); }
+    setAddError(null);
+    try {
+      await onAdd(typed);
+      pick(typed);
+    } catch (e) {
+      // 연결이 끊기면 fetch 가 TypeError('Failed to fetch') 를 던진다 — 알아들을 말로 바꾼다
+      setAddError(e instanceof TypeError ? '인터넷 연결이 끊겨 명단에 추가하지 못했습니다.'
+        : e instanceof Error ? e.message : '명단에 추가하지 못했습니다.');
+    } finally {
+      setAdding(false);
+    }
   }
 
   if (!canEdit) return <span className="block min-w-14 px-1 text-center text-sm">{value}</span>;
 
   return (
-    <Popover.Root open={open} onOpenChange={o => { setOpen(o); if (!o) setQuery(''); }}>
+    <Popover.Root open={open} onOpenChange={o => { setOpen(o); if (!o) { setQuery(''); setAddError(null); } }}>
       <Popover.Trigger
-        aria-label={`${label} 인원 고르기`}
+        aria-label={`${label} 인원 선택`}
         className={cn(
           'flex h-8 w-full min-w-16 items-center justify-center rounded-md border px-1.5 text-sm transition-colors',
           value ? 'border-input bg-card font-medium text-foreground hover:border-brand-600' : 'border-dashed border-input bg-muted/40 text-muted-foreground hover:border-brand-600 hover:bg-brand-50',
@@ -63,10 +75,10 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="center" sideOffset={6} className="z-50">
           <Popover.Popup className="w-72 rounded-xl bg-popover p-3 text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none">
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">{label} · 사람 고르기</p>
+            <p className="mb-2 text-xs font-semibold text-muted-foreground">{label} · 인원 선택</p>
             <div className="relative mb-2">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="이름 · 영문 이름 찾기"
+              <input autoFocus value={query} onChange={e => setQuery(e.target.value)} placeholder="이름 · 영문 이름 검색"
                 aria-label="인원 찾기"
                 onKeyDown={e => {
                   if (e.key !== 'Enter') return;
@@ -93,7 +105,7 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
               )}
               {extra.length > 0 && (
                 <div>
-                  <p className="mb-1 text-[11px] text-muted-foreground">이 주에 적힌 다른 이름</p>
+                  <p className="mb-1 text-[11px] text-muted-foreground">이번 주에 입력된 다른 이름</p>
                   <div className="flex flex-wrap gap-1">
                     {extra.map(n => (
                       <button key={n} type="button" onClick={() => pick(n)}
@@ -103,7 +115,7 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
                 </div>
               )}
               {found.length === 0 && extra.length === 0 && (
-                <p className="py-2 text-center text-xs text-muted-foreground">{members.length === 0 ? '명단이 아직 없습니다. 이름을 적어 넣으세요.' : '맞는 사람이 없습니다.'}</p>
+                <p className="py-2 text-center text-xs text-muted-foreground">{members.length === 0 ? '명단이 아직 없습니다. 이름을 입력하세요.' : '일치하는 인원이 없습니다.'}</p>
               )}
             </div>
 
@@ -112,12 +124,12 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
                 {typed && !exact && (
                   <>
                     <button type="button" onClick={() => pick(typed)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted">
-                      &lsquo;{typed}&rsquo; 그대로 넣기
+                      &lsquo;{typed}&rsquo; 그대로 입력
                     </button>
                     {canAdd && (
                       <button type="button" onClick={addAndPick} disabled={adding}
                         className="inline-flex items-center gap-1 rounded-md border border-brand-600/40 px-2 py-1 text-xs text-brand-800 hover:bg-brand-50">
-                        <UserPlus className="h-3 w-3" />명단에 추가하고 넣기
+                        <UserPlus className="h-3 w-3" />{adding ? '추가 중…' : '명단에 추가 후 입력'}
                       </button>
                     )}
                   </>
@@ -127,6 +139,7 @@ export default function CrewPicker({ value, label, members, usedNames, canEdit, 
                     <Eraser className="h-3 w-3" />비우기
                   </button>
                 )}
+                {addError && <p role="alert" className="w-full break-keep text-xs font-medium text-destructive">{addError} 이름은 &lsquo;그대로 넣기&rsquo;로 넣을 수 있습니다.</p>}
               </div>
             ) : null}
           </Popover.Popup>

@@ -68,41 +68,52 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
     setError(null);
   }
 
+  // 연결이 끊겨 fetch 가 던지면 busy 가 풀리지 않아 버튼이 영영 잠겼다 — finally 로 풀고 이유를 보인다 (2026-11-10 점검)
   async function saveEdit(id: string) {
     if (!draft) return;
     setBusy(true);
     setError(null);
-    const res = await fetch(`/api/production/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        quantity_completed: parseInt(draft.qty),
-        production_date: draft.date,
-        shift: draft.shift,
-        line_number: parseInt(draft.line),
-      }),
-    });
-    if (res.ok) {
-      await onChanged();
-      cancelEdit();
-    } else {
-      setError((await res.json().catch(() => null))?.error || '저장하지 못했습니다');
+    try {
+      const res = await fetch(`/api/production/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          quantity_completed: parseInt(draft.qty),
+          production_date: draft.date,
+          shift: draft.shift,
+          line_number: parseInt(draft.line),
+        }),
+      });
+      if (res.ok) {
+        await onChanged();
+        cancelEdit();
+      } else {
+        setError((await res.json().catch(() => null))?.error || '저장하지 못했습니다');
+      }
+    } catch {
+      setError('인터넷 연결이 끊겨 저장하지 못했습니다. 연결을 확인하고 다시 저장하세요.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function remove(log: ProductionLog) {
     const name = log.item ? `${log.item.product_name} ${log.item.width_mm}×${log.item.height_mm}` : '이 기록';
-    if (!confirm(`${log.production_date} ${name} ${log.quantity_completed}조 기록을 삭제할까요?`)) return;
+    if (!confirm(`${log.production_date} ${name} ${log.quantity_completed}조 기록을 삭제하시겠습니까?`)) return;
     setBusy(true);
-    const res = await fetch(`/api/production/${log.id}`, { method: 'DELETE' });
-    if (res.ok) {
-      await onChanged();
-      if (editingId === log.id) cancelEdit();
-    } else {
-      alert((await res.json().catch(() => null))?.error || '삭제하지 못했습니다');
+    try {
+      const res = await fetch(`/api/production/${log.id}`, { method: 'DELETE' });
+      if (res.ok) {
+        await onChanged();
+        if (editingId === log.id) cancelEdit();
+      } else {
+        alert((await res.json().catch(() => null))?.error || '삭제하지 못했습니다');
+      }
+    } catch {
+      alert('인터넷 연결이 끊겨 삭제하지 못했습니다. 연결을 확인하고 다시 시도하세요.');
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   const grandQty = logs.reduce((s, l) => s + l.quantity_completed, 0);
@@ -118,7 +129,7 @@ export default function ProductionLogList({ logs, onChanged, compact, readOnly }
             <div className={cn('flex items-center justify-between bg-muted/60 px-5 text-sm', compact ? 'py-1.5' : 'py-2')}>
               <span className="tabular font-bold">{date}</span>
               <span className="tabular text-muted-foreground">
-                <b className="text-foreground">{dayQty}</b>장 · {dayArea.toFixed(2)}M²
+                <b className="text-foreground">{dayQty}</b>조 · {dayArea.toFixed(2)}M²
               </span>
             </div>
             <ul className="divide-y">

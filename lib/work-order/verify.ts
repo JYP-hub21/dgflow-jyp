@@ -38,7 +38,7 @@ const SAI_M2 = 0.303 * 0.303;
  * 서해 26-2286 에서 실면적 0.17~0.23 인 7개 행이 예외 없이 0.28 로 찍혔고
  * (3재 = 0.275427 → 반올림 0.28), 우미 26-1952 는 가장 작은 행이 0.29 라 걸리지 않았다.
  * **문서 두 장에서 뽑아낸 값이라 확정은 아니다.** 그래서 행별 면적 대조는 경고로만 쓰고
- * 저장을 막지 않는다 — 막는 것은 소계·합계뿐이다.
+ * 저장을 막지 않는다 — 저장 전에 확인을 받는 것은 소계·합계뿐이다 (`mismatchLines`).
  */
 const MIN_AREA_M2 = round2(3 * SAI_M2);
 
@@ -168,4 +168,26 @@ export function verifyScan(scan: WorkOrderInput): ScanCheck {
     row_warnings,
     no_printed_total: scan.printed_total === null,
   };
+}
+
+/**
+ * 어긋난 소계 · 합계를 사람이 읽을 줄로 — 저장 전 확인 창에 쓴다. 다 맞으면 빈 배열.
+ *
+ * 2026-11-10 점검: 화면은 '합계가 어긋납니다' 를 빨갛게 띄우면서도 저장 버튼은 그냥 통과시켰다
+ * (위 설계는 "소계 · 합계는 막는다" 였다). 이제 이 줄들을 보여 주고 확인을 받는다.
+ */
+export function mismatchLines(check: ScanCheck, maxBlocks = 5): string[] {
+  const part = (counted: Tally, printed: Tally, qOk: boolean, aOk: boolean) => [
+    ...(qOk ? [] : [`수량 표 ${counted.quantity} / 의뢰서 ${printed.quantity}`]),
+    ...(aOk ? [] : [`면적 표 ${counted.area_m2.toFixed(2)} / 의뢰서 ${printed.area_m2.toFixed(2)}`]),
+  ].join(', ');
+
+  const bad = check.blocks.filter((b) => !b.quantity_ok || !b.area_ok);
+  const lines = bad.slice(0, maxBlocks).map((b) =>
+    `No.${b.from_no}~${b.to_no} 소계 — ${part(b.counted, b.printed, b.quantity_ok, b.area_ok)}`);
+  if (bad.length > maxBlocks) lines.push(`그 밖의 소계 ${bad.length - maxBlocks}곳`);
+
+  const t = check.total;
+  if (t && (!t.quantity_ok || !t.area_ok)) lines.push(`합계 — ${part(t.counted, t.printed, t.quantity_ok, t.area_ok)}`);
+  return lines;
 }

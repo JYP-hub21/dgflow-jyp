@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,6 +80,8 @@ export default function ProductionInputPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState('');
+  /** 품목 · 기록 읽기 실패 — 예전에는 오류를 버려 빈 화면이나 모자란 기록이 그대로 보였다 (2026-11-10 점검) */
+  const [loadError, setLoadError] = useState('');
   /** 폰에서는 생산일자·주야간·호기를 접어 둔다. 교대마다 한 번 정하는 값이다 */
   const [showOptions, setShowOptions] = useState(false);
   const [logs, setLogs] = useState<ProductionLog[]>([]);
@@ -110,20 +113,34 @@ export default function ProductionInputPage() {
       .then(b => setContact(b?.contact ?? null)).catch(() => {});
   }
 
+  // 1,000줄에서 잘리지 않게 끝까지 나눠 읽는다 — 한 의뢰서를 한 달씩 만들면 기록이 1,000줄을 넘을 수 있다 (2026-11-10 점검).
+  // 실패하면 던지지 않고 화면에 알린다 — 저장 · 삭제 뒤 다시 읽기가 실패해도 '저장 못 함' 으로 오해하지 않게
   async function loadItems() {
-    const { data } = await supabase.from('dgflow_work_order_items')
-      .select('*').eq('work_order_id', workOrderId).order('sort_order');
-    setItems(data || []);
+    try {
+      const data = await fetchAll<WorkOrderItem>((from, to) => supabase.from('dgflow_work_order_items')
+        .select('*').eq('work_order_id', workOrderId).order('sort_order').order('id').range(from, to));
+      setItems(data);
+      setLoadError('');
+    } catch (e) {
+      setLoadError(`품목을 불러오지 못했습니다 — 새로고침하세요. (${e instanceof Error ? e.message : e})`);
+    }
   }
 
   async function loadLogs() {
-    const { data } = await supabase
-      .from('dgflow_production_logs')
-      .select('id, work_order_item_id, production_date, quantity_completed, area_m2, shift, line_number, item:dgflow_work_order_items(product_name, width_mm, height_mm, quantity)')
-      .eq('work_order_id', workOrderId)
-      .order('production_date', { ascending: false })
-      .order('created_at', { ascending: false });
-    setLogs((data || []) as unknown as ProductionLog[]);
+    try {
+      const data = await fetchAll<ProductionLog>((from, to) => supabase
+        .from('dgflow_production_logs')
+        .select('id, work_order_item_id, production_date, quantity_completed, area_m2, shift, line_number, item:dgflow_work_order_items(product_name, width_mm, height_mm, quantity)')
+        .eq('work_order_id', workOrderId)
+        .order('production_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{ data: ProductionLog[] | null; error: { message: string } | null }>);
+      setLogs(data);
+      setLoadError('');
+    } catch (e) {
+      setLoadError(`생산 기록을 불러오지 못했습니다 — 새로고침하세요. (${e instanceof Error ? e.message : e})`);
+    }
   }
 
   /** 기록을 고치거나 지우면 품목의 완료 수량도 바뀐다 */
@@ -183,7 +200,7 @@ export default function ProductionInputPage() {
         if (!res.ok) {
           failed[itemId] = qty;
           const body = await res.json().catch(() => ({}));
-          reasons.push(res.status === 401 ? '로그인이 풀렸습니다 — 새로고침 후 다시 로그인해 주세요' : body.error || `저장 실패(${res.status})`);
+          reasons.push(res.status === 401 ? '로그인이 만료되었습니다 — 새로고침 후 다시 로그인하세요' : body.error || `저장 실패(${res.status})`);
         }
       }
     } finally {
@@ -287,6 +304,10 @@ export default function ProductionInputPage() {
         />
       </div>
 
+      {loadError && (
+        <p role="alert" className="break-keep rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive">{loadError}</p>
+      )}
+
       {/* 진행 요약 (PC) */}
       <Card className="hidden md:flex">
         <CardContent className="grid grid-cols-4 items-center gap-6">
@@ -307,7 +328,7 @@ export default function ProductionInputPage() {
         <span className="tabular font-medium">
           {productionDate} · {shift === 'night' ? '야간' : '주간'} · {lineName(lines, Number(lineNumber))}
         </span>
-        <span className="ml-auto font-semibold text-brand-700">{showOptions ? '닫기' : '바꾸기'}</span>
+        <span className="ml-auto font-semibold text-brand-700">{showOptions ? '닫기' : '변경'}</span>
       </button>
 
       <Card className={showOptions ? '' : 'hidden md:flex'}>
@@ -346,9 +367,9 @@ export default function ProductionInputPage() {
       {receiptNeeded && (
         <div className="flex flex-col gap-3 rounded-xl border-2 border-warning/50 bg-warning-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-bold text-amber-900">아직 수신 확인 전인 작업의뢰서예요</p>
+            <p className="font-bold text-amber-900">수신 확인 전인 작업의뢰서입니다</p>
             <p className="mt-0.5 break-keep text-sm text-amber-900/80">
-              생산관리부가 이 작업의뢰서를 받았다고 확인해야 생산을 입력할 수 있어요. 누르면 받은 시각과 이름이 남아요.
+              생산관리부가 이 작업의뢰서의 수신을 확인해야 생산을 입력할 수 있습니다. 수신 확인을 누르면 확인 시각과 이름이 기록됩니다.
             </p>
           </div>
           <ReceiptButton workOrderId={workOrderId} size="lg" onDone={() => setReceiptNeeded(false)} />
@@ -544,10 +565,13 @@ export default function ProductionInputPage() {
                 <CheckCircle className="h-4 w-4" />저장했습니다
               </span>
             ) : overCount > 0 ? (
-              <span className="font-semibold text-destructive">잔여보다 많이 입력한 품목이 {overCount}건 있습니다. 고친 뒤 저장하세요.</span>
+              <span className="font-semibold text-destructive">잔여보다 많이 입력한 품목이 {overCount}건 있습니다. 수정한 뒤 저장하세요.</span>
+            ) : saveError ? (
+              // 저장 실패는 폰 머리글에만 보였다 — PC 에서는 칸에 수량만 남고 이유가 안 보였다 (2026-11-10 점검)
+              <span role="alert" className="break-keep font-semibold text-destructive">{saveError}</span>
             ) : totalInput > 0 ? (
               <span>
-                이번 입력 <b className="tabular text-lg text-brand-800">{totalInput}</b>장
+                이번 입력 <b className="tabular text-lg text-brand-800">{totalInput}</b>조
                 <span className="text-muted-foreground"> · {inputCount}개 품목</span>
               </span>
             ) : (

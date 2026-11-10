@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   const { data: taken } = await supabase
     .from('dgflow_purchase_order_packages').select('id, label').eq('work_order_id', wo.id).maybeSingle();
-  if (taken && taken.id !== pkg.id) return bad(`작업의뢰서 ${wo.work_order_number} 는 이미 다른 포장(${taken.label})에 연결돼 있습니다.`, 409);
+  if (taken && taken.id !== pkg.id) return bad(`작업의뢰서 ${wo.work_order_number} 는 이미 다른 포장(${taken.label})에 연결되어 있습니다.`, 409);
 
   const { data: items } = await supabase
     .from('dgflow_work_order_items').select('width_mm, height_mm, quantity').eq('work_order_id', wo.id);

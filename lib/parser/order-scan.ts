@@ -230,7 +230,7 @@ export function scanOrderSheet(
     ? overrides.header_row - 1
     : findHeaderRow(matrix);
   if (header < 0 || header >= matrix.length) {
-    return { ...empty, notes: ['헤더 행(제품명·규격)을 찾지 못했습니다. 열을 직접 지정해 주세요.'] };
+    return { ...empty, notes: ['헤더 행(제품명·규격)을 찾지 못했습니다. 열을 직접 지정하세요.'] };
   }
 
   const mapped = mapColumns(matrix, header);
@@ -239,7 +239,7 @@ export function scanOrderSheet(
   mapped.remark = pickFilledColumnInMerge(ws, matrix, header, mapped.remark);
   const columns = { ...mapped, ...stripUndefined(overrides.columns) };
   if (columns.width_mm === null || columns.height_mm === null) {
-    notes.push('가로·세로 열을 확정하지 못했습니다. 열을 직접 지정해 주세요.');
+    notes.push('가로·세로 열을 확정하지 못했습니다. 열을 직접 지정하세요.');
   }
 
   const firstDataRow = header + 1;

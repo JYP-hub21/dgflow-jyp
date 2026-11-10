@@ -34,9 +34,9 @@ export default async function ErpUploadPage({ searchParams }: { searchParams: Pr
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <PageHeader
-        title="ERP 업로드 엑셀 만들기"
+        title="ERP 업로드 엑셀 생성"
         back={purchaseOrder ? { href: `/purchase-orders/${purchaseOrder.id}`, label: `발주 ${purchaseOrder.intake_number}` } : undefined}
-        description="발주서를 올리면 포장 단위마다 시트 한 장씩, ERP에 넣을 위치 · 가로 · 세로 · 수량 양식으로 만들어 줍니다. 자동으로 확정할 수 없는 값은 비워 두고 따로 표시합니다."
+        description="발주서를 업로드하면 포장 단위마다 시트 한 장씩, ERP에 입력할 위치 · 가로 · 세로 · 수량 양식으로 생성합니다. 자동으로 확정할 수 없는 값은 비워 두고 별도로 표시합니다."
       />
 
       <ErpUploadBuilder purchaseOrder={purchaseOrder} />

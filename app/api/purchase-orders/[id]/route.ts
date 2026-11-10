@@ -47,16 +47,16 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/purcha
 
   const isCreator = po.created_by === user.id;
   const processor = canProcess(user);
-  if (!isCreator && !processor) return bad('이 발주 건을 고칠 권한이 없습니다.', 403);
+  if (!isCreator && !processor) return bad('이 발주 건을 수정할 권한이 없습니다.', 403);
 
   const now = new Date().toISOString();
   const update: Record<string, unknown> = {};
 
   if (body.cancel === true) {
-    if (!isCreator && user.role !== 'master') return bad('취소는 올린 사람이나 마스터만 할 수 있습니다.', 403);
+    if (!isCreator && user.role !== 'master') return bad('취소는 등록자 또는 마스터만 할 수 있습니다.', 403);
     const { count } = await supabase.from('dgflow_purchase_order_packages')
       .select('id', { count: 'exact', head: true }).eq('purchase_order_id', id).not('work_order_id', 'is', null);
-    if (count) return bad('작업의뢰서가 연결된 건은 취소할 수 없습니다. 연결부터 끊으세요.');
+    if (count) return bad('작업의뢰서가 연결된 건은 취소할 수 없습니다. 연결을 먼저 해제하세요.');
     update.stage = 'cancelled';
     await logEvent(supabase, id, user.id, 'cancelled', { reason: body.reason?.trim() || null });
   }
