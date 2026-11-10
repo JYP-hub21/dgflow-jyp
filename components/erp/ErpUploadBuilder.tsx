@@ -52,10 +52,12 @@ import { rowsFromScan, packagesFromScan, packagingEvidenceFromScan } from '@/lib
 import { detectPackaging, groupsByDongPublic, groupsByUnit, type PackagingDetection } from '@/lib/erp/packaging-note';
 import { hintsFromWorksheet } from '@/lib/erp/sheet-hints';
 import { erpUploadBlob, erpUploadOneBlob, erpUploadFileName } from '@/lib/erp/upload-excel';
-import { specSheetBlob, specSheetFileName } from '@/lib/erp/spec-sheet';
+import { specSheetBlob, specSheetBlocks, specSheetFileName } from '@/lib/erp/spec-sheet';
 import { reconcile, reconcileSummary } from '@/lib/erp/reconcile';
 import ReconcilePanel from './ReconcilePanel';
 import SheetEditor from './SheetEditor';
+import SpecSheetPreview from './SpecSheetPreview';
+import Segmented from '@/components/ui/segmented';
 import ColumnMapper from './ColumnMapper';
 import DgPrismPanel from './DgPrismPanel';
 import { editLocation, keysToRanges, sheetTextForAi, type AiPackagingRequest, type AiPlan, type AppliedPlan } from '@/lib/erp/ai-packaging';
@@ -138,6 +140,8 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
   /** 시트별 수정본. null 이면 자동 생성값을 그대로 쓴다 */
   const [edits, setEdits] = useState<Record<number, ErpUploadRow[]>>({});
   const [openSheet, setOpenSheet] = useState(0);
+  /** 결과 아래 보기 — ERP 업로드 시트 / 규격정리 미리보기 (2026-11-10 "엑셀 안 받아도 규격정리를 미리") */
+  const [resultView, setResultView] = useState<'erp' | 'spec'>('erp');
 
   /** 열 지정 화면에 보여 줄 실제 글자들 — 시트를 읽을 때 같이 뽑아 둔다 */
   const [headerCells, setHeaderCells] = useState<string[]>([]);
@@ -516,6 +520,15 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
     };
   }
 
+  /** 규격정리 인자 — DG 프리즘 포장이면 사내 품명 제안과 뺀 품목을 함께 (화면 미리보기 · 받기 · 발주 건 저장이 같은 값) */
+  function specArgs(): [Record<string, string> | undefined, number[]] {
+    return aiActive && aiPlan ? [aiPlan.productNames, aiPlan.excluded] : [undefined, []];
+  }
+  function downloadSpec() {
+    if (!scan || !build) return;
+    save(specSheetBlob(scan, build, ...specArgs()), specSheetFileName(meta?.site_name || '', activeSheet));
+  }
+
   /** DG 프리즘 계획을 미리보기에 반영한다 — 사람이 요청을 보내 받은 것이라 바로 그 포장 방식으로 바꾼다 */
   function showAiPlan(applied: AppliedPlan, plan: AiPlan) {
     setAiPlan(applied);
@@ -595,7 +608,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
       const supabase = createClient();
       const made = [
         { kind: 'erp' as const, blob: erpUploadBlob(build), file_name: erpUploadFileName(meta?.site_name || '', activeSheet) },
-        { kind: 'spec' as const, blob: specSheetBlob(scan, build, aiActive ? aiPlan?.productNames : undefined), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
+        { kind: 'spec' as const, blob: specSheetBlob(scan, build, ...specArgs()), file_name: specSheetFileName(meta?.site_name || '', activeSheet) },
       ];
       const files = [];
       for (const m of made) {
@@ -865,7 +878,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 <Button
                   variant="outline"
                   size="lg"
-                  onClick={() => save(specSheetBlob(scan, build, aiActive ? aiPlan?.productNames : undefined), specSheetFileName(meta?.site_name || '', activeSheet))}
+                  onClick={downloadSpec}
                   title="발주서 순서(좌) + ERP 순서(우) 2단 구조. 품명만 ERP 품목명으로 바꾸시면 됩니다"
                 >
                   <FileSpreadsheet />
@@ -989,8 +1002,18 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                 ERP 양식에는 품명 열이 없습니다. 품명은 ERP 화면에서 지정하세요. 아래 품명은 참고용입니다.
               </p>
 
-              {/* 시트 탭 */}
+              {/* 아래 보기 — ERP 업로드 시트(포장별로 확인·수정) / 규격정리 미리보기 */}
               <div className="border-t pt-4">
+                <Segmented value={resultView} onChange={setResultView} className="mb-3"
+                  options={[
+                    { value: 'erp', label: `ERP 업로드 시트 ${build.sheets.length}장`, icon: Boxes },
+                    { value: 'spec', label: '규격정리 미리보기', icon: FileSpreadsheet },
+                  ]} />
+                {resultView === 'spec' ? (
+                  <p className="text-sm text-muted-foreground">
+                    엑셀을 받지 않아도 지금 포장 방식으로 규격정리가 어떻게 나오는지 아래에서 바로 볼 수 있어요.
+                  </p>
+                ) : (<>
                 <p className="mb-2 text-sm font-semibold">
                   포장별 시트 <span className="font-normal text-muted-foreground">— 눌러서 아래에서 확인·수정</span>
                 </p>
@@ -1012,6 +1035,7 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
                     );
                   })}
                 </div>
+                </>)}
               </div>
             </CardContent>
           </Card>
@@ -1035,7 +1059,15 @@ export default function ErpUploadBuilder({ purchaseOrder }: { purchaseOrder?: Pu
             />
           )}
 
-          {build.sheets[openSheet] && autoBuild && (
+          {resultView === 'spec' && (
+            <SpecSheetPreview
+              blocks={specSheetBlocks(scan, build, ...specArgs())}
+              excludedRows={aiActive && aiPlan ? aiPlan.excluded.length : 0}
+              onDownload={downloadSpec}
+            />
+          )}
+
+          {resultView === 'erp' && build.sheets[openSheet] && autoBuild && (
             <SheetEditor
               sheet={build.sheets[openSheet]}
               original={autoBuild.sheets[openSheet]?.rows ?? []}
