@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<'/api/purchas
   if (!po) return bad('발주 건을 찾을 수 없습니다.', 404);
   if (po.stage === 'cancelled') return bad('취소된 건입니다.');
   // ERP 작업도 지목된 담당자 본인만 (2026-11-12 사용자 "담당자 지정했는데 내가 처리할 수 있게 만들지 마")
-  if (po.assignee_id && po.assignee_id !== user.id) return bad('지목된 담당자만 이 발주서를 처리할 수 있습니다.', 403);
+  if (user.role !== 'master' && po.assignee_id && po.assignee_id !== user.id) return bad('지목된 담당자만 이 발주서를 처리할 수 있습니다.', 403);
 
   const { data: old } = await supabase
     .from('dgflow_purchase_order_packages').select('id, work_order_id').eq('purchase_order_id', id).eq('sheet_name', sheetName);

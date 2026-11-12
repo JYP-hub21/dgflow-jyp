@@ -4,13 +4,10 @@ import {
 } from '@/lib/auth/role-guard';
 
 describe('사원별 기능 권한', () => {
-  it('마스터는 전부 보고 관리하지만, 부서 업무(확인 · 입력)는 하지 않는다 (2026-11-12)', () => {
-    const master = { role: 'master' as const, permissions: [], department: '경영진' };
+  it('관리자(마스터)는 부서와 상관없이 전부 한다 (2026-11-12 "관리자는 다 되어야지")', () => {
+    const master = { role: 'master' as const, permissions: [], department: '충북대학교 AX팀' };
     expect(ALL_PERMISSIONS.every(k => canView(master, k))).toBe(true);
-    expect(hasPermission(master, 'admin:users')).toBe(true);
-    expect(hasPermission(master, 'production:view')).toBe(true);
-    expect(hasPermission(master, 'production:input')).toBe(false);
-    expect(hasPermission(master, 'order:process')).toBe(false);
+    expect(ALL_PERMISSIONS.every(k => hasPermission(master, k))).toBe(true);
   });
 
   it('직원은 모든 탭을 보지만, 일은 자기 부서 것만 한다 (2026-11-12)', () => {

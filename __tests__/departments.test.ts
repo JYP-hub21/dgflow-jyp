@@ -63,8 +63,7 @@ describe('부서별 사이드바 (2026-10-30 현장 피드백)', () => {
   it('발주서 목록 기본 보기 — 처리 권한이 있으면 받은 발주서, 없으면 올린 발주서', () => {
     expect(defaultPoView({ role: 'staff', permissions: ['order:process'], department: '업무지원부' })).toBe('todo');
     expect(defaultPoView({ role: 'staff', permissions: ['order:submit'], department: '공사관리부' })).toBe('mine');
-    // 마스터는 발주서를 처리하지 않는다 (2026-11-12)
-    expect(defaultPoView(master)).toBe('mine');
+    expect(defaultPoView(master)).toBe('todo');
   });
 });
 

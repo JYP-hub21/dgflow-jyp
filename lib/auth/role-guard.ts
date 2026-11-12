@@ -104,8 +104,8 @@ export interface PermissionSubject {
 /**
  * 업무 권한마다 그 일을 하는 부서 (2026-11-12 사용자: "생산 거면 생산부서 사람들 아이디에서만 수신 확인을 누를 수
  * 있어야 하고, 이런 건 기본적인 흐름이니 절대 위배하지 마").
- * 직원 모두가 모든 탭을 보지만(WORK_PERMISSIONS), 일은 그 부서 계정만 한다 — 관리자(마스터)도 마찬가지다.
- * 관리자는 사용자 · 마스터 관리와 전체 보기만 한다. 발주서 확인은 여기에 더해 지목된 담당자 본인만 한다.
+ * 직원 모두가 모든 탭을 보지만(WORK_PERMISSIONS), 일은 그 부서 계정만 한다. 발주서 확인은 여기에 더해 지목된 담당자 본인만 한다.
+ * 관리자(마스터)는 부서 · 담당자와 상관없이 전부 한다 (2026-11-12 사용자 "관리자는 다 되어야지").
  */
 // ERP 엑셀 생성(DG 프리즘 포함)은 부서와 상관없이 누구나 쓴다 (2026-11-12 사용자 "DG 프리즘은 모든 사람이 다 쓸 수 있게").
 // 만든 결과를 발주 건에 저장하는 것은 여전히 order:process + 지목된 담당자 본인만이다.
@@ -135,6 +135,7 @@ export function canViewAny(user: PermissionSubject, permissions: string | readon
  * 부서가 정해진 업무 권한은 권한이 있고 그 부서 계정이어야 한다. 나머지(보기 · 관리)는 canView 와 같다.
  */
 export function hasPermission(user: PermissionSubject, permission: string): boolean {
+  if (user.role === 'master') return true;
   const dept = PERMISSION_DEPT[permission];
   if (!dept) return canView(user, permission);
   return (user.permissions ?? []).includes(permission) && deptOf(user.department) === dept;

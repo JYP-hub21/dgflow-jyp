@@ -22,7 +22,7 @@ export default async function ErpUploadPage({ searchParams }: { searchParams: Pr
         .eq('purchase_order_id', po).eq('kind', 'order').is('purged_at', null).order('created_at'),
     ]);
     // 발주 건에 저장하는 것은 지목된 담당자 본인만 — 다른 사람은 파일만 만들어 받는 보통 모드로 연다 (2026-11-12)
-    const row = found && (!found.assignee_id || found.assignee_id === user.id) ? found : null;
+    const row = found && (user.role === 'master' || !found.assignee_id || found.assignee_id === user.id) ? found : null;
     if (row) {
       purchaseOrder = {
         id: row.id,
