@@ -1,5 +1,5 @@
 import { getCurrentUser } from '@/lib/auth/get-user';
-import { hasPermission, normalizePermissions } from '@/lib/auth/role-guard';
+import { canView as hasPermission, normalizePermissions } from '@/lib/auth/role-guard';
 import { loginIdError, normalizeLoginId, normalizePhone, passwordError } from '@/lib/auth/account';
 import { createAccount } from '@/lib/auth/create-account';
 import { NextRequest, NextResponse } from 'next/server';

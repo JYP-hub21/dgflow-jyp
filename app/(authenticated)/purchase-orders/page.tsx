@@ -26,9 +26,11 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
   const user = (await getCurrentUser())!;
   const params = await searchParams;
   const processor = canProcess(user);
+  // 다른 부서 직원도 모든 탭을 본다 (2026-11-12) — 자기 일이 아닌 보기는 회사 전체 기준으로 보여 준다
+  const submitter = hasPermission(user, 'order:submit');
   const view: View = (['todo', 'mine', 'open', 'all'] as const).includes(params.view as View)
     ? params.view as View
-    : processor ? 'todo' : 'mine';
+    : processor ? 'todo' : submitter ? 'mine' : 'open';
 
   const supabase = createServiceRoleClient();
   // 포장 · 진행률을 다 못 읽으면 단계가 틀리게 보인다 — 틀린 목록 대신 알린다 (2026-11-10 점검)
@@ -49,15 +51,15 @@ export default async function PurchaseOrdersPage({ searchParams }: { searchParam
 
   const active = (p: PoSummary) => p.derived !== 'done' && p.derived !== 'cancelled';
   const lists: Record<View, PoSummary[]> = {
-    todo: all.filter(p => p.assignee_id === user.id && active(p) && !['producing'].includes(p.derived)),
-    mine: all.filter(p => p.created_by === user.id),
+    todo: all.filter(p => (processor ? p.assignee_id === user.id : !!p.assignee_id) && active(p) && !['producing'].includes(p.derived)),
+    mine: submitter ? all.filter(p => p.created_by === user.id) : all,
     open: all.filter(active),
     all,
   };
   const shown = lists[view];
   // 앞의 둘은 사이드바 메뉴 이름과 같다 — 받은 발주서(업무지원부) · 올린 발주서(공사관리부)
   const tabs: { key: View; label: string; hidden?: boolean }[] = [
-    { key: 'todo', label: '수신 발주서', hidden: !processor },
+    { key: 'todo', label: '수신 발주서' },
     { key: 'mine', label: '등록 발주서' },
     { key: 'open', label: '진행 중' },
     { key: 'all', label: '전체' },

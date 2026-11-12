@@ -23,7 +23,7 @@ type Props = { searchParams: Promise<{ page?: string; q?: string }> };
 
 // 등록 화면(/work-orders/receive)은 권한이 달라 폴더 layout 으로 막지 않고 여기서 막는다
 export default function Page(props: Props) {
-  return <PermissionGate permission="production:view"><WorkOrdersPage {...props} /></PermissionGate>;
+  return <PermissionGate permission="production:view" view><WorkOrdersPage {...props} /></PermissionGate>;
 }
 
 async function WorkOrdersPage({ searchParams }: Props) {

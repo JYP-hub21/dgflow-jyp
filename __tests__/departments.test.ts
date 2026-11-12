@@ -45,7 +45,7 @@ describe('부서별 사이드바 (2026-10-30 현장 피드백)', () => {
 
   it('덩어리 권한은 그 구역 메뉴가 쓰는 권한을 빠짐없이 담고, 함께 있어야 하는 권한도 갖췄다', () => {
     for (const d of DEPARTMENTS) {
-      const block = { role: 'staff' as const, permissions: DEPT_PERMISSIONS[d.key] };
+      const block = { role: 'staff' as const, permissions: DEPT_PERMISSIONS[d.key], department: d.name };
       for (const m of MENU_ITEMS.filter(i => i.group === d.key)) {
         expect(hasAnyPermission(block, m.permission!)).toBe(true);
       }
@@ -61,8 +61,10 @@ describe('부서별 사이드바 (2026-10-30 현장 피드백)', () => {
   });
 
   it('발주서 목록 기본 보기 — 처리 권한이 있으면 받은 발주서, 없으면 올린 발주서', () => {
-    expect(defaultPoView(master)).toBe('todo');
-    expect(defaultPoView({ role: 'staff', permissions: ['order:submit'] })).toBe('mine');
+    expect(defaultPoView({ role: 'staff', permissions: ['order:process'], department: '업무지원부' })).toBe('todo');
+    expect(defaultPoView({ role: 'staff', permissions: ['order:submit'], department: '공사관리부' })).toBe('mine');
+    // 마스터는 발주서를 처리하지 않는다 (2026-11-12)
+    expect(defaultPoView(master)).toBe('mine');
   });
 });
 

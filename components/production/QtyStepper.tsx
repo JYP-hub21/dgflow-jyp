@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  * 2026-10-30 피드백: "매번 숫자를 고쳐 치는 건 귀찮으니 옆에 위아래로 작게 + − 를" · "+1 기능".
  * 폰에서는 숫자 키패드를 띄운다 (type=number 는 스피너가 끼어들고 키패드도 들쭉날쭉하다).
  */
-export default function QtyStepper({ value, onChange, size = 'md', invalid, highlight, label = '이번 생산량' }: {
+export default function QtyStepper({ value, onChange, size = 'md', invalid, highlight, label = '이번 생산량', disabled, inputClassName }: {
   value: string;
   onChange: (v: string) => void;
   /** sm: 작업의뢰서 모양 표(36px) · md: 44px · lg: 폰 카드(48px) */
@@ -17,6 +17,9 @@ export default function QtyStepper({ value, onChange, size = 'md', invalid, high
   invalid?: boolean;
   highlight?: boolean;
   label?: string;
+  disabled?: boolean;
+  /** 입력칸에 덧붙일 모양 — 납품의 '생산 수량 초과' 경고색 같은 것 */
+  inputClassName?: string;
 }) {
   const n = parseInt(value) || 0;
   const tall = size === 'lg' ? 'h-12' : size === 'sm' ? 'h-9' : 'h-11';
@@ -33,17 +36,18 @@ export default function QtyStepper({ value, onChange, size = 'md', invalid, high
         aria-label={label}
         aria-invalid={invalid || undefined}
         value={value}
+        disabled={disabled}
         onChange={e => onChange(e.target.value.replace(/[^0-9]/g, ''))}
         className={cn('h-full rounded-r-none text-right font-semibold tabular-nums',
           size === 'lg' ? 'w-20 text-lg' : size === 'sm' ? 'w-20 text-sm' : 'w-24 text-base',
-          highlight && !invalid && 'border-brand-600')}
+          highlight && !invalid && 'border-brand-600', inputClassName)}
       />
       <div className="flex w-7 flex-col">
-        <button type="button" aria-label="1 증가" onClick={() => step(1)}
-          className="flex flex-1 items-center justify-center rounded-tr-lg border border-l-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100">
+        <button type="button" aria-label="1 증가" onClick={() => step(1)} disabled={disabled}
+          className="flex flex-1 items-center justify-center rounded-tr-lg border border-l-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100 disabled:opacity-40">
           <Plus className="h-3 w-3" strokeWidth={2.5} />
         </button>
-        <button type="button" aria-label="1 감소" onClick={() => step(-1)} disabled={n === 0}
+        <button type="button" aria-label="1 감소" onClick={() => step(-1)} disabled={disabled || n === 0}
           className="flex flex-1 items-center justify-center rounded-br-lg border border-l-0 border-t-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100 disabled:opacity-40">
           <Minus className="h-3 w-3" strokeWidth={2.5} />
         </button>

@@ -1,5 +1,5 @@
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
-import { normalizeLoginId, toAuthPassword } from '@/lib/auth/account';
+import { INITIAL_PASSWORD, normalizeLoginId, toAuthPassword } from '@/lib/auth/account';
 import { NextRequest, NextResponse } from 'next/server';
 
 const WRONG = '아이디 또는 비밀번호가 올바르지 않습니다.';
@@ -40,5 +40,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 403 });
   }
 
-  return NextResponse.json({ success: true });
+  // 회사가 나눠 준 처음 비밀번호 그대로면 들어간 뒤 바꾸기를 권한다 (강제하지 않는다 — 2026-11-12 사용자 "권장")
+  return NextResponse.json({ success: true, initialPassword: String(password) === INITIAL_PASSWORD });
 }

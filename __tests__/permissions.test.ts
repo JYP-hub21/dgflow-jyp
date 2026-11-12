@@ -1,12 +1,31 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ALL_PERMISSIONS, PERMISSION_PRESETS, getMenuFor, hasPermission, homePathFor, normalizePermissions,
+  ALL_PERMISSIONS, PERMISSION_PRESETS, WORK_PERMISSIONS, canView, getMenuFor, hasPermission, homePathFor, normalizePermissions,
 } from '@/lib/auth/role-guard';
 
 describe('사원별 기능 권한', () => {
-  it('마스터는 권한 목록과 상관없이 전부 통과한다', () => {
-    const master = { role: 'master' as const, permissions: [] };
-    expect(ALL_PERMISSIONS.every(k => hasPermission(master, k))).toBe(true);
+  it('마스터는 전부 보고 관리하지만, 부서 업무(확인 · 입력)는 하지 않는다 (2026-11-12)', () => {
+    const master = { role: 'master' as const, permissions: [], department: '경영진' };
+    expect(ALL_PERMISSIONS.every(k => canView(master, k))).toBe(true);
+    expect(hasPermission(master, 'admin:users')).toBe(true);
+    expect(hasPermission(master, 'production:view')).toBe(true);
+    expect(hasPermission(master, 'production:input')).toBe(false);
+    expect(hasPermission(master, 'order:process')).toBe(false);
+  });
+
+  it('직원은 모든 탭을 보지만, 일은 자기 부서 것만 한다 (2026-11-12)', () => {
+    const who = (department: string) => ({ role: 'staff' as const, permissions: WORK_PERMISSIONS, department });
+    expect(getMenuFor(who('공사관리부')).map(m => m.href)).not.toContain('/admin/users');
+    expect(getMenuFor(who('생산부')).length).toBe(getMenuFor({ role: 'master' }).length - 2);
+    expect(hasPermission(who('공사관리부'), 'order:submit')).toBe(true);
+    expect(hasPermission(who('공사관리부'), 'production:input')).toBe(false);
+    expect(hasPermission(who('업무지원부'), 'order:process')).toBe(true);
+    expect(hasPermission(who('업무지원부'), 'order:submit')).toBe(false);
+    expect(hasPermission(who('생산부'), 'production:input')).toBe(true);
+    expect(hasPermission(who('생산관리부'), 'production:input')).toBe(true);
+    expect(hasPermission(who('생산관리부'), 'work_order:create')).toBe(false);
+    expect(hasPermission(who('경영'), 'production:view')).toBe(true);
+    expect(hasPermission(who('경영'), 'production:input')).toBe(false);
   });
 
   it('사원은 부여받은 것만 통과한다', () => {

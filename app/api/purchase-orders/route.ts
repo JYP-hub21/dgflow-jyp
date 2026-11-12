@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
   if (!body.assignee_id) return bad('담당자를 선택하세요.');
   const { data: assignee } = await supabase
-    .from('dgflow_users').select('id, role, permissions, status, is_active').eq('id', body.assignee_id).maybeSingle();
+    .from('dgflow_users').select('id, role, permissions, department, status, is_active').eq('id', body.assignee_id).maybeSingle();
   if (!assignee || assignee.status !== 'active' || !assignee.is_active || !canProcess(assignee)) {
     return bad('발주서를 처리할 수 있는 사람만 담당자로 고를 수 있습니다.');
   }

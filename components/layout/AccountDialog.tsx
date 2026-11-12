@@ -17,8 +17,10 @@ import { Label } from '@/components/ui/label';
  * 아이디는 그대로 두면, 새 비밀번호는 비워 두면 바뀌지 않는다. 저장할 때 현재 비밀번호로 본인 확인.
  * 열 때마다 새로 그려 입력이 남지 않게, 부모가 열려 있을 때만 그린다.
  */
-export default function AccountDialog({ loginId, loginIdLocked, onClose }: {
+export default function AccountDialog({ loginId, loginIdLocked, notice, onClose }: {
   loginId: string;
+  /** 위에 띄울 안내 — 처음 비밀번호로 들어온 직원에게 변경을 권할 때 */
+  notice?: string;
   /** 관리자 빠른 로그인 계정 — 공식 시작 전까지 아이디는 잠근다 */
   loginIdLocked: boolean;
   onClose: () => void;
@@ -67,6 +69,12 @@ export default function AccountDialog({ loginId, loginIdLocked, onClose }: {
           </DialogDescription>
         </DialogHeader>
 
+        {notice && (
+          <p className="rounded-xl border border-brand-600/30 bg-brand-50 px-3.5 py-3 text-[13px] font-medium leading-relaxed text-brand-800">
+            {notice}
+          </p>
+        )}
+
         <form id="account-form" onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="account-id" className={label}>아이디</Label>
@@ -110,7 +118,7 @@ export default function AccountDialog({ loginId, loginIdLocked, onClose }: {
         </form>
 
         <DialogFooter className="-mx-6 -mb-6 px-6">
-          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>취소</Button>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>{notice ? '나중에' : '취소'}</Button>
           <Button type="submit" form="account-form" disabled={busy}>{busy ? '저장 중…' : '저장'}</Button>
         </DialogFooter>
       </DialogContent>

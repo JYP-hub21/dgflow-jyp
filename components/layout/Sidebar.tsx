@@ -14,6 +14,7 @@ import { MENU_ICONS } from './menu-icons';
 import { KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 import Logo from './Logo';
 import AccountDialog from './AccountDialog';
+import { INITIAL_PASSWORD_FLAG } from '@/lib/auth/account';
 
 interface SidebarProps {
   userName: string;
@@ -39,7 +40,18 @@ export default function Sidebar({ userName, user, department, badges = {}, login
   const menuItems = getMenuFor(user);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  /** 처음 비밀번호(0000)로 막 들어온 경우 — 변경 창을 한 번 띄워 권한다 (닫으면 다시 묻지 않는다) */
+  const [firstLogin, setFirstLogin] = useState(false);
   const myDept = deptOf(department);
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(INITIAL_PASSWORD_FLAG) !== '1') return;
+      sessionStorage.removeItem(INITIAL_PASSWORD_FLAG);
+    } catch { return; }
+    setFirstLogin(true);
+    setAccountOpen(true);
+  }, []);
 
   // 화면을 옮겨 가면 서랍은 닫는다
   useEffect(() => setOpen(false), [pathname, searchParams]);
@@ -186,7 +198,9 @@ export default function Sidebar({ userName, user, department, badges = {}, login
       </aside>
 
       {accountOpen && (
-        <AccountDialog loginId={loginId} loginIdLocked={loginIdLocked} onClose={() => setAccountOpen(false)} />
+        <AccountDialog loginId={loginId} loginIdLocked={loginIdLocked}
+          notice={firstLogin ? '처음 비밀번호(0000)로 로그인하셨습니다. 본인만 아는 아이디와 비밀번호로 변경하시기 바랍니다. 지금 변경하지 않으려면 [나중에]를 누르세요. 언제든 왼쪽 메뉴 아래 [아이디/비밀번호 변경]에서 변경할 수 있습니다.' : undefined}
+          onClose={() => { setAccountOpen(false); setFirstLogin(false); }} />
       )}
     </>
   );

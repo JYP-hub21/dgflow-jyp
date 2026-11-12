@@ -10,6 +10,15 @@
 
 export const LOGIN_EMAIL_DOMAIN = 'dgflow.local';
 
+/**
+ * 회사가 미리 만들어 나눠 주는 직원 계정의 처음 비밀번호 (2026-11-12 사용자 결정: 모두 0000 고정).
+ * 로그인 화면 안내에 쓰고, 이 비밀번호로 들어오면 바꾸기를 권한다.
+ */
+export const INITIAL_PASSWORD = '0000';
+
+/** 처음 비밀번호로 들어왔다는 표시 — 로그인 화면이 남기고, 사이드바가 읽어 변경 창을 한 번 띄운다 */
+export const INITIAL_PASSWORD_FLAG = 'dgflow-initial-password';
+
 /** 영문 소문자 · 숫자로 시작, 그 뒤로 . _ - 도 허용. 1~30자 */
 const LOGIN_ID_RE = /^[a-z0-9][a-z0-9._-]{0,29}$/;
 

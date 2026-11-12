@@ -4,7 +4,7 @@ import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supab
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { USER_ROLES } from '@/types/user';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
-import { hasAnyPermission, hasPermission, ORDER_ANY } from '@/lib/auth/role-guard';
+import { canViewAny, hasPermission, ORDER_ANY } from '@/lib/auth/role-guard';
 import { listPurchaseOrders, type PoSummary } from '@/lib/purchase-order/server';
 import { STAGE_LABEL, type PoStage } from '@/lib/purchase-order/stage';
 import { DEPT_BY_KEY, type DeptKey } from '@/lib/departments';
@@ -101,7 +101,7 @@ export default async function DashboardPage() {
   ]);
 
   const canOpenWorkOrders = user ? hasPermission(user, 'production:view') : false;
-  const canOpenOrders = user ? hasAnyPermission(user, ORDER_ANY) : false;
+  const canOpenOrders = user ? canViewAny(user, ORDER_ANY) : false;
 
   // ── 작업의뢰서 — 생산이 남은 것만 (다 만들고 납품만 남은 의뢰서는 따로 센다)
   const active = (openOrders ?? []).filter(wo => wo.progress.remaining > 0);

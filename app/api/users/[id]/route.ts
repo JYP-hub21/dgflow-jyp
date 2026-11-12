@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
-import { hasPermission, normalizePermissions } from '@/lib/auth/role-guard';
+import { canView as hasPermission, normalizePermissions } from '@/lib/auth/role-guard';
 import { birthDateError, normalizePhone, passwordError, toAuthPassword } from '@/lib/auth/account';
 import { USER_COLUMNS } from '@/lib/auth/create-account';
 import { USER_ROLES, type UserRole } from '@/types/user';

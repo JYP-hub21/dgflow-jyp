@@ -1,5 +1,5 @@
 import PermissionGate from '@/components/layout/PermissionGate';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <PermissionGate permission="admin:users">{children}</PermissionGate>;
+  return <PermissionGate permission="admin:users" view>{children}</PermissionGate>;
 }

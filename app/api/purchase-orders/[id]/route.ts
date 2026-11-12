@@ -63,7 +63,8 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/purcha
 
   // 확인 — 파일을 내려받지 않아도 담당 부서가 눌러서 (2026-11-02: 시연 · 수기 정리일 때 큰 파일을 받을 이유가 없다)
   if (body.check === true) {
-    if (!processor) return bad('발주서를 처리하는 사람만 확인할 수 있습니다.', 403);
+    // 확인은 지목된 담당자 본인만 — 올린 사람이나 다른 사람이 대신 확인하지 않는다 (2026-11-12 사용자)
+    if (po.assignee_id ? po.assignee_id !== user.id : !processor) return bad('지목된 담당자만 확인할 수 있습니다.', 403);
     if (po.stage === 'submitted') {
       update.stage = 'checked';
       update.checked_at = now;
@@ -76,7 +77,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/purcha
   if (body.assignee_id !== undefined && body.assignee_id !== po.assignee_id) {
     if (po.stage === 'cancelled') return bad('취소된 건입니다.');
     const { data: next } = await supabase
-      .from('dgflow_users').select('id, name, role, permissions, status, is_active').eq('id', body.assignee_id).maybeSingle();
+      .from('dgflow_users').select('id, name, role, permissions, department, status, is_active').eq('id', body.assignee_id).maybeSingle();
     if (!next || next.status !== 'active' || !next.is_active || !canProcess(next)) {
       return bad('발주서를 처리할 수 있는 사람만 담당자로 고를 수 있습니다.');
     }

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasPermission, type PermissionSubject } from '@/lib/auth/role-guard';
+import { deptOf } from '@/lib/departments';
 import { deriveStage, stalledDays, type PoStage, type StoredStage } from './stage';
 import type { CheckResult } from './match';
 import { SITE_SELECT, toWorkOrderSite, type WorkOrderSite } from '@/lib/work-order/site';
@@ -29,8 +30,14 @@ export async function listAssignees(supabase: SupabaseClient) {
     .eq('status', 'active')
     .eq('is_active', true)
     .order('name');
-  return (data ?? [])
-    .filter(u => canProcess(u))
+  const processors = (data ?? []).filter(u => canProcess(u));
+  /*
+    2026-11-12 부터 직원 모두가 업무 권한을 전부 가진다(WORK_PERMISSIONS) — 처리 권한만으로 고르면
+    49명이 다 뜬다. 발주서를 받는 곳은 업무지원부이므로 업무지원부 사람 + 관리자(마스터)만 보이고,
+    업무지원부 사람이 없을 때만 처리 권한이 있는 사람 전부를 보인다.
+  */
+  const support = processors.filter(u => deptOf(u.department as string | null) === 'support');
+  return (support.length > 0 ? support : processors)
     .map(u => ({ id: u.id as string, name: u.name as string, department: u.department as string | null, position: u.position as string | null }));
 }
 

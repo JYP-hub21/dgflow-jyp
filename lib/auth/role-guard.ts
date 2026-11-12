@@ -1,5 +1,5 @@
 import type { UserRole } from '@/types/user';
-import { DEPARTMENTS, type DeptKey } from '@/lib/departments';
+import { DEPARTMENTS, deptOf, type DeptKey } from '@/lib/departments';
 
 /**
  * 기능 권한 정의
@@ -39,6 +39,14 @@ export const PERMISSION_GROUPS = [
 export const ALL_PERMISSIONS: string[] = PERMISSION_GROUPS.flatMap(g =>
   g.items.map(i => i.key),
 );
+
+/**
+ * 업무 권한 전부 — 관리 권한(마스터 관리 · 사용자 관리)만 뺀 것.
+ * 2026-11-12 사용자 결정: "각자 부서 것만 보이게 하는 게 아니라 관리자처럼 모든 탭이 보이게,
+ * 마스터 관리랑 사용자 관리만 관리자가 볼 수 있게". 미리 만든 직원 계정 · 가입 승인 · 직접 추가의 기본값이다.
+ * 부서 덩어리로 좁혀 주는 것은 사용자 관리에서 여전히 할 수 있다.
+ */
+export const WORK_PERMISSIONS: string[] = ALL_PERMISSIONS.filter(k => !k.startsWith('admin:'));
 
 /** 권한 키 → 한글 라벨 */
 export const PERMISSION_LABELS: Record<string, string> = Object.fromEntries(
@@ -85,19 +93,57 @@ export function normalizePermissions(keys: string[]): string[] {
   return ALL_PERMISSIONS.filter(k => set.has(k));
 }
 
-/** 판정에 필요한 사용자 정보 — 역할과 부여받은 권한 목록 */
+/** 판정에 필요한 사용자 정보 — 역할 · 부여받은 권한 목록 · 부서 */
 export interface PermissionSubject {
   role: UserRole;
   permissions?: string[] | null;
+  /** 사원 정보의 부서 칸 — 업무 권한(PERMISSION_DEPT)은 이 부서가 맞아야 쓴다 */
+  department?: string | null;
 }
 
 /**
- * 마스터는 전부, 사원은 부여받은 것만.
- * DB 의 dgflow_has_permission() 과 같은 규칙이다 — 하나를 바꾸면 둘 다 바꾼다.
+ * 업무 권한마다 그 일을 하는 부서 (2026-11-12 사용자: "생산 거면 생산부서 사람들 아이디에서만 수신 확인을 누를 수
+ * 있어야 하고, 이런 건 기본적인 흐름이니 절대 위배하지 마").
+ * 직원 모두가 모든 탭을 보지만(WORK_PERMISSIONS), 일은 그 부서 계정만 한다 — 관리자(마스터)도 마찬가지다.
+ * 관리자는 사용자 · 마스터 관리와 전체 보기만 한다. 발주서 확인은 여기에 더해 지목된 담당자 본인만 한다.
  */
-export function hasPermission(user: PermissionSubject, permission: string): boolean {
+export const PERMISSION_DEPT: Partial<Record<string, DeptKey>> = {
+  'order:submit': 'construction',
+  'order:process': 'support',
+  'erp:generate': 'support',
+  'work_order:create': 'support',
+  'production:input': 'production',
+};
+
+/**
+ * 볼 수 있나 — 메뉴 · 화면 문(PermissionGate) · 권한 주고 빼기에 쓴다. 마스터는 전부, 사원은 부여받은 것.
+ * DB 의 dgflow_has_permission() 과 같은 규칙이다 — 하나를 바꾸면 둘 다 바꾼다. (DB 는 읽기 · 보기만 막는다)
+ */
+export function canView(user: PermissionSubject, permission: string): boolean {
   if (user.role === 'master') return true;
   return (user.permissions ?? []).includes(permission);
+}
+
+/** 여러 권한 중 하나라도 볼 수 있으면 통과 */
+export function canViewAny(user: PermissionSubject, permissions: string | readonly string[]): boolean {
+  return (typeof permissions === 'string' ? [permissions] : permissions).some(p => canView(user, p));
+}
+
+/**
+ * 그 일을 할 수 있나 — 저장 · 확인 · 입력 같은 일을 하는 곳은 모두 이것으로 판정한다.
+ * 부서가 정해진 업무 권한은 권한이 있고 그 부서 계정이어야 한다. 나머지(보기 · 관리)는 canView 와 같다.
+ */
+export function hasPermission(user: PermissionSubject, permission: string): boolean {
+  const dept = PERMISSION_DEPT[permission];
+  if (!dept) return canView(user, permission);
+  return (user.permissions ?? []).includes(permission) && deptOf(user.department) === dept;
+}
+
+/** 이 업무를 하는 부서 이름 — "○○ 계정에서 합니다" 안내용 */
+export function deptNameFor(permission: string): string | null {
+  const dept = PERMISSION_DEPT[permission];
+  if (!dept) return null;
+  return dept === 'production' ? '생산관리부 · 생산부' : DEPARTMENTS.find(d => d.key === dept)!.name;
 }
 
 /** 여러 권한 중 하나라도 있으면 통과 */
@@ -164,8 +210,9 @@ export const MENU_ITEMS: MenuItem[] = [
   { label: '사용자 관리', href: '/admin/users', icon: 'Users', permission: 'admin:users', group: 'admin' },
 ];
 
+/** 보이는 메뉴 — 보기 기준(canView). 직원은 모든 업무 탭이 보이고, 관리 두 메뉴는 관리자만 (2026-11-12) */
 export function getMenuFor(user: PermissionSubject): MenuItem[] {
-  return MENU_ITEMS.filter(item => !item.permission || hasAnyPermission(user, item.permission));
+  return MENU_ITEMS.filter(item => !item.permission || canViewAny(user, item.permission));
 }
 
 /** 로그인 직후 갈 곳 — 쓸 수 있는 첫 메뉴. 대시보드가 누구에게나 열려 있어 늘 대시보드다 */

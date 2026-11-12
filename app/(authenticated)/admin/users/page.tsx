@@ -14,7 +14,7 @@ import { USER_ROLES, type UserRole, type UserStatus } from '@/types/user';
 import { DEPARTMENTS, DEPT_BY_KEY, type DeptKey } from '@/lib/departments';
 import {
   PERMISSION_GROUPS, PERMISSION_LABELS, DEPT_PERMISSIONS, MENU_ITEMS,
-  deptBlocksOf, hasPermission, normalizePermissions, type PermissionSubject,
+  WORK_PERMISSIONS, deptBlocksOf, canView as hasPermission, normalizePermissions, type PermissionSubject,
 } from '@/lib/auth/role-guard';
 import { DEPT_STYLE } from '@/components/layout/dept-style';
 import { cn } from '@/lib/utils';
@@ -135,7 +135,7 @@ export default function UsersPage() {
                   </div>
                   {approving?.id !== u.id && (
                     <div className="flex gap-2">
-                      <Button onClick={() => { setApproving({ id: u.id, permissions: [] }); setError(''); setNotice(''); }}>
+                      <Button onClick={() => { setApproving({ id: u.id, permissions: WORK_PERMISSIONS.filter(k => me && hasPermission(me, k)) }); setError(''); setNotice(''); }}>
                         <UserCheck />승인
                       </Button>
                       <Button variant="outline" disabled={saving} onClick={() => {
@@ -174,7 +174,7 @@ export default function UsersPage() {
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">사용자 ({members.length}명)</CardTitle>
           <Button onClick={() => {
-            setCreating({ loginId: '', password: '', name: '', phone: '', department: '', position: '', role: 'staff', permissions: [] });
+            setCreating({ loginId: '', password: '', name: '', phone: '', department: '', position: '', role: 'staff', permissions: WORK_PERMISSIONS.filter(k => me && hasPermission(me, k)) });
             setEditing(null); setApproving(null); setError(''); setNotice('');
           }}>
             <Plus />직접 추가
@@ -475,6 +475,10 @@ function PermissionPicker({ me, role, value, onChange }: {
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" className={chipClass(detail, 'h-8 text-[13px]')} onClick={() => setDetail(v => !v)}>
           세부 권한 {detail ? '접기' : '펼치기'}
+        </button>
+        <button type="button" className={chipClass(false, 'h-8 text-[13px]')}
+          onClick={() => onChange(normalizePermissions([...value.filter(k => k.startsWith('admin:')), ...WORK_PERMISSIONS.filter(k => hasPermission(me, k))]))}>
+          업무 전체 허용
         </button>
         <button type="button" className={chipClass(false, 'h-8 text-[13px]')} onClick={() => onChange([])}>
           모두 해제

@@ -44,7 +44,7 @@ export default async function AuthenticatedLayout({
     <div className="flex h-screen print:block print:h-auto">
       <Sidebar
         userName={user.name}
-        user={{ role: user.role, permissions: user.permissions }}
+        user={{ role: user.role, permissions: user.permissions, department: user.department }}
         department={user.department}
         badges={badges}
         loginId={user.login_id}

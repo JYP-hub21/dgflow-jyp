@@ -119,7 +119,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   const canEditSite = !!user && hasAnyPermission(user, SITE_EDITORS);
   const canAssignContact = !!user && hasAnyPermission(user, CONTACT_EDITORS);
   const canRevise = !!user && hasPermission(user, 'work_order:create');
-  const canReceive = !!user && hasPermission(user, 'production:view');
+  const canReceive = !!user && hasPermission(user, 'production:input'); // 생산관리부 · 생산부 계정만 (2026-11-12)
 
   // 납품 · 수신 확인 — 표가 생기기 전에는 비어 있다
   const [{ storage: deliveryStorage, logs: deliveryLogs }, { storage: receiptStorage, receipts }] = await Promise.all([

@@ -38,7 +38,8 @@ export default async function PurchaseOrderDetailPage({ params }: { params: Prom
   const po = await loadPurchaseOrder(supabase, id);
   if (!po) notFound();
 
-  const processor = canProcess(user);
+  // 확인 · ERP 작업은 지목된 담당자 본인만 — 같은 부서의 다른 사람이나 올린 사람이 대신하지 않는다 (2026-11-12 사용자)
+  const processor = canProcess(user) && (!po.assignee_id || po.assignee_id === user.id);
   const canErp = processor && hasPermission(user, 'erp:generate');
   const canLink = processor || hasPermission(user, 'work_order:create');
   const cancelled = po.derived === 'cancelled';

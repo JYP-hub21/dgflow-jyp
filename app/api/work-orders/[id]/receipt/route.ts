@@ -20,8 +20,9 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ id: st
 export async function POST(_request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!hasPermission(user, 'production:view')) {
-    return NextResponse.json({ error: '수신 확인 권한이 없습니다.' }, { status: 403 });
+  // 수신 확인은 생산관리부 · 생산부 계정만 — 넘긴 쪽이나 관리자가 대신 누르지 않는다 (2026-11-12 사용자)
+  if (!hasPermission(user, 'production:input')) {
+    return NextResponse.json({ error: '수신 확인은 생산관리부 · 생산부 계정에서 할 수 있습니다.' }, { status: 403 });
   }
   const { id } = await ctx.params;
   const { error } = await createServiceRoleClient()

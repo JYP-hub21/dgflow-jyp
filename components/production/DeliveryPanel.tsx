@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import RemarkText from '@/components/production/RemarkText';
+import QtyStepper from '@/components/production/QtyStepper';
 import { blockTotals, itemNo, sizeText } from '@/lib/production/item-view';
 import { deliveredByItem, deliveryTodo, groupDeliveries, type DeliveryLog } from '@/lib/production/delivery';
 import { cn } from '@/lib/utils';
@@ -203,7 +204,7 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
       )}
 
       <div className="overflow-x-auto">
-        <Table className="min-w-[860px] [&_td+td]:border-l [&_th+th]:border-l">
+        <Table className="min-w-[900px] [&_td+td]:border-l [&_th+th]:border-l">
           <TableHeader>
             <TableRow>
               <TableHead colSpan={6} className="h-8 text-center text-xs font-semibold text-muted-foreground">작업의뢰서</TableHead>
@@ -219,7 +220,7 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
               <TableHead className="w-14 bg-brand-50 text-center">생산</TableHead>
               <TableHead className="w-14 bg-brand-50 text-center">납품</TableHead>
               <TableHead className="w-14 bg-brand-50 text-center">미납</TableHead>
-              <TableHead className="w-24 bg-brand-50 text-center">납품 입력</TableHead>
+              <TableHead className="w-32 bg-brand-50 text-center">납품 입력</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -239,9 +240,10 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
                   <TableCell className="tabular text-right">{done}</TableCell>
                   <TableCell className="tabular text-right font-semibold">{Math.max(0, item.quantity - done)}</TableCell>
                   <TableCell>
-                    <Input inputMode="numeric" aria-label={`No.${itemNo(item, idx)} 납품 수량`} value={quantities[item.id] ?? ''} disabled={!editable}
-                      onChange={e => setQty(item.id, e.target.value)}
-                      className={cn('h-8 text-right tabular', typed > 0 && over && 'border-warning bg-warning-50')} />
+                    {/* 생산 입력과 같은 칸 — 옆의 작은 + · − 로 한 조씩 (2026-11-12 사용자 "생산입력이랑 똑같이") */}
+                    <QtyStepper size="sm" label={`No.${itemNo(item, idx)} 납품 수량`} value={quantities[item.id] ?? ''} disabled={!editable}
+                      onChange={v => setQty(item.id, v)} highlight={typed > 0 && !over}
+                      inputClassName={cn(typed > 0 && over && 'border-warning bg-warning-50')} />
                   </TableCell>
                 </TableRow>
               );
