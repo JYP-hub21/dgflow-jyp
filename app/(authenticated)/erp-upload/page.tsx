@@ -15,12 +15,14 @@ export default async function ErpUploadPage({ searchParams }: { searchParams: Pr
   let purchaseOrder: PurchaseOrderSource | undefined;
   if (po && hasPermission(user, 'order:process')) {
     const supabase = createServiceRoleClient();
-    const [{ data: row }, { data: files }] = await Promise.all([
-      supabase.from('dgflow_purchase_orders').select('id, intake_number, site_name, customer_name').eq('id', po).maybeSingle(),
+    const [{ data: found }, { data: files }] = await Promise.all([
+      supabase.from('dgflow_purchase_orders').select('id, intake_number, site_name, customer_name, assignee_id').eq('id', po).maybeSingle(),
       supabase.from('dgflow_purchase_order_files')
         .select('id, file_name, mime_type, size_bytes, storage_prefix, chunk_count')
         .eq('purchase_order_id', po).eq('kind', 'order').is('purged_at', null).order('created_at'),
     ]);
+    // 발주 건에 저장하는 것은 지목된 담당자 본인만 — 다른 사람은 파일만 만들어 받는 보통 모드로 연다 (2026-11-12)
+    const row = found && (!found.assignee_id || found.assignee_id === user.id) ? found : null;
     if (row) {
       purchaseOrder = {
         id: row.id,

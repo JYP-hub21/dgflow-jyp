@@ -26,6 +26,9 @@ describe('사원별 기능 권한', () => {
     expect(hasPermission(who('생산관리부'), 'work_order:create')).toBe(false);
     expect(hasPermission(who('경영'), 'production:view')).toBe(true);
     expect(hasPermission(who('경영'), 'production:input')).toBe(false);
+    // DG 프리즘 · ERP 엑셀 생성은 누구나
+    expect(hasPermission(who('생산부'), 'erp:generate')).toBe(true);
+    expect(hasPermission({ role: 'master' }, 'erp:generate')).toBe(true);
   });
 
   it('사원은 부여받은 것만 통과한다', () => {

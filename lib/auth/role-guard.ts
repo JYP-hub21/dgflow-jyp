@@ -107,10 +107,11 @@ export interface PermissionSubject {
  * 직원 모두가 모든 탭을 보지만(WORK_PERMISSIONS), 일은 그 부서 계정만 한다 — 관리자(마스터)도 마찬가지다.
  * 관리자는 사용자 · 마스터 관리와 전체 보기만 한다. 발주서 확인은 여기에 더해 지목된 담당자 본인만 한다.
  */
+// ERP 엑셀 생성(DG 프리즘 포함)은 부서와 상관없이 누구나 쓴다 (2026-11-12 사용자 "DG 프리즘은 모든 사람이 다 쓸 수 있게").
+// 만든 결과를 발주 건에 저장하는 것은 여전히 order:process + 지목된 담당자 본인만이다.
 export const PERMISSION_DEPT: Partial<Record<string, DeptKey>> = {
   'order:submit': 'construction',
   'order:process': 'support',
-  'erp:generate': 'support',
   'work_order:create': 'support',
   'production:input': 'production',
 };
