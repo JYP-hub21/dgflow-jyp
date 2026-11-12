@@ -209,6 +209,7 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
                 : <p className="mt-1 font-semibold text-warning">미확인</p>}
             </div>
             {!receipt && canReceive && <ReceiptButton workOrderId={id} />}
+            {!receipt && !canReceive && <p className="text-sm text-muted-foreground">생산관리부 · 생산부 계정에서 수신 확인합니다.</p>}
           </CardContent>
         </Card>
       )}

@@ -167,6 +167,12 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
           납품 기록을 저장할 표가 아직 데이터베이스에 없습니다. 표를 만들면 입력할 수 있습니다.
         </p>
       )}
+      {/* 칸만 잠기면 고장처럼 보인다 — 왜 못 넣는지 알린다 (2026-11-12 사용자 "왜 안 돼?") */}
+      {storage === 'db' && !canEdit && (
+        <p className="m-4 break-keep rounded-lg border border-brand-600/30 bg-brand-50 px-4 py-2.5 text-sm font-medium text-brand-800">
+          납품 입력은 생산관리부 · 생산부 계정에서 합니다. 이 계정에서는 납품 현황을 볼 수만 있습니다.
+        </p>
+      )}
 
       <div className="flex flex-wrap items-end justify-between gap-3 border-b p-4">
         <div className="flex flex-wrap items-end gap-3">
