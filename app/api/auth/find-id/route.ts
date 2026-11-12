@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase/server';
+import { QUICK_ADMIN_LOGIN_ID } from '@/lib/auth/quick-login';
 
 /**
  * 로그인 화면 '내 아이디 찾기' — 이름 일부로 직원을 찾아 아이디를 알려 준다 (2026-11-12 사용자 요청).
@@ -8,7 +9,8 @@ import { createServiceRoleClient } from '@/lib/supabase/server';
  *   GET ?q=김정  → { people: [{ name, department, position, login_id }] }
  *
  * 로그인 전에 부르는 곳이라 이름 · 부서 · 직급 · 아이디만 돌려준다 (전화번호 · 생년월일은 주지 않는다).
- * 사용 중인 사원 계정만 — 관리자(마스터) · 승인 대기 · 사용 중지 계정은 나오지 않는다.
+ * 사용 중인 계정만 — 승인 대기 · 사용 중지 계정과 공용 관리자 계정(admin)은 나오지 않는다.
+ * 교수님 · 팀원 · 대표이사 · 이사의 개인 관리자 계정은 나온다 (2026-11-12 사용자).
  */
 const LIMIT = 8;
 
@@ -23,7 +25,7 @@ export async function GET(request: NextRequest) {
     .select('name, department, position, login_id')
     .eq('status', 'active')
     .eq('is_active', true)
-    .neq('role', 'master')
+    .neq('login_id', QUICK_ADMIN_LOGIN_ID)
     .ilike('name', pattern)
     .order('name')
     .limit(LIMIT);

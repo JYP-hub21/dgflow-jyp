@@ -15,6 +15,14 @@ export const USER_ROLES = {
 
 export type UserRole = keyof typeof USER_ROLES;
 
+/**
+ * 이름 옆에 붙이는 소속 글 — 부서 · 직급(조직도) · 관리자 여부.
+ * 예전에는 직급 대신 계정 구분(사원/마스터)을 보여 줘서 대표이사님이 '사원' 으로 보였다 (2026-11-12 사용자 지적).
+ */
+export function affiliationLabel(user: { department?: string | null; position?: string | null; role: UserRole }): string {
+  return [user.department, user.position, user.role === 'master' ? '관리자' : null].filter(Boolean).join(' · ');
+}
+
 /** pending: 가입 신청 후 관리자 승인 전 — 로그인도 데이터 접근도 안 된다 */
 export type UserStatus = 'pending' | 'active';
 

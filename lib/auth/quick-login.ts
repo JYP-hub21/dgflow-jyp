@@ -10,11 +10,11 @@
 export const QUICK_ADMIN_LOGIN_ID = 'admin';
 
 /**
- * 공식으로 쓰기 시작하기 전(시연 · 확인 기간)에는 운영 사이트에도 버튼을 둔다 — 2026-11-02 사용자 결정
- * ("아직 공식으로 시작한 게 아니니 관리자 로그인 버튼을 예전처럼").
- * **회사가 공식으로 쓰기 시작하면 false 로 바꿔 배포한다.**
+ * 공식으로 쓰기 시작하기 전(시연 · 확인 기간)에는 운영 사이트에도 버튼을 두었다 — 2026-11-02 사용자 결정.
+ * 2026-11-12 끔: 교수님 · 팀원 · 대표이사 · 이사가 각자 관리자 계정을 갖게 되어 운영 화면에서 버튼을 없앴다
+ * (사용자 "관리자 계정으로 로그인 그걸 없애는 거지"). 개발 서버에서는 그대로 보인다.
  */
-export const PRE_LAUNCH = true;
+export const PRE_LAUNCH = false;
 
 export function quickAdminLoginEnabled(): boolean {
   return PRE_LAUNCH || process.env.NODE_ENV !== 'production' || process.env.NEXT_PUBLIC_ADMIN_QUICK_LOGIN === 'on';

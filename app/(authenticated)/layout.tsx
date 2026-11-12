@@ -46,6 +46,7 @@ export default async function AuthenticatedLayout({
         userName={user.name}
         user={{ role: user.role, permissions: user.permissions, department: user.department }}
         department={user.department}
+        position={user.position}
         badges={badges}
         loginId={user.login_id}
         loginIdLocked={loginIdLocked(user.login_id)}

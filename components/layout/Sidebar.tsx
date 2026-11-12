@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { USER_ROLES } from '@/types/user';
+import { affiliationLabel } from '@/types/user';
 import {
   activeMenuHref, defaultPoView, getMenuFor, type MenuItem, type PermissionSubject,
 } from '@/lib/auth/role-guard';
@@ -27,6 +27,8 @@ interface SidebarProps {
   loginId: string;
   /** 관리자 빠른 로그인 계정이면 아이디 변경을 잠근다 */
   loginIdLocked: boolean;
+  /** 직급 (조직도) */
+  position?: string | null;
 }
 
 /** 이름 끝 두 글자를 아바타 이니셜로 (한국어 이름 기준) */
@@ -34,7 +36,7 @@ function initials(name: string) {
   return name.length > 2 ? name.slice(-2) : name;
 }
 
-export default function Sidebar({ userName, user, department, badges = {}, loginId, loginIdLocked }: SidebarProps) {
+export default function Sidebar({ userName, user, department, position, badges = {}, loginId, loginIdLocked }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const menuItems = getMenuFor(user);
@@ -173,7 +175,7 @@ export default function Sidebar({ userName, user, department, badges = {}, login
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-foreground">{userName}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {[department, USER_ROLES[user.role]].filter(Boolean).join(' · ')}
+                {affiliationLabel({ department, position, role: user.role })}
               </p>
             </div>
           </div>

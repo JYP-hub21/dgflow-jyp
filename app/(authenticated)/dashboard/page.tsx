@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
-import { USER_ROLES } from '@/types/user';
+import { affiliationLabel } from '@/types/user';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import { canViewAny, hasPermission, ORDER_ANY } from '@/lib/auth/role-guard';
 import { listPurchaseOrders, type PoSummary } from '@/lib/purchase-order/server';
@@ -161,9 +161,7 @@ export default async function DashboardPage() {
           <h1 className="text-[26px] font-bold tracking-tight text-foreground">대시보드</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">{user?.name}</span>
-            {user?.department && <><span className="mx-1.5 text-border">·</span>{user.department}</>}
-            <span className="mx-1.5 text-border">·</span>
-            {user ? USER_ROLES[user.role] : ''}
+            {user && affiliationLabel(user) && <><span className="mx-1.5 text-border">·</span>{affiliationLabel(user)}</>}
           </p>
         </div>
         <p className="tabular text-xs text-muted-foreground">{today.replace(/-/g, '. ')}. ({weekdayOf(today)}) 기준</p>
