@@ -14,7 +14,9 @@ import { Label } from '@/components/ui/label';
 /**
  * 아이디/비밀번호 변경 — 한 창에서 함께 바꾼다 (2026-11-02 사용자 요청: "하나하나 나누지 말고 한 번에").
  * 회사가 미리 만들어 나눠 준 계정을 받은 사람이 자기 것으로 바꾸는 곳.
- * 아이디는 그대로 두면, 새 비밀번호는 비워 두면 바뀌지 않는다. 저장할 때 현재 비밀번호로 본인 확인.
+ * 현재 아이디는 바꿀 수 없는 칸으로 보여 주고, 바꿀 사람만 옆 '새 아이디' 칸에 쓴다 (2026-11-13 사용자 지적:
+ * 현재 아이디가 입력칸에 미리 들어가 있으면 바꿀 수 있는 칸인지 알기 어렵다). 새 아이디 · 새 비밀번호를 비워 두면 바뀌지 않는다.
+ * 저장할 때 현재 비밀번호로 본인 확인.
  * 열 때마다 새로 그려 입력이 남지 않게, 부모가 열려 있을 때만 그린다.
  */
 export default function AccountDialog({ loginId, loginIdLocked, notice, onClose }: {
@@ -26,7 +28,9 @@ export default function AccountDialog({ loginId, loginIdLocked, notice, onClose 
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [form, setForm] = useState({ loginId, newPassword: '', confirm: '', currentPassword: '' });
+  const [form, setForm] = useState({ newLoginId: '', newPassword: '', confirm: '', currentPassword: '' });
+  const nextLoginId = form.newLoginId.trim().toLowerCase();
+  const idChanging = !!nextLoginId && nextLoginId !== loginId;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: e.target.value });
@@ -40,7 +44,7 @@ export default function AccountDialog({ loginId, loginIdLocked, notice, onClose 
       const res = await fetch('/api/auth/account', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ loginId: form.loginId, newPassword: form.newPassword, currentPassword: form.currentPassword }),
+        body: JSON.stringify({ loginId: nextLoginId || loginId, newPassword: form.newPassword, currentPassword: form.currentPassword }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setError(json.error ?? '변경하지 못했습니다.'); return; }
@@ -65,7 +69,7 @@ export default function AccountDialog({ loginId, loginIdLocked, notice, onClose 
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">아이디/비밀번호 변경</DialogTitle>
           <DialogDescription>
-            변경할 항목만 수정한 뒤 현재 비밀번호를 입력하고 저장하세요. 새 비밀번호를 비워 두면 기존 비밀번호가 유지됩니다.
+            바꿀 항목만 입력한 뒤 현재 비밀번호를 넣고 저장하세요. 비워 둔 항목은 지금 그대로 유지됩니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -77,13 +81,26 @@ export default function AccountDialog({ loginId, loginIdLocked, notice, onClose 
 
         <form id="account-form" onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="account-id" className={label}>아이디</Label>
-            <Input id="account-id" name="username" autoComplete="username" autoCapitalize="none"
-              value={form.loginId} onChange={set('loginId')} disabled={loginIdLocked} maxLength={30} className={field} />
-            <p className="text-xs text-muted-foreground">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="account-id" className={label}>현재 아이디</Label>
+                {/* 비밀번호 관리자가 새 비밀번호를 이 아이디에 묶도록 username 은 여기 둔다 — 읽기 전용이라 자동 입력되지 않는다 */}
+                <Input id="account-id" name="username" autoComplete="username" readOnly tabIndex={-1}
+                  value={loginId} className={`${field} cursor-default border-transparent bg-muted font-semibold text-foreground hover:border-transparent focus-visible:border-transparent focus-visible:ring-0`} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="account-new-id" className={label}>새 아이디</Label>
+                <Input id="account-new-id" name="new-username" autoComplete="off" autoCapitalize="none" spellCheck={false}
+                  placeholder={loginIdLocked ? '변경 불가' : '변경 시에만 입력'}
+                  value={form.newLoginId} onChange={set('newLoginId')} disabled={loginIdLocked} maxLength={30} className={field} />
+              </div>
+            </div>
+            <p className={`text-xs ${idChanging ? 'font-semibold text-brand-700' : 'text-muted-foreground'}`}>
               {loginIdLocked
                 ? '관리자 빠른 로그인에 연결된 계정으로, 공식 시작 전까지 아이디를 변경할 수 없습니다.'
-                : '영문 소문자 · 숫자 30자 이내 (. _ - 사용 가능)'}
+                : idChanging
+                  ? `저장하면 다음 로그인부터 ${nextLoginId} 로 로그인합니다.`
+                  : '비워 두면 지금 아이디를 그대로 씁니다. 영문 소문자 · 숫자, 30자 이내'}
             </p>
           </div>
 
