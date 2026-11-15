@@ -24,6 +24,8 @@ export interface ProductionLogRow {
   /** 같은 품목의 작업의뢰서 내 순서 — 일지도 의뢰서 순서를 따른다 */
   sort_order: number | null;
   created_by_name: string | null;
+  /** MES 날짜별 합계 줄 — 복층생산일지 누계에만 쓴다(품목 줄이 아니다, lib/production/logs.ts) */
+  insulated_total?: boolean;
 }
 
 export interface ReportLine {

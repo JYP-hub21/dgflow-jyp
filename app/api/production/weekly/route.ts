@@ -4,7 +4,8 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { isIsoDate } from '@/lib/production/daily-report';
 import { fetchProductionLogs } from '@/lib/production/logs';
-import { DEFAULT_SETTINGS, autoOutputs, buildWeeklySheet, weekOf, weeklyLineNumbers } from '@/lib/production/weekly';
+import { DEFAULT_SETTINGS, EMPTY_DAY_ENTRY, autoOutputs, buildWeeklySheet, dayKey, weekOf, weeklyLineNumbers, type WeeklyDayEntry } from '@/lib/production/weekly';
+import { fetchMesRows } from '@/lib/production/mes-db';
 import { buildWeeklyWorkbook } from '@/lib/production/weekly-excel';
 import { WEEKLY_TABLE, cleanEntries, loadWeeklyEntries } from '@/lib/production/weekly-store';
 import { isMissingTable } from '@/lib/production/bokcheung-store';
@@ -38,13 +39,32 @@ const sundayAfter = (saturday: string) => {
 
 async function readWeek(days: string[]) {
   const supabase = createServiceRoleClient();
-  const [logs, store, { lines }] = await Promise.all([
+  const [logs, store, { lines }, mes] = await Promise.all([
     // 일요일까지 읽는다 — 양식은 월–토라 표에는 안 들어가지만, 있으면 화면이 알린다
     fetchProductionLogs(supabase, days[0], sundayAfter(days[days.length - 1])),
     loadWeeklyEntries(supabase, days),
     loadLines(supabase),
+    fetchMesRows(supabase, days[0], days[days.length - 1]),
   ]);
-  return { auto: autoOutputs(logs), store, lines };
+  return { auto: autoOutputs(logs), store: { ...store, entries: withMesBarcode(store.entries, mes) }, lines };
+}
+
+/**
+ * '바코드 기준 생산량' 칸 — 비어 있으면 MES 에 실제로 찍힌 바코드 장수로 채운다 (2026-11-15).
+ * 회사 일지의 '바코드 입력 비율'(바코드 ÷ 생산조)이 저절로 나온다. 사람이 적은 값이 있으면 그 값을 쓴다.
+ */
+function withMesBarcode(entries: Record<string, WeeklyDayEntry>, mes: { production_date: string; line_number: number; scanned: number }[]) {
+  const scanned = new Map<string, number>();
+  for (const r of mes) {
+    const k = dayKey(r.production_date, r.line_number);
+    scanned.set(k, (scanned.get(k) ?? 0) + r.scanned);
+  }
+  const out = { ...entries };
+  for (const [k, n] of scanned) {
+    const e = out[k] ?? EMPTY_DAY_ENTRY;
+    if (e.barcode_qty === null && n > 0) out[k] = { ...e, barcode_qty: n };
+  }
+  return out;
 }
 
 export async function GET(request: NextRequest) {

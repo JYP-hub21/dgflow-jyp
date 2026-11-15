@@ -3,120 +3,101 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { isIsoDate } from '@/lib/production/daily-report';
-import { proRataArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
-import { syncWorkOrderStatus } from '@/lib/work-order/stage';
-import { loadMesOrders } from '@/lib/production/mes-store';
-import {
-  MES_COMMIT_ENABLED, MES_REMARK, isInsert, normalizeWorkOrderNumber, planMesImport, type MesDbOrder, type MesGroup,
-} from '@/lib/production/mes';
+import { isMissingTable } from '@/lib/production/bokcheung-store';
+import { fetchMesDailyTotals, toMesRow } from '@/lib/production/mes-db';
+import { MES_COMMIT_ENABLED, MES_TABLE, normalizeWorkOrderNumber, type MesGroup } from '@/lib/production/mes';
 
-/** 한 번에 받는 양 — 화면이 의뢰번호 단위로 나눠 보낸다 */
-const MAX_NUMBERS = 3000;
-const MAX_GROUPS = 1500;
+/** 한 번에 받는 줄 — 화면이 나눠 보낸다 */
+const MAX_GROUPS = 2000;
 
 /**
- * MES 생산실적 가져오기 (lib/production/mes.ts).
+ * MES 생산실적 → MES 실적 표 (lib/production/mes.ts · mes-db.ts, 2026-11-15 작업의뢰서 없이 넣는 방식).
  *
- *   POST { mode: 'check', numbers }   → { orders } 의뢰번호별 시스템 의뢰서 · 품목 · 이미 들어간 생산 기록 (아무것도 쓰지 않는다)
- *   POST { mode: 'commit', groups }   → 서버가 계획을 다시 계산해 넣을 것만 생산 기록으로 넣는다
- *
- * 수신 확인은 따지지 않는다 — MES 에 포장 바코드가 찍혔다는 것이 이미 오창공장에서 만들었다는 기록이라서.
- * 주간/야간은 아직 정하지 않아 모두 주간(day)으로 넣는다 (2026-11-13 사용자).
+ *   GET                                   → 지금 표에 들어 있는 MES 실적 (기간 · 장수 · 마지막 등록)
+ *   POST { mode: 'commit', file, groups } → 날짜 · 호기 · 주야간 · 의뢰번호 · NO 열쇠로 덮어쓴다(같은 파일을 다시 올려도 두 번 세지 않는다)
+ *   POST { mode: 'clear', from, to }      → 그 기간 MES 실적을 지운다(다시 올리기 전에)
+ * 생산 입력 권한이 있어야 한다.
  */
-export async function POST(request: NextRequest) {
+async function guard() {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
   if (!hasPermission(user, 'production:input')) {
-    return NextResponse.json({ error: '생산 실적을 입력할 권한이 없습니다.' }, { status: 403 });
+    return { error: NextResponse.json({ error: '생산 실적을 입력할 권한이 없습니다.' }, { status: 403 }) };
   }
+  return { user };
+}
+
+export async function GET() {
+  const g = await guard();
+  if ('error' in g) return g.error;
+  const supabase = createServiceRoleClient();
+  try {
+    const days = await fetchMesDailyTotals(supabase, '2000-01-01', '2999-12-31');
+    const { data: last, error } = await supabase.from(MES_TABLE).select('imported_at, source_file')
+      .order('imported_at', { ascending: false }).limit(1);
+    if (error && !isMissingTable(error)) throw new Error(error.message);
+    return NextResponse.json({
+      days: days.length,
+      from: days[0]?.date ?? null,
+      to: days[days.length - 1]?.date ?? null,
+      quantity: days.reduce((s, d) => s + d.quantity, 0),
+      lastImport: last?.[0] ?? null,
+      table: !error,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'MES 실적을 읽지 못했습니다.' }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const g = await guard();
+  if ('error' in g) return g.error;
   const body = await request.json().catch(() => null);
   const supabase = createServiceRoleClient();
 
-  if (body?.mode === 'check') {
-    const numbers = Array.isArray(body.numbers)
-      ? [...new Set((body.numbers as unknown[]).map(normalizeWorkOrderNumber).filter((n): n is string => !!n))]
-      : [];
-    if (numbers.length > MAX_NUMBERS) {
-      return NextResponse.json({ error: `한 번에 의뢰번호 ${MAX_NUMBERS}건까지 확인할 수 있습니다. 기간을 줄여 주세요.` }, { status: 400 });
-    }
-    try {
-      return NextResponse.json({ orders: await loadMesOrders(supabase, numbers) });
-    } catch (e) {
-      return NextResponse.json({ error: e instanceof Error ? e.message : '작업의뢰서를 읽지 못했습니다.' }, { status: 500 });
-    }
+  if (body?.mode === 'clear') {
+    const { from, to } = body;
+    if (!isIsoDate(from) || !isIsoDate(to) || from > to) return NextResponse.json({ error: '기간이 올바르지 않습니다.' }, { status: 400 });
+    const { error, count } = await supabase.from(MES_TABLE).delete({ count: 'exact' }).gte('production_date', from).lte('production_date', to);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ deleted: count ?? 0 });
   }
 
   if (body?.mode !== 'commit') return NextResponse.json({ error: '요청을 알아보지 못했습니다.' }, { status: 400 });
   if (!MES_COMMIT_ENABLED) {
-    return NextResponse.json({ error: '시험 단계라 아직 생산 실적으로 등록하지 않습니다. 미리보기만 할 수 있습니다.' }, { status: 403 });
+    return NextResponse.json({ error: '시험 단계라 아직 등록하지 않습니다. 미리보기만 할 수 있습니다.' }, { status: 403 });
   }
-
   const raw = Array.isArray(body.groups) ? (body.groups as Partial<MesGroup>[]) : [];
   if (raw.length === 0 || raw.length > MAX_GROUPS) {
     return NextResponse.json({ error: `한 번에 ${MAX_GROUPS}줄까지 보낼 수 있습니다.` }, { status: 400 });
   }
-  // 다시 한 번 확인 — 화면을 믿지 않는다
-  const groups: MesGroup[] = [];
-  for (const g of raw) {
-    const wo = normalizeWorkOrderNumber(g?.wo);
-    const ok = wo && Number.isInteger(g.no) && g.no! > 0 && typeof g.date === 'string' && isIsoDate(g.date)
-      && (g.line === 1 || g.line === 2) && (g.shift === 'day' || g.shift === 'night') && Number.isInteger(g.count) && g.count! > 0 && g.count! <= 100_000
-      && (g.width === undefined || Number.isFinite(g.width)) && (g.height === undefined || Number.isFinite(g.height));
+  const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
+  const file = str(body.file, 200) || null;
+  const rows = [];
+  for (const x of raw) {
+    const wo = normalizeWorkOrderNumber(x?.wo);
+    const ok = wo && Number.isInteger(x.no) && x.no! > 0 && x.no! < 100_000 && typeof x.date === 'string' && isIsoDate(x.date)
+      && Number.isInteger(x.line) && x.line! >= 1 && x.line! <= 99 && (x.shift === 'day' || x.shift === 'night')
+      && Number.isInteger(x.scanned) && x.scanned! >= 0 && Number.isInteger(x.filled) && x.filled! >= 0
+      && x.scanned! + x.filled! > 0 && x.scanned! + x.filled! <= 100_000
+      && Number.isFinite(Number(x.width ?? 0)) && Number.isFinite(Number(x.height ?? 0));
     if (!ok) return NextResponse.json({ error: '보낸 실적 중 형식이 맞지 않는 줄이 있습니다.' }, { status: 400 });
-    groups.push({
-      wo: wo!, no: g.no!, date: g.date!, line: g.line!, shift: g.shift!, count: g.count!,
-      width: Number(g.width) || 0, height: Number(g.height) || 0,
-      product: '', customer: '', site: '', remark: '',
+    rows.push({
+      ...toMesRow({
+        wo: wo!, no: x.no!, date: x.date!, line: x.line!, shift: x.shift!, scanned: x.scanned!, filled: x.filled!,
+        width: Math.round(Number(x.width) || 0), height: Math.round(Number(x.height) || 0),
+        product: str(x.product, 200), customer: str(x.customer, 200), site: str(x.site, 300), remark: str(x.remark, 300),
+      }),
+      source_file: file,
+      imported_by: g.user.id,
+      imported_at: new Date().toISOString(),
     });
   }
-
-  let orders: MesDbOrder[];
-  try {
-    orders = await loadMesOrders(supabase, groups.map(g => g.wo));
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : '작업의뢰서를 읽지 못했습니다.' }, { status: 500 });
+  const { error } = await supabase.from(MES_TABLE)
+    .upsert(rows, { onConflict: 'production_date,line_number,shift,work_order_number,item_no' });
+  if (error) {
+    if (isMissingTable(error)) return NextResponse.json({ error: 'MES 실적 표가 아직 없습니다. 관리자에게 알려 주세요.' }, { status: 503 });
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  const plan = planMesImport(groups, new Map(orders.map(o => [o.work_order_number, o])));
-  const items = new Map(orders.flatMap(o => o.items.map(it => [it.id, it] as const)));
-  const rows = plan.filter(isInsert).map(r => {
-    const it = items.get(r.itemId!)!;
-    return {
-      work_order_id: r.workOrderId!,
-      work_order_item_id: r.itemId!,
-      production_date: r.date,
-      log_type: r.add >= it.quantity ? 'full' : 'partial',
-      quantity_completed: r.add,
-      area_m2: proRataArea(it, r.add),
-      // 바코드 시각으로 가른 주간 · 야간 (2026-11-13 회의 — 야간 18:00–21:00)
-      shift: r.shift,
-      line_number: r.line,
-      remark: MES_REMARK,
-      created_by: user.id,
-    };
-  });
-
-  for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await supabase.from('dgflow_production_logs').insert(rows.slice(i, i + 500));
-    if (error) {
-      return NextResponse.json({ error: `${error.message} — 그때까지 ${i}건은 들어갔습니다. 다시 올리면 들어간 것은 건너뜁니다.` }, { status: 500 });
-    }
-  }
-
-  // 품목 완료 수량 = 기록의 합, 의뢰서 상태도 다시 맞춘다
-  const itemIds = [...new Set(rows.map(r => r.work_order_item_id))];
-  const orderIds = [...new Set(rows.map(r => r.work_order_id))];
-  await inBatches(itemIds, id => syncProducedQuantity(supabase, id));
-  await inBatches(orderIds, id => syncWorkOrderStatus(supabase, id));
-
-  return NextResponse.json({
-    inserted: rows.length,
-    quantity: rows.reduce((s, r) => s + r.quantity_completed, 0),
-    items: itemIds.length,
-    orders: orderIds.length,
-  });
-}
-
-/** 한꺼번에 수백 번 부르지 않게 8개씩 */
-async function inBatches<T>(list: T[], fn: (v: T) => Promise<unknown>) {
-  for (let i = 0; i < list.length; i += 8) await Promise.all(list.slice(i, i + 8).map(fn));
+  return NextResponse.json({ saved: rows.length, quantity: rows.reduce((s, r) => s + r.quantity, 0) });
 }

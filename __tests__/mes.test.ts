@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import { openXlsx, serialToIsoDate, type CellValue } from '@/lib/excel/xlsx-rows';
 import {
-  MesCollector, groupPieces, isInsert, minutesOfDay, normalizeWorkOrderNumber, parseLine, planMesImport, shiftOf, toIsoDate,
-  type MesDbOrder, type MesGroup,
+  MAX_FILL_GAP, MesCollector, dailyTotals, groupPieces, groupQty, minutesOfDay, normalizeWorkOrderNumber, parseLine, shiftOf, toIsoDate,
+  type MesGroup,
 } from '@/lib/production/mes';
+import { mesToLog, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
 import { parseMesBytes } from '@/lib/production/mes-read';
 
 const HEAD = ['S', '등록일시', 'PID', '공정', '품목코드', '품명', '가로', '세로', '수량', '평수', '의뢰번호', 'NO.', '거래처', '현장', '라인', '등록자', '비고', '일자'];
@@ -73,17 +74,7 @@ describe('MES 줄 모으기', () => {
   });
 });
 
-const g = (p: Partial<MesGroup>): MesGroup => ({
-  wo: '26-2573', no: 1, date: '2026-10-22', line: 2, shift: 'day', count: 1, product: '', width: 640, height: 2355, customer: '', site: '', remark: '', ...p,
-});
-const order = (items: Partial<MesDbOrder['items'][number]>[], site = 'ochang'): MesDbOrder => ({
-  id: 'wo1', work_order_number: '26-2573', production_site: site,
-  items: items.map((it, i) => ({
-    id: `it${i + 1}`, no: i + 1, product_name: '24T 5CL', width_mm: 640, height_mm: 2355, quantity: 10, area_m2: 15, logs: [], ...it,
-  })),
-});
-
-describe('넣을 계획', () => {
+describe('기간 · 날짜 · 호기로 묶기', () => {
   it('기간 안만 날짜 · 호기별로 묶는다', () => {
     const c = new MesCollector();
     c.add(HEAD, 1);
@@ -92,68 +83,85 @@ describe('넣을 계획', () => {
     c.add(row('C', '26-2573', 1, '1-LINE'), 4);
     c.add(row('D', '26-2573', 1, '1-LINE', D1022 + 1), 5);
     c.add(row('E', '26-2573', 1, '1-LINE', D1022 - 30), 6);
-    const groups = groupPieces(c.result('Data').pieces, '2026-10-22', '2026-10-31');
-    expect(groups.map(x => [x.date, x.line, x.count])).toEqual([
+    const { groups } = groupPieces(c.result('Data').pieces, '2026-10-22', '2026-10-31');
+    expect(groups.map(x => [x.date, x.line, groupQty(x)])).toEqual([
       ['2026-10-22', 1, 1], ['2026-10-22', 2, 2], ['2026-10-23', 1, 1],
     ]);
   });
+});
 
-  it('등록 · 이미 등록됨 · 의뢰 수량까지만 · 초과', () => {
-    const orders = new Map([['26-2573', order([
-      { quantity: 5, logs: [{ date: '2026-10-22', line: 2, shift: 'day', qty: 2 }] },
-      { quantity: 3 },
-    ])]]);
-    const plan = planMesImport([
-      g({ count: 2 }),                                    // 1번 10/22 2호기: 이미 2 → 이미 등록됨
-      g({ date: '2026-10-23', count: 2 }),                // 1번: 2 넣음 (합 4)
-      g({ date: '2026-10-24', count: 3 }),                // 1번: 1만 넣음 (의뢰 5)
-      g({ date: '2026-10-25', count: 1 }),                // 1번: 꽉 참 → 초과
-      g({ no: 2, date: '2026-10-23', line: 1, count: 3 }), // 2번: 3 넣음
-    ], orders);
-    expect(plan.map(r => [r.no, r.date, r.status, r.add, r.already])).toEqual([
-      [1, '2026-10-22', 'done', 0, 2],
-      [1, '2026-10-23', 'add', 2, 0],
-      [1, '2026-10-24', 'partial', 1, 0],
-      [1, '2026-10-25', 'over', 0, 0],
-      [2, '2026-10-23', 'add', 3, 0],
+describe('바코드 번호 사이 채우기 (11/13 회의: 같은 규격은 첫 장 · 끝 장만 찍는다)', () => {
+  it('첫 장 · 끝 장만 찍힌 품목은 사이 장수를 끝 장 쪽에 채운다', () => {
+    const c = new MesCollector();
+    c.add(HEAD, 1);
+    c.add(row('KCI00101', '26-2573', 1, '1-LINE'), 2);
+    c.add(row('KCI00180', '26-2573', 1, '1-LINE', D1022 + 1), 3); // 80장 중 첫 · 끝, 끝 장은 다음 날
+    const { groups } = groupPieces(c.result('Data').pieces);
+    expect(groups.map(x => [x.date, x.scanned, x.filled])).toEqual([
+      ['2026-10-22', 1, 0], ['2026-10-23', 1, 78],
     ]);
-    expect(plan.filter(isInsert).reduce((t, r) => t + r.add, 0)).toBe(6);
+    expect(groups.reduce((t, x) => t + groupQty(x), 0)).toBe(80);
   });
 
-  it('같은 날 · 호기에 손으로 넣은 것이 일부 있으면 모자란 만큼만', () => {
-    const orders = new Map([['26-2573', order([{ logs: [
-      { date: '2026-10-22', line: 2, shift: 'day', qty: 3 }, { date: '2026-10-22', line: 1, shift: 'day', qty: 4 },
-      // 같은 날 · 호기라도 야간 기록은 주간 바코드와 따로 센다
-      { date: '2026-10-22', line: 2, shift: 'night', qty: 1 },
-    ] }])]]);
-    const [r] = planMesImport([g({ count: 5 })], orders);
-    expect([r.status, r.add, r.already]).toEqual(['add', 2, 3]);
+  it('다른 품목 · 다른 글자 묶음 · 너무 큰 빈틈은 채우지 않는다', () => {
+    const c = new MesCollector();
+    c.add(HEAD, 1);
+    c.add(row('KCI00101', '26-2573', 1, '1-LINE'), 2);
+    c.add(row('KCI00105', '26-2573', 2, '1-LINE'), 3);   // 다른 품목(NO 2)
+    c.add(row('KCG00103', '26-2573', 1, '1-LINE'), 4);   // 다른 글자 묶음
+    c.add(row(`KCI${String(101 + MAX_FILL_GAP + 2).padStart(5, '0')}`, '26-2573', 1, '1-LINE'), 5); // 빈틈이 MAX 넘음
+    const { groups, bigGaps } = groupPieces(c.result('Data').pieces);
+    expect(groups.reduce((t, x) => t + x.filled, 0)).toBe(0);
+    expect(bigGaps).toBe(1);
   });
 
-  it('같은 계획을 두 번 넣지 않는다 — 넣은 뒤 다시 계산하면 전부 이미 등록됨', () => {
-    const groups = [g({ count: 4 }), g({ date: '2026-10-23', count: 3 })];
-    const first = planMesImport(groups, new Map([['26-2573', order([{}])]]));
-    const logs = first.filter(isInsert).map(r => ({ date: r.date, line: r.line, shift: r.shift, qty: r.add }));
-    const second = planMesImport(groups, new Map([['26-2573', order([{ logs }])]]));
-    expect(second.map(r => r.status)).toEqual(['done', 'done']);
+  it('기간 첫날 장은 기간 앞 장과의 빈틈도 가져간다', () => {
+    const c = new MesCollector();
+    c.add(HEAD, 1);
+    c.add(row('KCI00001', '26-2573', 1, '1-LINE', D1022 - 1), 2);
+    c.add(row('KCI00010', '26-2573', 1, '1-LINE'), 3);
+    const { groups } = groupPieces(c.result('Data').pieces, '2026-10-22', '2026-10-22');
+    expect(groups.map(x => [x.date, x.scanned, x.filled])).toEqual([['2026-10-22', 1, 8]]);
   });
 
-  it('미등록 · 없는 NO · 규격 다름(돌려 적은 것은 같음) · 호기 모름 · 외주 표시', () => {
-    const orders = new Map([['26-2573', order([{}, { width_mm: 1000, height_mm: 500 }], 'outsource')]]);
-    const plan = planMesImport([
-      g({ wo: '26-9999' }),
-      g({ no: 7 }),
-      g({ no: 2, width: 500, height: 1000 }),
-      g({ no: 2, date: '2026-10-23', width: 501, height: 1000 }),
-      g({ line: 0, date: '2026-10-24' }),
-    ], orders);
-    const by = (wo: string, no: number, date = '2026-10-22') => plan.find(r => r.wo === wo && r.no === no && r.date === date)!;
-    expect(by('26-9999', 1).status).toBe('no-order');
-    expect(by('26-2573', 7).status).toBe('no-item');
-    expect(by('26-2573', 2).status).toBe('add');
-    expect(by('26-2573', 2).outsource).toBe(true);
-    expect(by('26-2573', 2, '2026-10-23').status).toBe('size');
-    expect(by('26-2573', 1, '2026-10-24').status).toBe('line');
+  it('날짜별 합계 — 호기 · 주야간', () => {
+    const c = new MesCollector();
+    c.add(HEAD, 1);
+    // 등록일시 칸(2번째)에 시각을 직접 넣는다
+    const timed = (r: unknown[], frac: number) => { r[1] = D1022 + frac; return r; };
+    c.add(timed(row('KCI00001', '26-2573', 1, '1-LINE'), 0.4), 2);   // 09:36
+    c.add(timed(row('KCI00003', '26-2573', 1, '1-LINE'), 0.8), 3);   // 19:12 야간, 사이 1장
+    c.add(timed(row('KCI00100', '26-2573', 2, '2-LINE'), 0.5), 4);   // 12:00
+    const days = dailyTotals(groupPieces(c.result('Data').pieces).groups);
+    expect(days).toEqual([{ date: '2026-10-22', scanned: 3, filled: 1, lines: { 1: { day: 1, night: 2 }, 2: { day: 1, night: 0 } } }]);
+  });
+});
+
+describe('MES 실적 표 · 생산일지 모양 (lib/production/mes-db.ts)', () => {
+  const grp: MesGroup = {
+    wo: '26-2573', no: 3, date: '2026-10-22', line: 1, shift: 'night', scanned: 2, filled: 8,
+    product: '5CL+12A+5로이', width: 559, height: 1217, customer: '거래처A', site: '현장A', remark: '',
+  };
+  it('면적은 작업의뢰서 규칙 — 장당 둘째 자리 반올림 · 최소 0.28M²', () => {
+    const r = toMesRow(grp);
+    expect(r.quantity).toBe(10);
+    expect(r.area_m2).toBe(6.8); // 0.68 × 10
+    expect(toMesRow({ ...grp, width: 300, height: 400 }).area_m2).toBe(2.8); // 0.12 → 최소 0.28
+  });
+
+  it('생산일지 줄 — 작업의뢰서 자리는 mes:의뢰번호, 순서는 NO', () => {
+    const log = mesToLog(toMesRow(grp));
+    expect(log.work_order_id).toBe('mes:26-2573');
+    expect(log.work_order_item_id).toBe('mes:26-2573:3');
+    expect(log.sort_order).toBe(2);
+    expect(log.quantity_completed).toBe(10);
+    expect(log.shift).toBe('night');
+  });
+
+  it('같은 의뢰번호 · 날짜에 손 입력이 있으면 MES 줄은 뺀다', () => {
+    const rows = [toMesRow(grp), toMesRow({ ...grp, date: '2026-10-23' })];
+    const left = withoutManualOverlap(rows, [{ work_order_number: '26-2573', production_date: '2026-10-22' }]);
+    expect(left.map(r => r.production_date)).toEqual(['2026-10-23']);
   });
 });
 
@@ -219,8 +227,8 @@ describe('주간 · 야간 (2026-11-13 회의: 야간 18:00–21:00)', () => {
     c.add(row('A', '26-2573', 1, '2-LINE', D1022 + 0.4), 2);   // 09:36
     c.add(row('B', '26-2573', 1, '2-LINE', D1022 + 0.74), 3);  // 17:45 석식 — 주간
     c.add(row('C', '26-2573', 1, '2-LINE', D1022 + 0.8), 4);   // 19:12 야간
-    const groups = groupPieces(c.result('Data').pieces);
-    expect(groups.map(x => [x.date, x.line, x.shift, x.count])).toEqual([
+    const { groups } = groupPieces(c.result('Data').pieces);
+    expect(groups.map(x => [x.date, x.line, x.shift, groupQty(x)])).toEqual([
       ['2026-10-22', 2, 'day', 2], ['2026-10-22', 2, 'night', 1],
     ]);
   });

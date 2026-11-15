@@ -6,6 +6,8 @@ import { isIsoDate } from '@/lib/production/daily-report';
 import { ENTRIES_TABLE, isMissingTable } from '@/lib/production/bokcheung-store';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** MES 줄 — 작업의뢰서 자리에 "mes:26-2573" (lib/production/mes-db.ts, 2026-11-15) */
+const MES_ID = /^mes:\d{2}-\d{1,5}$/;
 
 /**
  * PUT /api/production/bokcheung/entries — 복층생산일지 종류 · 수량외 저장.
@@ -32,7 +34,7 @@ export async function PUT(request: NextRequest) {
     const workOrderId = String(e?.work_order_id ?? '');
     const composition = String(e?.composition ?? '').trim();
     // 호기는 편집으로 늘 수 있다 (lib/production/lines.ts)
-    if (!Number.isInteger(line) || line < 1 || line > 99 || !UUID.test(workOrderId) || !composition || composition.length > 200) {
+    if (!Number.isInteger(line) || line < 1 || line > 99 || !(UUID.test(workOrderId) || MES_ID.test(workOrderId)) || !composition || composition.length > 200) {
       return NextResponse.json({ error: '저장할 줄을 알아보지 못했습니다.' }, { status: 400 });
     }
     rows.push({

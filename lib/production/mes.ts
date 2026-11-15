@@ -1,30 +1,35 @@
 /**
- * MES 생산실적 → 생산 기록 (2026-11-13 이사님 요청).
+ * MES 생산실적 → MES 실적 표 (2026-11-13 이사님 요청, 2026-11-15 작업의뢰서 없이 넣는 방식으로 바꿈).
  *
- * MES 의 포장공정 바코드 기록(한 줄 = 복층유리 한 장)을 의뢰번호 + NO 로 작업의뢰서 품목에 맞춰
- * 날짜 · 호기별 생산 기록으로 넣는다. 생산관리부 담당자가 생산 입력을 손으로 하지 않게 하려는 것.
- * 생산 기록이 들어가면 일간 · 복층 · 주간 생산일지는 원래대로 그 기록에서 계산된다.
+ * MES 의 포장공정 바코드 기록(한 줄 = 복층유리 한 장)을 날짜 · 호기 · 주야간 · 의뢰번호 · NO 별 장수로 묶어
+ * 표 dgflow_mes_production 에 넣는다(supabase/migrations/20261115_027_mes_production.sql).
+ * 생산일지(일간 · 복층 · 주간)는 생산 기록과 이 표를 함께 읽는다(lib/production/logs.ts).
+ * 11/13 회의 이사님: "MES 자료를 최대한 넣어 달라, 넣어 놓고 회사 주간생산일지와 비교해 진짜 빠진 것만 찾자".
+ * 2026-11-15 사용자: "뭐든지 승인할 테니 일단 해 봐".
  *
  * 규칙
  *  - 같은 바코드(PID)가 두 번 찍혔으면 한 번만 센다.
- *  - 같은 품목 · 같은 날 · 같은 호기에 이미 들어간 생산 기록(손 입력 포함)은 빼고 모자란 만큼만 넣는다.
- *    그래서 같은 파일을 두 번 올려도 두 번 들어가지 않는다.
- *  - 의뢰 수량을 넘게 넣지 않는다 (재작업 등으로 더 찍힌 것은 '확인 필요' 로 보여 준다).
- *  - 규격(가로 · 세로)이 품목과 다르면 넣지 않는다 — NO 가 엇갈렸을 수 있다.
- *  - 주간/야간은 아직 정하지 않아 모두 주간으로 넣는다 (2026-11-13 사용자: "일단 올 주간으로").
- *
- * 이 파일은 화면(미리보기)과 서버(등록)가 함께 쓴다 — 서버는 화면이 보낸 계산을 믿지 않고 다시 계산한다.
+ *  - **바코드 번호 사이 빈 장을 채운다** — 같은 규격 여러 장은 현장 요청으로 첫 장 · 끝 장에만 라벨을 붙여(80장이어도 2장 스캔)
+ *    사이 장들이 MES 에 없다(11/13 회의). PID 는 "KCI02908" 처럼 글자 + 일련번호이고 한 품목의 유리는 번호가 이어진다.
+ *    같은 품목에서 앞뒤로 찍힌 두 번호 사이가 비면, 빈 장은 **뒤에 찍힌 장과 같은 날 · 호기 · 주야간**에 만든 것으로 본다
+ *    (끝 장을 찍을 때는 앞 장들이 이미 만들어져 있다). 2026 파일 대조: 지난 의뢰서 목록과 겹치는 2,362품목 중 의뢰 수량과 맞는
+ *    품목이 찍힌 장수로는 1,774(75%), 번호로 채우면 2,181(92%).
+ *  - 빈 번호가 MAX_FILL_GAP 장을 넘으면 다른 묶음 번호로 보고 채우지 않는다.
+ *  - 주간 · 야간은 바코드를 찍은 시각으로 가른다 — 18:00 부터 야간.
  */
 import { serialToIsoDate, type CellValue } from '@/lib/excel/xlsx-rows';
 
 /**
- * 등록(생산 기록에 실제로 넣기) 잠금 — 2026-11-13 사용자: "실험만 하고 아직 화면에 자동으로 채우진 마".
- * 미리보기만 된다. 사용자가 허락하면 true 로 바꾼다 (서버 · 화면이 함께 본다).
+ * 등록 잠금 — 2026-11-13 사용자 "실험만 하고 아직 화면에 자동으로 채우진 마" 로 잠갔다가,
+ * 2026-11-15 사용자 "뭐든지 승인할 테니 일단 해 봐" 로 풀었다 (서버 · 화면이 함께 본다).
  */
-export const MES_COMMIT_ENABLED = false;
+export const MES_COMMIT_ENABLED = true;
 
-/** 생산 기록 비고 — MES 에서 들어온 기록 표시 */
-export const MES_REMARK = 'MES 바코드';
+/** 표 이름 */
+export const MES_TABLE = 'dgflow_mes_production';
+
+/** 바코드 번호 사이를 채우는 최대 장수 — 더 벌어지면 다른 묶음 번호로 본다 */
+export const MAX_FILL_GAP = 500;
 
 export type MesShift = 'day' | 'night';
 
@@ -57,6 +62,8 @@ export function shiftOf(minutes: number | null): MesShift {
 export const SHIFT_TEXT: Record<MesShift, string> = { day: '주간', night: '야간' };
 
 export interface MesPiece {
+  /** 바코드 "KCI02908" (없으면 빈 글자) */
+  pid: string;
   /** 시스템 의뢰번호 꼴 "26-2573" */
   wo: string;
   no: number;
@@ -229,7 +236,7 @@ export class MesCollector {
     // 시각 — 등록일시의 시각이 먼저, 없으면 시간 칸
     const minutes = minutesOfDay(at('registeredAt')) ?? minutesOfDay(at('time'));
     this.pieces.push({
-      wo, no, date,
+      pid, wo, no, date,
       line: parseLine(at('line')),
       shift: shiftOf(minutes),
       qty: Number.isInteger(qtyRaw) && qtyRaw > 0 ? qtyRaw : 1,
@@ -247,14 +254,23 @@ export class MesCollector {
   }
 }
 
-/** 날짜 · 호기 · 품목별로 묶은 MES 장수 */
+/** 바코드 "KCI02908" → 글자 "KCI" + 번호 2908. 번호가 없으면 null */
+export function splitPid(pid: string): { prefix: string; num: number } | null {
+  const m = /^(.*?)(\d+)$/.exec(pid.trim());
+  return m ? { prefix: m[1].toUpperCase(), num: Number(m[2]) } : null;
+}
+
+/** 날짜 · 호기 · 주야간 · 품목별 장수 — 표 한 줄 */
 export interface MesGroup {
   wo: string;
   no: number;
   date: string;
   line: number;
   shift: MesShift;
-  count: number;
+  /** 바코드가 찍힌 장수 */
+  scanned: number;
+  /** 바코드 번호 사이가 비어 채운 장수 */
+  filled: number;
   product: string;
   width: number;
   height: number;
@@ -263,17 +279,59 @@ export interface MesGroup {
   remark: string;
 }
 
-/** 기간(양 끝 포함) 안의 장을 품목 · 날짜 · 호기 · 주야간으로 묶는다. 의뢰번호 · NO · 날짜 · 호기 · 주야간 순 */
-export function groupPieces(pieces: MesPiece[], from?: string, to?: string): MesGroup[] {
+export const groupQty = (g: Pick<MesGroup, 'scanned' | 'filled'>) => g.scanned + g.filled;
+
+export interface MesGrouping {
+  groups: MesGroup[];
+  /** 채우지 않은 큰 빈틈 수 (MAX_FILL_GAP 초과) */
+  bigGaps: number;
+}
+
+const groupKey = (wo: string, no: number, date: string, line: number, shift: MesShift) => `${wo}|${no}|${date}|${line}|${shift}`;
+
+/**
+ * 장들을 품목 · 날짜 · 호기 · 주야간으로 묶고, 같은 품목의 바코드 번호 사이 빈 장을 뒤 장의 묶음에 채운다.
+ * 빈틈은 파일 전체로 계산한 뒤 기간(from–to, 양 끝 포함)으로 거른다 — 기간 첫날의 장이 그 앞 장과의 빈틈을 가져가게.
+ */
+export function groupPieces(pieces: MesPiece[], from?: string, to?: string): MesGrouping {
   const map = new Map<string, MesGroup>();
-  for (const p of pieces) {
-    if ((from && p.date < from) || (to && p.date > to)) continue;
-    const key = `${p.wo}|${p.no}|${p.date}|${p.line}|${p.shift}`;
+  const add = (p: MesPiece, scanned: number, filled: number) => {
+    const key = groupKey(p.wo, p.no, p.date, p.line, p.shift);
     const g = map.get(key);
-    if (g) g.count += p.qty;
-    else map.set(key, { wo: p.wo, no: p.no, date: p.date, line: p.line, shift: p.shift, count: p.qty, product: p.product, width: p.width, height: p.height, customer: p.customer, site: p.site, remark: p.remark });
+    if (g) { g.scanned += scanned; g.filled += filled; return; }
+    map.set(key, {
+      wo: p.wo, no: p.no, date: p.date, line: p.line, shift: p.shift, scanned, filled,
+      product: p.product, width: p.width, height: p.height, customer: p.customer, site: p.site, remark: p.remark,
+    });
+  };
+
+  // 품목별로 모아 번호순으로
+  const byItem = new Map<string, MesPiece[]>();
+  for (const p of pieces) {
+    const k = `${p.wo}|${p.no}`;
+    const list = byItem.get(k);
+    if (list) list.push(p); else byItem.set(k, [p]);
   }
-  return [...map.values()].sort(compareGroups);
+  let bigGaps = 0;
+  for (const list of byItem.values()) {
+    const numbered = list.map(p => ({ p, id: splitPid(p.pid) }));
+    numbered.sort((a, b) => (a.id && b.id ? a.id.prefix.localeCompare(b.id.prefix) || a.id.num - b.id.num : a.id ? -1 : b.id ? 1 : 0));
+    for (let i = 0; i < numbered.length; i++) {
+      const { p, id } = numbered[i];
+      const prev = numbered[i - 1]?.id;
+      let filled = 0;
+      if (id && prev && prev.prefix === id.prefix) {
+        const gap = id.num - prev.num - 1;
+        if (gap > MAX_FILL_GAP) bigGaps++;
+        else if (gap > 0) filled = gap;
+      }
+      add(p, p.qty, filled);
+    }
+  }
+  const groups = [...map.values()]
+    .filter(g => (!from || g.date >= from) && (!to || g.date <= to))
+    .sort(compareGroups);
+  return { groups, bigGaps };
 }
 
 export function compareGroups(a: { wo: string; no: number; date: string; line: number; shift?: MesShift }, b: typeof a): number {
@@ -281,100 +339,24 @@ export function compareGroups(a: { wo: string; no: number; date: string; line: n
     || (a.shift === b.shift ? 0 : a.shift === 'night' ? 1 : -1);
 }
 
-/** 시스템의 작업의뢰서 · 품목 · 이미 들어간 생산 기록 */
-export interface MesDbItem {
-  id: string;
-  /** 종이 의뢰서의 NO (없으면 sort_order + 1) */
-  no: number;
-  product_name: string;
-  width_mm: number;
-  height_mm: number;
-  quantity: number;
-  area_m2: number | string | null;
-  logs: { date: string; line: number; shift: MesShift; qty: number }[];
+/** 날짜별 합계 — 화면 그래프 · 표 */
+export interface MesDay {
+  date: string;
+  scanned: number;
+  filled: number;
+  /** 호기 → 주간 · 야간 장수(채운 것 포함) */
+  lines: Record<number, { day: number; night: number }>;
 }
 
-export interface MesDbOrder {
-  id: string;
-  work_order_number: string;
-  production_site: string;
-  items: MesDbItem[];
+export function dailyTotals(groups: MesGroup[]): MesDay[] {
+  const map = new Map<string, MesDay>();
+  for (const g of groups) {
+    const d = map.get(g.date) ?? { date: g.date, scanned: 0, filled: 0, lines: {} };
+    d.scanned += g.scanned;
+    d.filled += g.filled;
+    const l = (d.lines[g.line] ??= { day: 0, night: 0 });
+    l[g.shift] += groupQty(g);
+    map.set(g.date, d);
+  }
+  return [...map.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
-
-export type MesStatus =
-  | 'add'       // 넣는다
-  | 'partial'   // 의뢰 수량까지만 일부 넣는다
-  | 'done'      // 이미 들어가 있다
-  | 'over'      // 의뢰 수량이 이미 다 차서 넣지 않는다
-  | 'no-order'  // 작업의뢰서가 시스템에 없다
-  | 'no-item'   // 의뢰서에 그 NO 품목이 없다
-  | 'size'      // 규격이 품목과 다르다
-  | 'line';     // 호기를 알 수 없다
-
-export interface MesPlanRow extends MesGroup {
-  status: MesStatus;
-  /** 이번에 넣을 수량 */
-  add: number;
-  /** 이 날 · 호기 · 주야간에 이미 들어간 수량 */
-  already: number;
-  workOrderId?: string;
-  itemId?: string;
-  itemQuantity?: number;
-  itemProduct?: string;
-  itemWidth?: number;
-  itemHeight?: number;
-  outsource?: boolean;
-}
-
-/** 가로 · 세로가 같은지 (돌려 적은 것도 같다고 본다). MES 규격이 비어 있으면 따지지 않는다 */
-function sameSize(g: MesGroup, it: MesDbItem): boolean {
-  if (!g.width || !g.height) return true;
-  return (g.width === it.width_mm && g.height === it.height_mm) || (g.width === it.height_mm && g.height === it.width_mm);
-}
-
-/**
- * 넣을 계획 — 품목마다 날짜 · 호기 순으로 모자란 만큼, 의뢰 수량을 넘지 않게.
- * orders 는 의뢰번호 → 시스템 의뢰서 (없으면 미등록).
- */
-export function planMesImport(groups: MesGroup[], orders: Map<string, MesDbOrder>): MesPlanRow[] {
-  const sorted = [...groups].sort(compareGroups);
-  // 품목별 지금까지의 합 (이미 들어간 기록 전부 + 이번에 넣기로 한 것)
-  const running = new Map<string, number>();
-  return sorted.map(g => {
-    const base: MesPlanRow = { ...g, status: 'no-order', add: 0, already: 0 };
-    const wo = orders.get(g.wo);
-    if (!wo) return base;
-    base.workOrderId = wo.id;
-    base.outsource = wo.production_site === 'outsource';
-    const item = wo.items.find(it => it.no === g.no);
-    if (!item) return { ...base, status: 'no-item' };
-    Object.assign(base, { itemId: item.id, itemQuantity: item.quantity, itemProduct: item.product_name, itemWidth: item.width_mm, itemHeight: item.height_mm });
-    if (!sameSize(g, item)) return { ...base, status: 'size' };
-    if (g.line !== 1 && g.line !== 2) return { ...base, status: 'line' };
-
-    const already = item.logs.filter(l => l.date === g.date && l.line === g.line && l.shift === g.shift).reduce((s, l) => s + l.qty, 0);
-    base.already = already;
-    const need = g.count - already;
-    if (need <= 0) return { ...base, status: 'done' };
-    const total = running.get(item.id) ?? item.logs.reduce((s, l) => s + l.qty, 0);
-    const room = Math.max(0, item.quantity - total);
-    const add = Math.min(need, room);
-    running.set(item.id, total + add);
-    if (add <= 0) return { ...base, status: 'over' };
-    return { ...base, status: add < need ? 'partial' : 'add', add };
-  });
-}
-
-/** 넣는 줄 (add > 0) */
-export const isInsert = (r: MesPlanRow) => r.status === 'add' || r.status === 'partial';
-
-export const STATUS_TEXT: Record<MesStatus, string> = {
-  add: '등록',
-  partial: '일부 등록',
-  done: '이미 등록됨',
-  over: '의뢰 수량 초과',
-  'no-order': '의뢰서 미등록',
-  'no-item': '의뢰서에 없는 NO',
-  size: '규격 다름',
-  line: '호기 모름',
-};

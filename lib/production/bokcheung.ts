@@ -176,7 +176,7 @@ export function buildBokcheungSheet(
   let seq = 0;
 
   for (const log of logs) {
-    if (log.production_date !== date) continue;
+    if (log.production_date !== date || log.insulated_total) continue;
     const parsed = parseProductName(log.product_name);
     if (!parsed.insulated || !log.work_order_item_id) {
       excluded.quantity += log.quantity_completed;
@@ -251,11 +251,11 @@ export function buildBokcheungSheet(
 }
 
 /** 복층만 더한 수량 · 면적 (반올림 전) */
-function insulatedTotals(logs: Pick<ProductionLogRow, 'product_name' | 'quantity_completed' | 'area_m2'>[]) {
+function insulatedTotals(logs: Pick<ProductionLogRow, 'product_name' | 'quantity_completed' | 'area_m2' | 'insulated_total'>[]) {
   let quantity = 0;
   let area = 0;
   for (const l of logs) {
-    if (!parseProductName(l.product_name).insulated) continue;
+    if (!l.insulated_total && !parseProductName(l.product_name).insulated) continue;
     quantity += l.quantity_completed;
     area += Number(l.area_m2 || 0);
   }
@@ -263,7 +263,7 @@ function insulatedTotals(logs: Pick<ProductionLogRow, 'product_name' | 'quantity
 }
 
 /** 누계 — 넘겨받은 기록 중 복층만 더한다 (기간은 부르는 쪽이 고른다) */
-export function cumulativeOf(logs: Pick<ProductionLogRow, 'product_name' | 'quantity_completed' | 'area_m2'>[]) {
+export function cumulativeOf(logs: Pick<ProductionLogRow, 'product_name' | 'quantity_completed' | 'area_m2' | 'insulated_total'>[]) {
   const t = insulatedTotals(logs);
   return { quantity: t.quantity, area_m2: round2(t.area) };
 }

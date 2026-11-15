@@ -28,7 +28,7 @@ async function prepare(request: NextRequest) {
   try {
     // 누계를 함께 구하려고 그해 1월 1일부터 읽는다 — 그날 줄은 그 안에서 고른다
     const [logs, { lines }] = await Promise.all([
-      fetchProductionLogs(supabase, `${date.slice(0, 4)}-01-01`, date),
+      fetchProductionLogs(supabase, `${date.slice(0, 4)}-01-01`, date, { detailFrom: date }),
       loadLines(supabase),
     ]);
     const sheet = buildBokcheungSheet(logs, date, cumulativeOf(logs), lines);

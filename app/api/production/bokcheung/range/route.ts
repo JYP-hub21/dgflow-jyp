@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   try {
     // 날짜마다 그해 누계를 내려고 시작일이 속한 해 1월 1일부터 읽는다
     const [logs, { lines }] = await Promise.all([
-      fetchProductionLogs(supabase, `${from.slice(0, 4)}-01-01`, to),
+      fetchProductionLogs(supabase, `${from.slice(0, 4)}-01-01`, to, { detailFrom: from }),
       loadLines(supabase),
     ]);
     const picked = Array.isArray(body?.dates) ? new Set<unknown>(body.dates) : null;

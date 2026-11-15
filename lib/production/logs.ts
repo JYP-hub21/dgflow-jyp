@@ -1,15 +1,41 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import type { ProductionLogRow } from './daily-report';
+import { fetchMesDailyTotals, fetchMesRows, mesToLog, withoutManualOverlap } from './mes-db';
 
 const PAGE = 1000;
 
 /**
- * 기간(양 끝 포함)의 생산 기록 — 품목 · 작업의뢰서 · 거래처 · 입력자를 붙여서.
- * 작업의뢰서 품목은 anon 세션으로 조회가 막히므로 권한을 확인한 뒤 서비스 키 클라이언트로 부른다.
- * 일간 생산일지(기간 합계)와 복층생산일지가 함께 쓴다.
+ * 기간(양 끝 포함)의 생산 기록 + MES 실적 (2026-11-15) — 생산일지(일간 · 복층 · 주간)가 함께 쓴다.
+ * MES 실적은 작업의뢰서 없이 들어온 바코드 기록이다(lib/production/mes-db.ts). 같은 의뢰번호 · 날짜에 손 입력이 있으면 손 입력을 쓴다.
+ * detailFrom 을 주면 그 앞날의 MES 는 날짜별 합계 한 줄씩만 읽는다 — 복층일지 누계(1월 1일부터)를 빨리 내려고.
  */
-export async function fetchProductionLogs(supabase: SupabaseClient, from: string, to: string): Promise<ProductionLogRow[]> {
+export async function fetchProductionLogs(
+  supabase: SupabaseClient, from: string, to: string, opts: { detailFrom?: string } = {},
+): Promise<ProductionLogRow[]> {
+  const detailFrom = opts.detailFrom && opts.detailFrom > from ? opts.detailFrom : from;
+  const [manual, mes, totals] = await Promise.all([
+    fetchManualLogs(supabase, from, to),
+    fetchMesRows(supabase, detailFrom, to),
+    detailFrom > from ? fetchMesDailyTotals(supabase, from, dayBefore(detailFrom)) : Promise.resolve([]),
+  ]);
+  const merged = [
+    ...manual,
+    ...withoutManualOverlap(mes, manual).map(mesToLog),
+    ...totals.map((t): ProductionLogRow => ({
+      production_date: t.date, quantity_completed: t.quantity, area_m2: t.area_m2, shift: null, line_number: null,
+      work_order_id: 'mes:total', work_order_item_id: null, work_order_number: '-', customer: null, site: null,
+      product_name: '복층 합계 (MES)', width_mm: null, height_mm: null, sort_order: null, created_by_name: 'MES', insulated_total: true,
+    })),
+  ];
+  // 날짜순 (같은 날 안에서는 손 입력 → MES 순서를 그대로 둔다)
+  return merged.map((l, i) => ({ l, i })).sort((a, b) => a.l.production_date.localeCompare(b.l.production_date) || a.i - b.i).map(x => x.l);
+}
+
+const dayBefore = (d: string) => new Date(Date.parse(`${d}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+
+/** 생산 기록(손 입력 · 작업의뢰서 품목에 붙은 것)만 */
+async function fetchManualLogs(supabase: SupabaseClient, from: string, to: string): Promise<ProductionLogRow[]> {
   const raw: Record<string, unknown>[] = [];
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await supabase
