@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, ArrowDownUp, Boxes, ChevronDown, CircleHelp, Eraser, Layers, Loader2, PencilRuler, RotateCcw, Send, Sparkles, Tag, TextCursorInput, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -10,6 +10,7 @@ import {
 } from '@/lib/erp/ai-packaging';
 import type { WorkOrderSourceItem } from '@/lib/work-order/build';
 import { cn } from '@/lib/utils';
+import PrismMark from '@/components/prism/PrismMark';
 
 interface Result {
   plan: AiPlan;
@@ -89,6 +90,8 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result | null>(null);
+  /** 포장마다 묶은 근거 — 기본은 접어 둔다 (2026-11-15 "코멘트가 너무 많아 읽지 않게 된다") */
+  const [showReasons, setShowReasons] = useState(false);
   /** 시트를 불러온 뒤 다시 보낼 요청 — 불러오기가 끝나 sheetKey 가 바뀌면 보낸다 */
   const resend = useRef<{ instruction: string; history: string[]; previous: AiPlan | null; usage: AiUsage; loaded: string[] } | null>(null);
 
@@ -258,6 +261,12 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                     <p className="whitespace-nowrap text-sm font-semibold">
                       포장 {result.applied.packages.length}장 <span className="font-normal text-muted-foreground">· 싣는 순서대로</span>
                     </p>
+                    {result.plan.packages.some(s => s.reason) && (
+                      <button type="button" onClick={() => setShowReasons(v => !v)}
+                        className="ml-auto shrink-0 whitespace-nowrap text-xs font-medium text-muted-foreground hover:text-foreground">
+                        {showReasons ? '근거 접기' : '묶은 근거 보기'}
+                      </button>
+                    )}
                     {active
                       ? <span className="shrink-0 whitespace-nowrap rounded-full bg-success-50 px-2 py-0.5 text-xs font-semibold text-success">미리보기에 반영됨</span>
                       : (
@@ -285,7 +294,7 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                             <span className="tabular text-xs text-muted-foreground">{p.rows.length}행 · {sumQty(p.rows).toLocaleString()}조</span>
                             {src?.row_order === 'source' && <span className="rounded bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">발주서 순서 유지</span>}
                           </p>
-                          {src?.reason && <p className="break-keep text-xs text-muted-foreground">{src.reason}</p>}
+                          {showReasons && src?.reason && <p className="break-keep text-xs text-muted-foreground">{src.reason}</p>}
                         </div>
                       </li>
                     );
@@ -321,13 +330,23 @@ export default function DgPrismPanel({ ready, canMerge = false, sheetKey, sheetN
                 ...(a && a.duplicates.length > 0 ? [`두 포장에 겹친 행 ${a.duplicates.length}개(${shorten(label(a.duplicates))})는 앞 포장에 남겼습니다.`] : []),
                 ...(a && a.emptyLabels.length > 0 ? [`품목이 없어 제외한 포장: ${a.emptyLabels.join(', ')}`] : []),
               ];
+              const note = (n: string, i: number) => (
+                <li key={i} className="flex gap-1.5"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" /><span className="break-keep">{n}</span></li>
+              );
+              // 앞 두 개만 펼쳐 둔다 — 나머지는 눌러서 본다 (2026-11-15 "코멘트가 너무 많아 읽지 않게 된다")
               return notes.length > 0 && (
-                <ul className="space-y-1 rounded-lg border border-warning/40 bg-warning-50 px-3 py-2 text-sm text-amber-900">
-                  <li className="text-xs font-semibold">확인 필요 사항</li>
-                  {notes.map((n, i) => (
-                    <li key={i} className="flex gap-1.5"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" /><span className="break-keep">{n}</span></li>
-                  ))}
-                </ul>
+                <div className="rounded-lg border border-warning/40 bg-warning-50 px-3 py-2 text-sm text-amber-900">
+                  <p className="text-xs font-semibold">확인 필요 사항 {notes.length}건</p>
+                  <ul className="mt-1 space-y-1">{notes.slice(0, 2).map(note)}</ul>
+                  {notes.length > 2 && (
+                    <details className="group mt-1">
+                      <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium hover:underline">
+                        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />{notes.length - 2}건 더 보기
+                      </summary>
+                      <ul className="mt-1 space-y-1">{notes.slice(2).map((n, i) => note(n, i + 2))}</ul>
+                    </details>
+                  )}
+                </div>
               );
             })()}
 
@@ -421,23 +440,4 @@ function ApplyDetails({ applied, label, sumQty }: {
 /** 행 범위가 길면 앞부분만 — 경고 칸이 화면을 다 덮지 않게 */
 function shorten(text: string, max = 80): string {
   return text.length > max ? `${text.slice(0, max)}… 외` : text;
-}
-
-/** 프리즘 표시 — 단정한 삼각 프리즘 하나. 색은 파랑에서 청록으로 번지는 빛 */
-function PrismMark({ small }: { small?: boolean }) {
-  const id = useId();
-  return (
-    <span className={cn('flex shrink-0 items-center justify-center rounded-xl bg-brand-50 ring-1 ring-inset ring-brand-600/15', small ? 'h-7 w-7 rounded-lg' : 'h-10 w-10')}>
-      <svg viewBox="0 0 24 24" className={small ? 'h-4 w-4' : 'h-[22px] w-[22px]'} aria-hidden>
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#3182F6" />
-            <stop offset="1" stopColor="#14B8A6" />
-          </linearGradient>
-        </defs>
-        <path d="M12 3 L21 19.5 H3 Z" fill={`url(#${id})`} stroke={`url(#${id})`} strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M12 10 L15.4 16.3 H8.6 Z" fill="#fff" fillOpacity="0.85" />
-      </svg>
-    </span>
-  );
 }

@@ -15,6 +15,8 @@ import { KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
 import Logo from './Logo';
 import AccountDialog from './AccountDialog';
 import { INITIAL_PASSWORD_FLAG } from '@/lib/auth/account';
+import PrismMark from '@/components/prism/PrismMark';
+import { openPrism } from '@/components/prism/PrismAssistant';
 
 interface SidebarProps {
   userName: string;
@@ -36,10 +38,58 @@ function initials(name: string) {
   return name.length > 2 ? name.slice(-2) : name;
 }
 
-export default function Sidebar({ userName, user, department, position, badges = {}, loginId, loginIdLocked }: SidebarProps) {
+/** 화면을 띄워 둔 동안 메뉴 숫자를 다시 세는 간격 */
+const BADGE_REFRESH_MS = 60_000;
+
+/**
+ * 메뉴 숫자 — 처음엔 서버가 센 값, 그다음엔 1분마다(화면이 보일 때만) 다시 센다.
+ * 2026-11-13 회의(생산관리부): 화면을 켜 둔 채 일하다가도 새 작업의뢰서가 오면 "신규 1" 을 보고 들어가면 된다.
+ * 다른 창을 보고 있어도 알 수 있게 브라우저 탭 제목 앞에도 (숫자)를 붙인다.
+ */
+function useLiveBadges(initial: Record<string, number>, pathname: string) {
+  const initialKey = JSON.stringify(initial);
+  const [badges, setBadges] = useState(initial);
+  // 서버가 다시 그리면(수신 확인 뒤 새로고침 등) 그 값을 따른다
+  useEffect(() => setBadges(JSON.parse(initialKey)), [initialKey]);
+
+  useEffect(() => {
+    let stopped = false;
+    const refresh = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch('/api/notifications', { cache: 'no-store' });
+        if (!res.ok) return;
+        const body = await res.json() as { badges?: Record<string, number> };
+        if (!stopped && body.badges) setBadges(body.badges);
+      } catch { /* 숫자는 알림일 뿐 — 못 세면 다음에 다시 */ }
+    };
+    const timer = window.setInterval(refresh, BADGE_REFRESH_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { stopped = true; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+
+  const total = Object.values(badges).reduce((s, n) => s + n, 0);
+  // 탭 제목 앞 (숫자) — 화면을 옮기면 제목이 새로 붙으므로 경로가 바뀔 때도 다시 단다
+  useEffect(() => {
+    const apply = () => {
+      const base = document.title.replace(/^\(\d+\)\s*/, '');
+      const next = total > 0 ? `(${total}) ${base}` : base;
+      if (document.title !== next) document.title = next;
+    };
+    apply();
+    const t = window.setTimeout(apply, 300);
+    return () => window.clearTimeout(t);
+  }, [total, pathname]);
+
+  return { badges, total };
+}
+
+export default function Sidebar({ userName, user, department, position, badges: initialBadges = {}, loginId, loginIdLocked }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const menuItems = getMenuFor(user);
+  const { badges, total: badgeTotal } = useLiveBadges(initialBadges, pathname);
   const [open, setOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   /** 처음 비밀번호(0000)로 막 들어온 경우 — 변경 창을 한 번 띄워 권한다 (닫으면 다시 묻지 않는다) */
@@ -79,13 +129,24 @@ export default function Sidebar({ userName, user, department, position, badges =
       {/* 폰 — 위에 붙는 띠. 햄버거 · 로고 */}
       <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b bg-background px-4 md:hidden print:hidden">
         <button type="button" onClick={() => setOpen(true)}
-          aria-label="메뉴 열기" className="-ml-2 rounded-lg p-2 hover:bg-accent">
+          aria-label={badgeTotal > 0 ? `메뉴 열기 — 새로 온 일 ${badgeTotal}건` : '메뉴 열기'}
+          className="relative -ml-2 rounded-lg p-2 hover:bg-accent">
           <Menu className="h-5 w-5" />
+          {/* 폰은 메뉴가 접혀 있어 숫자가 안 보인다 — 메뉴 버튼에 붙여 둔다 */}
+          {badgeTotal > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-warning px-1 text-[10.5px] font-bold text-white">
+              {badgeTotal}
+            </span>
+          )}
         </button>
         {/* 띠 높이가 56px 라 워드마크만 — `withTitle` 을 붙이면 넘친다 */}
         <Link href="/dashboard" className="min-w-0">
           <Logo size="sm" priority />
         </Link>
+        <button type="button" onClick={() => openPrism()} aria-label="DG 프리즘에게 묻기"
+          className="ml-auto -mr-1 rounded-lg p-1 hover:bg-accent">
+          <PrismMark small />
+        </button>
       </header>
 
       {/* 서랍이 열렸을 때 뒤를 덮는 막 */}
@@ -122,7 +183,13 @@ export default function Sidebar({ userName, user, department, position, badges =
           발주서가 거쳐 가는 순서대로 번호를 붙였다. 자기 부서 구역만 보면 할 일이 다 있다.
         */}
         <nav className="flex-1 overflow-y-auto px-3 py-3">
-          {common.length > 0 && <div className="space-y-1">{common.map(i => link(i, 'neutral'))}</div>}
+          {/* DG 프리즘 — 어느 화면에서나 무엇이든 묻는다 (2026-11-15 사용자 "어떤 질문이든 다 답은 할 수 있어야지") */}
+          <button type="button" onClick={() => { setOpen(false); openPrism(); }}
+            className="mb-3 flex h-11 w-full items-center gap-2.5 rounded-xl bg-card px-2.5 text-left text-[14px] font-semibold text-brand-900 shadow-xs ring-1 ring-brand-600/20 transition-colors hover:bg-brand-50">
+            <PrismMark small />
+            DG 프리즘에게 묻기
+          </button>
+          {common.length > 0 &&<div className="space-y-1">{common.map(i => link(i, 'neutral'))}</div>}
 
           {deptGroups.length > 0 && (
             <div className={cn(common.length > 0 && 'mt-4')}>
@@ -240,11 +307,12 @@ function NavLink({ item, tone, active, badge, onNavigate }: {
         )}
       />
       {item.label}
+      {/* "신규 1" — 2026-11-13 회의(생산관리부) "1을 보고 들어가면 되니까" */}
       {badge != null && badge > 0 && (
         <span className={cn(
-          'ml-auto rounded-full px-2 py-0.5 text-[11px] font-bold',
+          'tabular ml-auto shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold',
           active ? cn('bg-white', dept ? dept.text : 'text-brand-800') : 'bg-warning text-white'
-        )}>{badge}</span>
+        )}>신규 {badge}</span>
       )}
     </Link>
   );

@@ -27,14 +27,14 @@ const Range = z.object({
 
 const Plan = z.object({
   action: z.enum(['arrange', 'answer', 'load_sheets']).describe('arrange = 포장을 짜거나 고친다 · answer = 질문에만 답한다 · load_sheets = 다른 시트를 불러와야 한다'),
-  reply: z.string().describe('사용자에게 하는 답. 질문이면 답, 작업이면 무엇을 어떻게 했는지 2–5문장 존댓말'),
+  reply: z.string().describe('사용자에게 하는 답. 핵심만 1–2문장 존댓말 — 질문이면 답, 작업이면 무엇을 했는지'),
   understanding: z.string().describe('발주서를 어떻게 이해했는지 — 근거가 된 시트 · 행 · 문구. 존댓말'),
   sheets: z.array(z.string()).describe('load_sheets 면 불러올 시트 전부(합칠 시트 모두). 아니면 지금 불러온 시트 그대로'),
   package_count: z.number().describe('packages 에 넣을 포장 수 (arrange 가 아니면 0)'),
   packages: z.array(z.object({
     label: z.string().describe('포장 이름 = ERP 시트 이름. 동·호가 있으면 "3동 1~3호" · "3동 4,5호"(호가 3개 이상 이어질 때만 ~), 합계 행 라벨이 있으면 그 라벨'),
     ranges: z.array(Range).describe('이 포장에 들어갈 행 범위 — 이어진 구간은 첫 행–끝 행 하나로 넓게'),
-    reason: z.string().describe('이렇게 묶은 근거 한 줄 (존댓말)'),
+    reason: z.string().describe('이렇게 묶은 근거 — 짧은 한 줄 (존댓말)'),
     row_order: z.enum(['erp', 'source']).describe('포장 안 행 순서: erp = 회사 ERP 규칙(기본) · source = 발주서에 적힌 순서 그대로'),
   })).describe('싣는 순서대로 — 첫 포장이 첫 시트. arrange 가 아니면 빈 배열'),
   exclude: z.array(Range.extend({ reason: z.string() })).describe('사용자가 빼 달라고 한 품목 행. 없으면 빈 배열'),
@@ -45,7 +45,7 @@ const Plan = z.object({
   })).describe('위치(ERP 첫 칸) 글자 고치기 요청이 있을 때만. 없으면 빈 배열'),
   product_names: z.array(z.object({ from: z.string(), to: z.string() }))
     .describe('규격정리 우측 품명(사내 · ERP 품목명) — 발주서 품명 → 사내 품명. 요청이 있거나 확실할 때만. 없으면 빈 배열'),
-  cautions: z.array(z.string()).describe('사람이 확인해야 할 것만 (존댓말). 문제없는 사실은 적지 않는다'),
+  cautions: z.array(z.string()).describe('사람이 꼭 확인해야 할 것만 최대 3개, 한 줄씩 짧게 (존댓말). 문제없는 사실 · reply 에 이미 쓴 말은 적지 않는다'),
 });
 
 const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격정리 전문가 "DG 프리즘"**이다. 업무지원부 직원이 거래처 발주서(엑셀)를
@@ -106,6 +106,8 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
 
 ## 할 일 고르기 (action)
 - 질문(몇 장? 어디가 이상해? 왜 이렇게 나눴어?)이면 **answer** — reply 에 답하고 packages 는 비운다. 숫자 질문은 발주서 글에서 직접 세어 답한다.
+- **발주서와 상관없는 질문에도 답한다** (2026-11-15 사용자 "AI 기능이면 어떤 질문이든 다 답은 할 수 있어야지") — 인사 · 일반 상식 · 유리 상식 · 업무 질문은
+  answer 로 짧게 답하고 cautions 는 비운다(묻지 않은 발주서 지적을 덧붙이지 않는다). 회사 전체 현황(요즘 발주 · 생산 · 납품 숫자)은 이 칸에서는 보이지 않으니, 왼쪽 메뉴의 "DG 프리즘에게 묻기" 대화창에서 물으면 된다고 안내한다.
 - 지금 불러온 시트에 없는 시트가 필요하면("1차와 2차를 합쳐서", "84A 타입 시트도 같이", "9월 7일 시트까지") **load_sheets** — sheets 에 함께 다룰 시트를 **전부** 적는다.
   시스템이 그 시트들을 불러온 뒤 같은 요청을 다시 보낸다. 이미 그 시트들이 다 불러와져 있으면 load_sheets 를 쓰지 말고 바로 arrange 한다.
 - 불러온 시트가 **없으면**(사용자가 발주서만 놓고 바로 말한 경우) arrange 할 수 없다 — 요청에 맞는 시트를 load_sheets 로 부른다.
@@ -122,8 +124,9 @@ const SYSTEM = `너는 유리 가공 회사 동일유리의 **발주서 규격�
 - 서로 다른 현장의 발주서를 합치면 한 ERP 엑셀에 다른 현장이 섞인다 — 따를 수는 있지만 cautions 에 꼭 적는다.
   합계 · 표지 · 물량산출서 같은 시트는 품목 행이 없거나 성격이 달라 보통 합치지 않는다 — 합치라고 하면 따르되 cautions 에 적는다.
 
-## 말투
-reply · understanding · reason · cautions 는 모두 한국어 격식체 존댓말(~습니다, ~하세요)로, 짧고 분명하게 쓴다. "~요" 로 끝나는 해요체는 쓰지 않는다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
+## 말투 — 짧게 (2026-11-15 사용자: "코멘트 주는 것들도 너무 많아서 읽지 않게 된다")
+reply · understanding · reason · cautions 는 모두 한국어 격식체 존댓말(~습니다, ~하세요)로, 짧고 분명하게 쓴다.
+직원들은 긴 글을 읽지 않는다 — reply 는 1–2문장, cautions 는 꼭 필요한 것만 최대 3개. 같은 말을 reply · understanding · cautions 에 되풀이하지 않는다. "~요" 로 끝나는 해요체는 쓰지 않는다. 확실하지 않은 판단은 숨기지 말고 cautions 에 적는다.`;
 
 /** 사람마다 10분에 30번까지 — 서버 인스턴스마다 따로 세는 가벼운 막이(진짜 상한은 Anthropic 콘솔의 지출 한도) */
 const RECENT = new Map<string, number[]>();
