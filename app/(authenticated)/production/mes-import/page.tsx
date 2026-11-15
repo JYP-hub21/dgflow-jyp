@@ -28,6 +28,8 @@ import { MES_COMMIT_ENABLED, MAX_FILL_GAP, dailyTotals, groupPieces, groupQty, t
  */
 const PREVIEW_ROWS = 40;
 const COMMIT_BATCH = 2000;
+/** 작업의뢰서 만들기 — 의뢰번호 이만큼씩 */
+const ORDER_BATCH = 60;
 
 type Preset = '2w' | '3w' | '1m' | 'all' | 'custom';
 
@@ -54,7 +56,7 @@ export default function MesImportPage() {
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ saved: number; quantity: number } | null>(null);
+  const [result, setResult] = useState<{ saved: number; quantity: number; created: number; existing: number; logs: number } | null>(null);
   const [stored, setStored] = useState<Stored | null>(null);
 
   const loadStored = () => {
@@ -144,11 +146,23 @@ export default function MesImportPage() {
     if (groups.length === 0 || !range) return;
     if (!window.confirm(
       `${range.from} – ${range.to} MES 생산실적 ${s.total.toLocaleString()}조(바코드 ${s.scanned.toLocaleString()}장 + 번호 사이 ${s.filled.toLocaleString()}장)를 등록합니다.\n`
-      + '같은 날 · 호기 · 품목에 이미 등록된 MES 실적은 이번 파일 값으로 바뀝니다. 계속하시겠습니까?',
+      + `의뢰번호 ${s.orders.toLocaleString()}건을 작업의뢰서(생산 완료)로 만들고 날짜별 생산 기록을 붙입니다. 이미 있는 의뢰서에는 빠진 생산 기록만 붙입니다. 계속하시겠습니까?`,
     )) return;
-    setProgress({ done: 0, total: groups.length });
+    // 의뢰번호 단위 묶음 — 작업의뢰서 만들기용
+    const byWo = new Map<string, typeof groups>();
+    for (const g of groups) { const l = byWo.get(g.wo); if (l) l.push(g); else byWo.set(g.wo, [g]); }
+    const orderBatches: (typeof groups)[] = [];
+    let cur: typeof groups = [], curWo = 0;
+    for (const list of byWo.values()) {
+      if (cur.length > 0 && (curWo >= ORDER_BATCH || cur.length + list.length > 7000)) { orderBatches.push(cur); cur = []; curWo = 0; }
+      cur.push(...list); curWo++;
+    }
+    if (cur.length) orderBatches.push(cur);
+    const steps = Math.ceil(groups.length / COMMIT_BATCH) + orderBatches.length;
+
+    setProgress({ done: 0, total: steps });
     setError('');
-    let saved = 0, quantity = 0;
+    let saved = 0, quantity = 0, created = 0, existing = 0, logs = 0, step = 0;
     try {
       for (let i = 0; i < groups.length; i += COMMIT_BATCH) {
         const batch = groups.slice(i, i + COMMIT_BATCH);
@@ -160,12 +174,25 @@ export default function MesImportPage() {
         if (!res.ok) throw new Error(body.error || '등록하지 못했습니다.');
         saved += body.saved ?? 0;
         quantity += body.quantity ?? 0;
-        setProgress({ done: Math.min(i + COMMIT_BATCH, groups.length), total: groups.length });
+        setProgress({ done: ++step, total: steps });
       }
-      setResult({ saved, quantity });
-      toast.success(`MES 생산실적 ${quantity.toLocaleString()}조를 등록했습니다.`);
+      // 작업의뢰서 + 생산 기록
+      for (const batch of orderBatches) {
+        const res = await fetch('/api/production/mes-import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'orders', groups: batch }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || '작업의뢰서를 만들지 못했습니다.');
+        created += body.created ?? 0;
+        existing += body.existing ?? 0;
+        logs += body.logs ?? 0;
+        setProgress({ done: ++step, total: steps });
+      }
+      setResult({ saved, quantity, created, existing, logs });
+      toast.success(`작업의뢰서 ${created.toLocaleString()}건을 만들고 생산 실적 ${quantity.toLocaleString()}조를 등록했습니다.`);
     } catch (e) {
-      setError(`${e instanceof Error ? e.message : '등록하지 못했습니다.'} — 그때까지 ${quantity.toLocaleString()}조는 들어갔습니다. 다시 누르면 덮어써서 이어집니다.`);
+      setError(`${e instanceof Error ? e.message : '등록하지 못했습니다.'} — 그때까지 들어간 것은 남아 있습니다. 다시 누르면 빠진 것만 이어서 넣습니다.`);
     } finally {
       setProgress(null);
       loadStored();
@@ -180,7 +207,7 @@ export default function MesImportPage() {
       <PageHeader
         back={{ href: '/production', label: '생산 현황' }}
         title="MES 생산실적 가져오기"
-        description="MES 에서 내려받은 생산실적 엑셀(포장공정 바코드)을 업로드하면 작업의뢰서 없이 날짜 · 호기별 생산 실적으로 등록합니다. 등록한 실적은 일간 · 복층 · 주간 생산일지에 바로 반영됩니다."
+        description="MES 에서 내려받은 생산실적 엑셀(포장공정 바코드)을 업로드하면 이미 생산이 끝난 작업의뢰서를 한꺼번에 만들고 날짜 · 호기별 생산 실적을 붙입니다. 작업의뢰서 목록 · 상세와 일간 · 복층 · 주간 생산일지에 바로 보입니다."
       />
 
       {stored && stored.days > 0 && (
@@ -304,12 +331,12 @@ export default function MesImportPage() {
                 <div className="min-w-0 text-sm">
                   <p className="font-bold">생산 실적 등록</p>
                   <p className="mt-0.5 break-keep text-muted-foreground">
-                    등록하면 <b className="text-foreground">{s.total.toLocaleString()}조</b>가 MES 생산실적으로 들어가고, 일간 · 복층 · 주간 생산일지에 바로 반영됩니다.
+                    등록하면 의뢰번호 <b className="text-foreground">{s.orders.toLocaleString()}건</b>이 작업의뢰서(생산 완료)로 들어가고, <b className="text-foreground">{s.total.toLocaleString()}조</b>가 날짜별 생산 실적으로 붙어 작업의뢰서 상세 · 생산일지에 바로 보입니다.
                   </p>
                 </div>
                 <Button onClick={runImport} disabled={!MES_COMMIT_ENABLED || groups.length === 0 || !!progress}>
                   {progress ? <Loader2 className="animate-spin" /> : <ClipboardCheck />}
-                  {progress ? `등록 중… ${progress.done.toLocaleString()}/${progress.total.toLocaleString()}` : `생산 실적 ${s.total.toLocaleString()}조 등록`}
+                  {progress ? `등록 중… ${Math.round(progress.done / progress.total * 100)}%` : `작업의뢰서 · 생산 실적 등록`}
                 </Button>
               </div>
               {progress && (
@@ -322,13 +349,15 @@ export default function MesImportPage() {
                   <span>같은 규격 여러 장은 첫 장 · 끝 장에만 바코드를 찍는 경우가 있습니다. 같은 품목의 <b className="text-foreground">바코드 번호 사이가 비면 그 장수를 채우고</b>, 뒤에 찍힌 장과 같은 날 · 호기에 생산한 것으로 봅니다({MAX_FILL_GAP}장 넘게 벌어지면 채우지 않습니다{grouping.bigGaps > 0 ? ` — 이 기간 ${grouping.bigGaps}곳` : ''}).</span></li>
                 <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />주간 · 야간은 바코드를 찍은 시각으로 나눕니다. <b className="text-foreground">18:00부터 야간</b>입니다(석식 17:30–18:00에 찍힌 것은 주간).</li>
                 <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />같은 파일을 다시 올리면 같은 날 · 호기 · 품목 값을 덮어씁니다. 두 번 세지 않습니다.</li>
-                <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />작업의뢰서가 등록돼 생산 현황에서 직접 입력한 날은 그 입력을 생산일지에 씁니다.</li>
+                <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />작업의뢰서는 MES 의 의뢰번호 · 거래처 · 현장 · 품목(NO · 품명 · 규격 · 비고)으로 만들고, 수량은 MES 장수, 의뢰일은 첫 생산일, 상태는 완료입니다(납품은 기록하지 않습니다).</li>
+                <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />이미 시스템에 있는 작업의뢰서는 새로 만들지 않고, 같은 NO 품목에 빠진 날짜의 생산 기록만 붙입니다.</li>
               </ul>
               {result && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg bg-success-50 px-3 py-2 text-sm font-medium text-success">
                   <CheckCircle2 className="h-4 w-4" />
-                  MES 생산실적 {result.quantity.toLocaleString()}조를 등록했습니다.
+                  작업의뢰서 {result.created.toLocaleString()}건을 새로 만들고{result.existing > 0 ? ` · 기존 ${result.existing}건에 기록을 붙이고` : ''}, 생산 기록 {result.logs.toLocaleString()}줄({result.quantity.toLocaleString()}조)을 등록했습니다.
                   <span className="ml-auto flex gap-1.5">
+                    <Link href="/work-orders" className={buttonVariants({ variant: 'outline', size: 'sm' })}>작업의뢰서</Link>
                     <Link href="/production/report?view=bokcheung" className={buttonVariants({ variant: 'outline', size: 'sm' })}>복층생산일지</Link>
                     <Link href="/production/report?view=weekly" className={buttonVariants({ variant: 'outline', size: 'sm' })}>주간생산일지</Link>
                   </span>

@@ -7,6 +7,7 @@ import {
   type MesGroup,
 } from '@/lib/production/mes';
 import { mesToLog, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
+import { logArea, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
 import { parseMesBytes } from '@/lib/production/mes-read';
 
 const HEAD = ['S', '등록일시', 'PID', '공정', '품목코드', '품명', '가로', '세로', '수량', '평수', '의뢰번호', 'NO.', '거래처', '현장', '라인', '등록자', '비고', '일자'];
@@ -231,5 +232,30 @@ describe('주간 · 야간 (2026-11-13 회의: 야간 18:00–21:00)', () => {
     expect(groups.map(x => [x.date, x.line, x.shift, groupQty(x)])).toEqual([
       ['2026-10-22', 2, 'day', 2], ['2026-10-22', 2, 'night', 1],
     ]);
+  });
+});
+
+describe('MES → 지난 작업의뢰서 (lib/production/mes-orders.ts)', () => {
+  const base: MesGroup = {
+    wo: '26-1000', no: 1, date: '2026-10-22', line: 1, shift: 'day', scanned: 2, filled: 8,
+    product: '5CL+12A+5로이', width: 559, height: 1217, customer: '거래처A', site: '현장A', remark: '101동',
+  };
+  it('품명 앞에 제품 두께를 붙인다 (이미 있으면 그대로)', () => {
+    expect(systemProductName('5CL+12A+5로이')).toBe('22T 5CL+12A+5로이');
+    expect(systemProductName('8.76(4cl+0.76+4cl)접합+12A+5로이')).toBe('25.76T 8.76(4cl+0.76+4cl)접합+12A+5로이');
+    expect(systemProductName('24T 5CL+14A+5로이')).toBe('24T 5CL+14A+5로이');
+  });
+  it('의뢰번호 하나 = 의뢰서, NO 하나 = 품목, 수량은 날짜를 합친 MES 장수, 의뢰일은 첫 생산일', () => {
+    const [o, o2] = planMesOrders([
+      base,
+      { ...base, date: '2026-10-21', line: 2, scanned: 5, filled: 0 },
+      { ...base, no: 2, width: 300, height: 400, scanned: 1, filled: 0, remark: '' },
+      { ...base, wo: '26-0999', scanned: 1, filled: 0 },
+    ]);
+    expect(o.work_order_number).toBe('26-0999');
+    expect(o2.request_date).toBe('2026-10-21');
+    expect(o2.items.map(i => [i.no, i.quantity, i.area_m2, i.remark])).toEqual([[1, 15, 10.2, '101동'], [2, 1, 0.28, null]]);
+    expect(o2.logs.map(l => [l.no, l.date, l.line, l.quantity])).toEqual([[1, '2026-10-21', 2, 5], [1, '2026-10-22', 1, 10], [2, '2026-10-22', 1, 1]]);
+    expect(logArea(o2.items[0], 5)).toBe(3.4);
   });
 });
