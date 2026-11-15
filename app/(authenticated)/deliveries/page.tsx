@@ -13,6 +13,8 @@ import ListSearch, { searchCondition } from '@/components/work-order/ListSearch'
 import WorkOrderStatusBadge from '@/components/work-order/WorkOrderStatusBadge';
 import SiteBadge from '@/components/work-order/SiteBadge';
 import DeliveryTrend from '@/components/production/DeliveryTrend';
+import StockExcelButton, { type StockExcelRow } from '@/components/production/StockExcelButton';
+import { itemStockLots, summarizeLots, STOCK_GRACE_DAYS, type StockLot, type StockSummary } from '@/lib/production/stock';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { buttonVariants } from '@/components/ui/button';
@@ -24,13 +26,14 @@ import { ChevronLeft, ChevronRight, Truck } from 'lucide-react';
 /**
  * 납품 — 생산관리부 메뉴 (2026-11-09 사용자 "이 탭에 차라리 납품탭을 하나 만드는거").
  * 예전에는 생산 입력 화면 안의 탭이라 어디서 넣는지 찾기 어려웠다.
- * 위 요약 → 납품할 것(진행 중 의뢰서) · 납품 기록(달마다 날짜별 + 그래프).
+ * 위 요약 → 납품할 것(진행 중 의뢰서) · 납품 기록(달마다 날짜별 + 그래프) · 재고(생산 후 미납품, 2026-11-13 회의).
  */
 export default async function DeliveriesPage({ searchParams }: {
-  searchParams: Promise<{ view?: string; q?: string; month?: string }>;
+  searchParams: Promise<{ view?: string; q?: string; month?: string; only?: string }>;
 }) {
   const params = await searchParams;
-  const view = params.view === 'history' ? 'history' : 'todo';
+  const view = params.view === 'history' ? 'history' : params.view === 'stock' ? 'stock' : 'todo';
+  const overdueOnly = params.view === 'stock' && params.only === 'overdue';
   const q = (params.q ?? '').trim();
 
   const today = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
@@ -118,6 +121,39 @@ export default async function DeliveriesPage({ searchParams }: {
       historyError = e instanceof Error ? e.message : String(e);
     }
   }
+  // 재고 — 생산 후 아직 안 나간 것을 생산일별로 (먼저 만든 것부터 나갔다고 본다, lib/production/stock.ts)
+  let stockRows: StockRow[] = [];
+  let stockError: string | null = null;
+  if (view === 'stock') {
+    const readyIds = todos.filter(r => r.todo.ready > 0).map(r => r.id);
+    const logsByItem = new Map<string, { date: string; qty: number }[]>();
+    try {
+      const logs = await fetchAllIn<{ work_order_item_id: string | null; production_date: string; quantity_completed: number }>(
+        readyIds, (chunk, from, to) => service
+          .from('dgflow_production_logs').select('work_order_item_id, production_date, quantity_completed')
+          .in('work_order_id', chunk).order('id').range(from, to));
+      for (const l of logs) {
+        if (!l.work_order_item_id) continue;
+        const list = logsByItem.get(l.work_order_item_id) ?? [];
+        list.push({ date: l.production_date, qty: l.quantity_completed });
+        logsByItem.set(l.work_order_item_id, list);
+      }
+    } catch (e) {
+      stockError = e instanceof Error ? e.message : String(e);
+    }
+    const byId = new Map((openOrders || []).map(wo => [wo.id as string, wo]));
+    stockRows = todos.filter(r => r.todo.ready > 0).map(r => {
+      const items = (byId.get(r.id)?.items ?? []) as { id: string; quantity: number; produced_quantity: number }[];
+      const lots: StockLot[] = items.flatMap(it => itemStockLots(it, logsByItem.get(it.id) ?? [], deliveredItems.get(it.id) ?? 0));
+      return { id: r.id, number: r.number, labels: r.labels, due: r.due, stock: summarizeLots(lots, today) };
+    }).filter(r => r.stock.qty > 0)
+      // 현장별로 모으고, 그 안에서는 오래된 것부터
+      .sort((a, b) => (a.labels.customer ?? '').localeCompare(b.labels.customer ?? '', 'ko')
+        || (a.labels.site ?? '').localeCompare(b.labels.site ?? '', 'ko')
+        || (a.stock.oldest ?? '9999').localeCompare(b.stock.oldest ?? '9999'));
+  }
+  const stockShown = overdueOnly ? stockRows.filter(r => r.stock.overdue > 0) : stockRows;
+
   const monthTotal = monthLogs.logs.reduce((s, l) => s + l.quantity, 0);
   const monthTotalArea = monthLogs.logs.reduce((s, l) => s + Number(l.area_m2 || 0), 0);
 
@@ -127,7 +163,9 @@ export default async function DeliveriesPage({ searchParams }: {
         title="납품"
         description={view === 'history'
           ? '날짜별로 현장에 납품한 수량입니다. 의뢰번호를 누르면 해당 의뢰서의 납품을 입력하거나 수정할 수 있습니다.'
-          : '납품이 완료되지 않은 작업의뢰서입니다. 납품일은 현장에 들어가는 날짜 기준으로 입력하세요.'}
+          : view === 'stock'
+            ? `생산은 끝났지만 아직 납품되지 않은 재고입니다. 먼저 생산한 것부터 납품된 것으로 보고, 생산 후 ${STOCK_GRACE_DAYS}일이 지난 수량을 따로 표시합니다.`
+            : '납품이 완료되지 않은 작업의뢰서입니다. 납품일은 현장에 들어가는 날짜 기준으로 입력하세요.'}
       />
 
       {storage === 'none' && (
@@ -136,20 +174,25 @@ export default async function DeliveriesPage({ searchParams }: {
         </p>
       )}
 
-      {/* 요약 */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <SummaryCard label="납품 대상 작업의뢰서" value={`${todos.length}건`} />
-        <SummaryCard label="즉시 납품 가능 수량" value={`${readyQty.toLocaleString()}조`}
-          sub={readyOrders > 0 ? `생산 완료 · 미납품 ${readyOrders}건` : '생산 완료 · 미납품 없음'} tone="brand" />
-        <SummaryCard label="오늘 납품" value={`${todayQty.toLocaleString()}조`} sub={today} />
-        <SummaryCard label="이번 달 납품" value={`${monthQty.toLocaleString()}조`} sub={`${monthArea.toFixed(2)}M²`} />
-      </div>
+      {/* 요약 — 재고 보기는 자기 요약이 따로 있어 겹치지 않게 뺀다 */}
+      {view !== 'stock' && (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <SummaryCard label="납품 대상 작업의뢰서" value={`${todos.length}건`} />
+          <SummaryCard label="즉시 납품 가능 수량" value={`${readyQty.toLocaleString()}조`}
+            sub={readyOrders > 0 ? `생산 완료 · 미납품 ${readyOrders}건` : '생산 완료 · 미납품 없음'} tone="brand" />
+          <SummaryCard label="오늘 납품" value={`${todayQty.toLocaleString()}조`} sub={today} />
+          <SummaryCard label="이번 달 납품" value={`${monthQty.toLocaleString()}조`} sub={`${monthArea.toFixed(2)}M²`} />
+        </div>
+      )}
 
-      <nav className="flex gap-2">
-        <Link href="/deliveries" className={chipClass(view === 'todo')}>
+      <nav className="flex flex-wrap gap-2">
+        <Link href="/deliveries" className={chipClass(view === 'todo', 'whitespace-nowrap')}>
           납품 대기<span className="tabular opacity-80">{todos.length}</span>
         </Link>
-        <Link href={`/deliveries?view=history${month !== thisMonth ? `&month=${month}` : ''}`} className={chipClass(view === 'history')}>
+        <Link href="/deliveries?view=stock" className={chipClass(view === 'stock', 'whitespace-nowrap')}>
+          미납품 재고<span className="tabular opacity-80">{readyQty.toLocaleString()}조</span>
+        </Link>
+        <Link href={`/deliveries?view=history${month !== thisMonth ? `&month=${month}` : ''}`} className={chipClass(view === 'history', 'whitespace-nowrap')}>
           납품 기록
         </Link>
       </nav>
@@ -159,6 +202,8 @@ export default async function DeliveriesPage({ searchParams }: {
           <ListSearch action="/deliveries" value={q} />
           <TodoList rows={todos} today={today} />
         </>
+      ) : view === 'stock' ? (
+        <StockView rows={stockRows} shown={stockShown} overdueOnly={overdueOnly} today={today} error={stockError} />
       ) : (
         <>
           <Card className="gap-3">
@@ -309,6 +354,118 @@ function TodoList({ rows, today }: { rows: TodoRow[]; today: string }) {
         </CardContent>
       </Card>
     </>
+  );
+}
+
+interface StockRow {
+  id: string;
+  number: string;
+  labels: { customer?: string | null; site?: string | null };
+  due: string | null;
+  stock: StockSummary;
+}
+
+const monthLabel = (m: string) => (m ? `${Number(m.slice(5))}월` : '생산일 모름');
+const monthsText = (s: StockSummary) => s.byMonth.map(m => `${monthLabel(m.month)} ${m.qty.toLocaleString()}`).join(' · ');
+
+/**
+ * 재고 — 현장별로 묶고, 생산 후 2주가 지난 수량을 따로 표시한다 (2026-11-13 회의).
+ * 대표님: 생산 후 2주까지는 기다려 주고, 지나면 가져가라고 하거나 보관료를 받는다.
+ */
+function StockView({ rows, shown, overdueOnly, today, error }: {
+  rows: StockRow[]; shown: StockRow[]; overdueOnly: boolean; today: string; error: string | null;
+}) {
+  const total = rows.reduce((s, r) => s + r.stock.qty, 0);
+  const overdue = rows.reduce((s, r) => s + r.stock.overdue, 0);
+  const overdueOrders = rows.filter(r => r.stock.overdue > 0).length;
+  const sites = new Map<string, StockRow[]>();
+  for (const r of shown) {
+    const key = `${r.labels.customer ?? '-'}\u0000${r.labels.site ?? '-'}`;
+    sites.set(key, [...(sites.get(key) ?? []), r]);
+  }
+  const siteCount = new Set(rows.map(r => `${r.labels.customer ?? '-'}\u0000${r.labels.site ?? '-'}`)).size;
+  const excelRows: StockExcelRow[] = shown.map(r => ({
+    customer: r.labels.customer ?? '', site: r.labels.site ?? '', number: r.number, qty: r.stock.qty, overdue: r.stock.overdue,
+    oldest: r.stock.oldest, newest: r.stock.newest, oldestDays: r.stock.oldestDays, months: monthsText(r.stock),
+  }));
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <p className="break-keep rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive">
+          생산 기록을 불러오지 못해 생산일이 비어 보일 수 있습니다. 새로고침하세요. ({error})
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <SummaryCard label="미납품 재고" value={`${total.toLocaleString()}조`} sub={`작업의뢰서 ${rows.length}건 · 현장 ${siteCount}곳`} tone="brand" />
+        <SummaryCard label={`생산 후 ${STOCK_GRACE_DAYS}일 경과`} value={`${overdue.toLocaleString()}조`} sub={`작업의뢰서 ${overdueOrders}건 — 출고 요청 · 보관료 대상`} />
+        <SummaryCard label="가장 오래된 재고" value={(() => {
+          const d = rows.map(r => r.stock.oldestDays).filter((v): v is number => v !== null);
+          return d.length ? `${Math.max(...d)}일째` : '-';
+        })()} sub={`${today} 기준`} />
+        <SummaryCard label="생산일 모름" value={`${rows.reduce((s, r) => s + r.stock.unknown, 0).toLocaleString()}조`} sub="생산 기록 없이 수량만 있는 품목" />
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Link href="/deliveries?view=stock" className={chipClass(!overdueOnly, 'whitespace-nowrap')}>
+            전체<span className="tabular opacity-80">{rows.length}</span>
+          </Link>
+          <Link href="/deliveries?view=stock&only=overdue" className={chipClass(overdueOnly, 'whitespace-nowrap')}>
+            {STOCK_GRACE_DAYS}일 지난 재고 있음<span className="tabular opacity-80">{overdueOrders}</span>
+          </Link>
+        </div>
+        <StockExcelButton rows={excelRows} today={today} graceDays={STOCK_GRACE_DAYS} />
+      </div>
+
+      {shown.length === 0 ? (
+        <div className="rounded-xl border border-dashed bg-card py-10 text-center text-sm text-muted-foreground">
+          {overdueOnly ? `생산 후 ${STOCK_GRACE_DAYS}일이 지난 재고가 없습니다.` : '생산 후 납품되지 않은 재고가 없습니다.'}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {[...sites.values()].map(list => {
+            const head = list[0].labels;
+            const qty = list.reduce((s, r) => s + r.stock.qty, 0);
+            const late = list.reduce((s, r) => s + r.stock.overdue, 0);
+            return (
+              <Card key={`${head.customer}-${head.site}`} className="gap-0 py-0">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b px-5 py-3">
+                  <p className="min-w-0 font-bold">{head.customer ?? '-'}<span className="ml-2 font-medium text-muted-foreground">{head.site ?? ''}</span></p>
+                  <p className="tabular text-sm">
+                    재고 <b className="text-brand-800">{qty.toLocaleString()}조</b>
+                    {late > 0 && <span className="ml-2 font-semibold text-destructive">{STOCK_GRACE_DAYS}일 경과 {late.toLocaleString()}조</span>}
+                  </p>
+                </div>
+                <div className="divide-y">
+                  {list.map(r => (
+                    <div key={r.id} className="grid gap-x-4 gap-y-1 px-5 py-2.5 text-sm md:grid-cols-[110px_90px_1fr_auto] md:items-center">
+                      <Link href={`/deliveries/${r.id}`} className="font-bold text-brand-800 hover:underline">{r.number}</Link>
+                      <span className="tabular"><b>{r.stock.qty.toLocaleString()}조</b></span>
+                      <span className="tabular min-w-0 text-muted-foreground">
+                        생산 {r.stock.oldest ?? '모름'}{r.stock.newest && r.stock.newest !== r.stock.oldest ? ` – ${r.stock.newest}` : ''}
+                        <span className="ml-2">{monthsText(r.stock)}</span>
+                      </span>
+                      <span className="tabular flex items-center gap-2 md:justify-end">
+                        {r.stock.oldestDays !== null && (
+                          <span className={cn('rounded-full px-2 py-0.5 text-xs font-bold',
+                            r.stock.overdue > 0 ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground')}>
+                            {r.stock.oldestDays}일째
+                          </span>
+                        )}
+                        <Link href={`/deliveries/${r.id}`} className={buttonVariants({ size: 'sm', variant: 'outline' })}>
+                          <Truck />납품 입력
+                        </Link>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

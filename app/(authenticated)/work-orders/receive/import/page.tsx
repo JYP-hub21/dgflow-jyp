@@ -11,9 +11,10 @@ import PageHeader from '@/components/layout/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { chipClass } from '@/components/ui/chip';
 import { cn } from '@/lib/utils';
 import {
-  importPlan, parseErpOrderList, type ErpListOrder, type ErpListParse, type ImportOptions,
+  importPlan, parseErpOrderList, remainingStatusOf, type ErpListOrder, type ErpListParse, type ImportOptions, type RemainingStatus,
 } from '@/lib/work-order/erp-list';
 
 /**
@@ -24,6 +25,9 @@ import {
  * 1) 파일을 고르면 브라우저에서 읽어 미리 보여 준다 — 아직 아무것도 저장하지 않는다
  * 2) 이미 등록된 의뢰번호를 확인해 건너뛸 것을 표시한다
  * 3) 출고 수량 · 잔여 의뢰서를 어떻게 넣을지 고른 뒤 '가져오기' — 나눠서 보낸다
+ *
+ * 2026-11-13 회의: "완료로 보관하면 생산은 완료되는데 납품은 남는다" → 출고 수량을 납품 기록으로도 남길지 고르고,
+ * "중간에 몇 개만 진행 중으로" → 잔여가 남은 의뢰서는 목록에서 하나씩 완료 / 진행 중을 바꿀 수 있다.
  */
 const BATCH = 40;
 const PREVIEW_ROWS = 50;
@@ -35,10 +39,14 @@ export default function ImportWorkOrdersPage() {
   const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
   const [producedFromShipped, setProducedFromShipped] = useState(true);
-  const [remainingStatus, setRemainingStatus] = useState<ImportOptions['remainingStatus'] | null>(null);
+  const [deliveredFromShipped, setDeliveredFromShipped] = useState(true);
+  const [remainingStatus, setRemainingStatus] = useState<RemainingStatus | null>(null);
+  /** 의뢰서마다 따로 고른 잔여분 처리 (의뢰번호 → 상태) */
+  const [statusByOrder, setStatusByOrder] = useState<Record<string, RemainingStatus>>({});
+  const [onlyRemaining, setOnlyRemaining] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ created: number; items: number; skipped: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; items: number; deliveries: number; skipped: number } | null>(null);
 
   // 파일을 카드에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
@@ -51,6 +59,7 @@ export default function ImportWorkOrdersPage() {
     setParsed(null);
     setExisting(null);
     setResult(null);
+    setStatusByOrder({});
     setFileName(file.name);
     try {
       const wb = await readWorkbookFile(file, { cellDates: true });
@@ -81,23 +90,40 @@ export default function ImportWorkOrdersPage() {
   }
 
   const fresh = useMemo(() => (parsed && existing ? parsed.orders.filter(o => !existing.has(o.work_order_number)) : []), [parsed, existing]);
-  const options: ImportOptions | null = remainingStatus ? { producedFromShipped, remainingStatus } : null;
+  const options: ImportOptions | null = remainingStatus
+    ? { producedFromShipped, deliveredFromShipped: producedFromShipped && deliveredFromShipped, remainingStatus, statusByOrder }
+    : null;
   const plan = useMemo(() => {
     if (!options) return null;
-    const count = { pending: 0, in_progress: 0, completed: 0 };
-    for (const o of fresh) count[importPlan(o, options).status]++;
+    const count = { pending: 0, in_progress: 0, completed: 0, deliveredQty: 0 };
+    for (const o of fresh) {
+      const pl = importPlan(o, options);
+      count[pl.status]++;
+      count.deliveredQty += pl.delivered.reduce((s, n) => s + n, 0);
+    }
     return count;
-  }, [fresh, options?.producedFromShipped, options?.remainingStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fresh, options?.producedFromShipped, options?.deliveredFromShipped, options?.remainingStatus, statusByOrder]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** 목록에서 한 의뢰서의 잔여분 처리를 바꾼다 — 전체 기본값과 같아지면 따로 고른 표시를 지운다 */
+  function setOrderStatus(number: string, next: RemainingStatus) {
+    setStatusByOrder(prev => {
+      const copy = { ...prev };
+      if (next === remainingStatus) delete copy[number]; else copy[number] = next;
+      return copy;
+    });
+  }
 
   const dates = parsed?.orders.map(o => o.request_date).filter(Boolean).sort() as string[] | undefined;
   const withRemaining = fresh.filter(o => o.remaining > 0).length;
+  const listed = !parsed ? [] : onlyRemaining ? fresh.filter(o => o.remaining > 0) : parsed.orders;
+  const overridden = fresh.filter(o => o.remaining > 0 && statusByOrder[o.work_order_number]).length;
 
   async function runImport() {
     if (!options || fresh.length === 0) return;
     if (!window.confirm(`새 작업의뢰서 ${fresh.length}건(품목 ${fresh.reduce((s, o) => s + o.items.length, 0)}줄)을 시스템에 등록합니다. 계속하시겠습니까?`)) return;
     setProgress({ done: 0, total: fresh.length });
     setError('');
-    let created = 0, items = 0, skipped = 0;
+    let created = 0, items = 0, deliveries = 0, skipped = 0;
     try {
       for (let i = 0; i < fresh.length; i += BATCH) {
         const batch = fresh.slice(i, i + BATCH);
@@ -110,10 +136,11 @@ export default function ImportWorkOrdersPage() {
         if (!res.ok) throw new Error(body.error || '가져오지 못했습니다.');
         created += body.created ?? 0;
         items += body.items ?? 0;
+        deliveries += body.deliveries ?? 0;
         skipped += (body.skipped ?? []).length;
         setProgress({ done: Math.min(fresh.length, i + BATCH), total: fresh.length });
       }
-      setResult({ created, items, skipped });
+      setResult({ created, items, deliveries, skipped });
       setExisting(prev => new Set([...(prev ?? []), ...fresh.map(o => o.work_order_number)]));
       toast.success(`작업의뢰서 ${created}건을 가져왔습니다.`);
     } catch (e) {
@@ -180,15 +207,32 @@ export default function ImportWorkOrdersPage() {
                   onChange={e => setProducedFromShipped(e.target.checked)} />
                 <span><b>출고 수량만큼 생산 완료로 처리</b><span className="block text-muted-foreground">전량 출고된 의뢰서는 완료로 등록됩니다.</span></span>
               </label>
+              <label className={cn('flex cursor-pointer items-start gap-2.5 text-sm', !producedFromShipped && 'cursor-not-allowed opacity-50')}>
+                <input type="checkbox" className="mt-0.5 h-5 w-5 accent-brand-800" disabled={!producedFromShipped}
+                  checked={producedFromShipped && deliveredFromShipped} onChange={e => setDeliveredFromShipped(e.target.checked)} />
+                <span>
+                  <b>출고 수량을 납품 기록으로도 저장</b>
+                  <span className="block break-keep text-muted-foreground">
+                    전량 출고된 의뢰서는 <b className="font-semibold text-foreground">납품 완료</b>로 표시되고 납품 대기 목록에 남지 않습니다.
+                    납품일은 ERP 목록의 납품일자(없으면 주문일)로 기록되며, 실제로 현장에 들어간 날과 다를 수 있습니다.
+                  </span>
+                </span>
+              </label>
               <div className="space-y-2 text-sm">
-                <p className="font-semibold">잔여가 남은 의뢰서 {withRemaining}건은</p>
+                <p className="font-semibold">잔여가 남은 의뢰서 {withRemaining}건의 기본 처리</p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Choice on={remainingStatus === 'archive'} onClick={() => setRemainingStatus('archive')}
                     title="완료로 보관 (권장)" desc="지난 기록으로만 보관합니다. 생산 현황 · 대시보드의 진행 중 목록에는 표시되지 않습니다." />
                   <Choice on={remainingStatus === 'active'} onClick={() => setRemainingStatus('active')}
                     title="진행 중으로 등록" desc="생산 현황에 잔여 수량과 함께 표시됩니다. 현재 생산 중인 의뢰서만 있는 경우 선택하세요." />
                 </div>
-                {remainingStatus === 'active' && producedFromShipped && (
+                {remainingStatus && withRemaining > 0 && (
+                  <p className="break-keep text-xs text-muted-foreground">
+                    아래 목록에서 의뢰서마다 <b className="text-foreground">완료 / 진행 중</b>을 따로 바꿀 수 있습니다.
+                    {overridden > 0 && <> 따로 고른 의뢰서 <b className="text-brand-800">{overridden}건</b>.</>}
+                  </p>
+                )}
+                {(remainingStatus === 'active' || Object.values(statusByOrder).includes('active')) && producedFromShipped && (
                   <p className="flex items-start gap-1.5 rounded-lg bg-warning-50 px-3 py-2 text-xs">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
                     진행 중 의뢰서의 품목에 생산 실적을 새로 입력하면, 그 품목의 완료 수량은 출고 기준으로 입력해 둔 값 대신 새로 입력한 실적의 합으로 변경됩니다.
@@ -198,7 +242,8 @@ export default function ImportWorkOrdersPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
                 <p className="text-sm text-muted-foreground">
                   {plan
-                    ? <>가져오면 <b className="text-foreground">완료 {plan.completed}건</b> · 진행 중 {plan.in_progress}건 · 대기 {plan.pending}건이 됩니다.</>
+                    ? <>가져오면 <b className="text-foreground">완료 {plan.completed}건</b> · 진행 중 {plan.in_progress}건 · 대기 {plan.pending}건이 됩니다.
+                        {plan.deliveredQty > 0 && <> 납품 기록 {plan.deliveredQty.toLocaleString()}조도 함께 저장합니다.</>}</>
                     : '잔여 의뢰서의 처리 방식을 선택하면 가져올 수 있습니다.'}
                 </p>
                 <Button onClick={runImport} disabled={!options || fresh.length === 0 || !!progress || !existing}>
@@ -213,7 +258,7 @@ export default function ImportWorkOrdersPage() {
               )}
               {result && (
                 <p className="flex items-center gap-1.5 rounded-lg bg-success-50 px-3 py-2 text-sm font-medium text-success">
-                  <CheckCircle2 className="h-4 w-4" />작업의뢰서 {result.created}건 · 품목 {result.items}줄을 넣었습니다.
+                  <CheckCircle2 className="h-4 w-4" />작업의뢰서 {result.created}건 · 품목 {result.items}줄{result.deliveries > 0 ? ` · 납품 기록 ${result.deliveries}줄` : ''}을 넣었습니다.
                   {result.skipped > 0 && ` 이미 있던 ${result.skipped}건은 건너뛰었습니다.`}
                   <Link href="/work-orders" className="ml-1 underline">작업의뢰서 목록 보기</Link>
                 </p>
@@ -221,7 +266,15 @@ export default function ImportWorkOrdersPage() {
             </CardContent>
           </Card>
 
-          {/* 4. 의뢰서 목록 */}
+          {/* 4. 의뢰서 목록 — 잔여가 남은 것만 골라 보며 하나씩 완료 / 진행 중을 바꾼다 */}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setOnlyRemaining(false)} className={chipClass(!onlyRemaining)}>
+              전체<span className="tabular opacity-80">{parsed.orders.length}</span>
+            </button>
+            <button type="button" onClick={() => setOnlyRemaining(true)} className={chipClass(onlyRemaining)}>
+              잔여 있는 신규 의뢰서<span className="tabular opacity-80">{withRemaining}</span>
+            </button>
+          </div>
           <Card className="gap-0 py-0">
             <CardContent className="overflow-x-auto p-0">
               <Table className="min-w-[900px]">
@@ -238,15 +291,19 @@ export default function ImportWorkOrdersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(showAll ? parsed.orders : parsed.orders.slice(0, PREVIEW_ROWS)).map(o => (
-                    <OrderRow key={o.work_order_number} o={o} exists={!!existing?.has(o.work_order_number)} options={options} />
+                  {(showAll ? listed : listed.slice(0, PREVIEW_ROWS)).map(o => (
+                    <OrderRow key={o.work_order_number} o={o} exists={!!existing?.has(o.work_order_number)} options={options}
+                      picked={statusByOrder[o.work_order_number]} onPick={next => setOrderStatus(o.work_order_number, next)} />
                   ))}
                 </TableBody>
               </Table>
-              {!showAll && parsed.orders.length > PREVIEW_ROWS && (
+              {listed.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">잔여가 남은 신규 의뢰서가 없습니다.</p>
+              )}
+              {!showAll && listed.length > PREVIEW_ROWS && (
                 <button type="button" onClick={() => setShowAll(true)}
                   className="w-full border-t py-3 text-sm font-medium text-muted-foreground hover:bg-muted/50">
-                  나머지 {parsed.orders.length - PREVIEW_ROWS}건 더 보기
+                  나머지 {listed.length - PREVIEW_ROWS}건 더 보기
                 </button>
               )}
             </CardContent>
@@ -259,8 +316,15 @@ export default function ImportWorkOrdersPage() {
 
 const STATUS_LABEL = { pending: '대기', in_progress: '진행 중', completed: '완료' } as const;
 
-function OrderRow({ o, exists, options }: { o: ErpListOrder; exists: boolean; options: ImportOptions | null }) {
+function OrderRow({ o, exists, options, picked, onPick }: {
+  o: ErpListOrder; exists: boolean; options: ImportOptions | null;
+  /** 이 의뢰서만 따로 고른 처리 */
+  picked?: RemainingStatus;
+  onPick: (next: RemainingStatus) => void;
+}) {
   const status = options ? importPlan(o, options).status : null;
+  const choosable = !exists && !!options && o.remaining > 0;
+  const current = options ? remainingStatusOf(o, options) : null;
   return (
     <TableRow className={exists ? 'opacity-50' : ''}>
       <TableCell className="pl-5 font-bold text-brand-800">{o.work_order_number}</TableCell>
@@ -274,7 +338,21 @@ function OrderRow({ o, exists, options }: { o: ErpListOrder; exists: boolean; op
       <TableCell className="tabular text-right">{o.shipped.toLocaleString()}</TableCell>
       <TableCell className={cn('tabular text-right', o.remaining > 0 && 'font-semibold text-warning')}>{o.remaining.toLocaleString()}</TableCell>
       <TableCell className="pr-5 text-sm">
-        {exists ? <span className="text-muted-foreground">이미 등록됨</span> : status ? STATUS_LABEL[status] : <span className="text-muted-foreground">-</span>}
+        {exists ? <span className="text-muted-foreground">이미 등록됨</span>
+          : choosable ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex overflow-hidden rounded-lg border text-xs font-semibold" role="group" aria-label={`${o.work_order_number} 잔여분 처리`}>
+                {(['archive', 'active'] as const).map(v => (
+                  <button key={v} type="button" onClick={() => onPick(v)} aria-pressed={current === v}
+                    className={cn('px-2.5 py-1 transition-colors', current === v ? 'bg-brand-800 text-white' : 'bg-card text-muted-foreground hover:bg-muted')}>
+                    {v === 'archive' ? '완료' : '진행 중'}
+                  </button>
+                ))}
+              </span>
+              {picked && <span className="text-[11px] font-semibold text-brand-800">따로 고름</span>}
+            </span>
+          )
+          : status ? STATUS_LABEL[status] : <span className="text-muted-foreground">-</span>}
       </TableCell>
     </TableRow>
   );

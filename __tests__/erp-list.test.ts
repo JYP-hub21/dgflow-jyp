@@ -67,10 +67,25 @@ describe('목록 → 의뢰번호별 작업의뢰서', () => {
 
   it('넣을 상태 — 다 나갔으면 완료, 잔여는 고른 대로', () => {
     const o = p.orders[0];
-    expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'active' })).toEqual({ produced: [0, 1], status: 'in_progress' });
+    expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'active' })).toEqual({ produced: [0, 1], delivered: [0, 0], status: 'in_progress' });
     expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'archive' }).status).toBe('completed');
-    expect(importPlan(o, { producedFromShipped: false, remainingStatus: 'active' })).toEqual({ produced: [0, 0], status: 'pending' });
+    expect(importPlan(o, { producedFromShipped: false, remainingStatus: 'active' })).toEqual({ produced: [0, 0], delivered: [0, 0], status: 'pending' });
     expect(importPlan(p.orders[1], { producedFromShipped: true, remainingStatus: 'active' }).status).toBe('completed');
+  });
+
+  it('의뢰서마다 따로 고른 상태가 전체 기본값보다 먼저다 (2026-11-13 회의)', () => {
+    const o = p.orders[0];
+    const n = o.work_order_number;
+    expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'archive', statusByOrder: { [n]: 'active' } }).status).toBe('in_progress');
+    expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'active', statusByOrder: { [n]: 'archive' } }).status).toBe('completed');
+    // 다른 의뢰서를 고른 것은 영향이 없다
+    expect(importPlan(o, { producedFromShipped: true, remainingStatus: 'archive', statusByOrder: { '99-9999': 'active' } }).status).toBe('completed');
+  });
+
+  it('납품 기록 — 출고 수량을 생산으로 넣을 때만, 생산과 같은 수량', () => {
+    const o = p.orders[0];
+    expect(importPlan(o, { producedFromShipped: true, deliveredFromShipped: true, remainingStatus: 'active' }).delivered).toEqual([0, 1]);
+    expect(importPlan(o, { producedFromShipped: false, deliveredFromShipped: true, remainingStatus: 'active' }).delivered).toEqual([0, 0]);
   });
 });
 

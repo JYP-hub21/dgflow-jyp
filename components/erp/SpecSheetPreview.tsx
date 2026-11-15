@@ -72,7 +72,8 @@ export default function SpecSheetPreview({ blocks, excludedRows, onDownload }: {
         {packages.length > 1 && (
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setOnly(null)} className={chipClass(only === null, 'h-8 text-xs')}>
-              전체 <span className={chipCountClass(only === null)}>포장 {packages.length}</span>
+              {/* "포장 2" 가 포장 이름처럼 읽혀 개수인 걸 알게 단위를 붙인다 (2026-11-13 사용자) */}
+              전체 <span className={chipCountClass(only === null)}>포장 {packages.length}개</span>
             </button>
             {packages.map(x => (
               <button key={x.label} type="button" onClick={() => setOnly(x.label)}

@@ -204,20 +204,39 @@ export function parseErpOrderList(rows: unknown[][]): ErpListParse {
   return { orders: list, itemCount, skipped, headerRow: headerIndex + 1, missingColumns: [] };
 }
 
-/** 가져올 때 정하는 두 가지 */
+export type RemainingStatus = 'active' | 'archive';
+
+/** 가져올 때 정하는 것 */
 export interface ImportOptions {
   /** 출고된 수량만큼은 생산 완료로 넣는다 */
   producedFromShipped: boolean;
-  /** 잔여가 남은 의뢰서 — 진행 중으로 띄울지(active), 완료로 보관할지(archive) */
-  remainingStatus: 'active' | 'archive';
+  /**
+   * 출고된 수량을 납품 기록으로도 남긴다 — 생산 완료로 넣을 때만 (2026-11-13 회의: "완료로 보관하면 생산은 다 완료되는데
+   * 납품은 다시 남는다" → 납품까지 한 번에 완료할지 고르게). 납품일은 ERP 목록의 납품일자.
+   */
+  deliveredFromShipped?: boolean;
+  /** 잔여가 남은 의뢰서 — 진행 중으로 띄울지(active), 완료로 보관할지(archive). 따로 고르지 않은 의뢰서에 쓴다 */
+  remainingStatus: RemainingStatus;
+  /** 의뢰서마다 따로 고른 것 (의뢰번호 → 상태) — 2026-11-13 회의 "중간에 몇 개만 진행 중인 걸로 고르는 것" */
+  statusByOrder?: Record<string, RemainingStatus>;
 }
 
-/** 의뢰서 상태와 품목별 생산 수량 — 화면 미리보기와 서버 저장이 같은 규칙을 쓴다 */
-export function importPlan(order: Pick<ErpListOrder, 'items'>, options: ImportOptions) {
+/** 이 의뢰서의 잔여분 처리 — 따로 고른 게 있으면 그것, 없으면 전체 기본값 */
+export function remainingStatusOf(order: Pick<ErpListOrder, 'work_order_number'>, options: ImportOptions): RemainingStatus {
+  return options.statusByOrder?.[order.work_order_number] ?? options.remainingStatus;
+}
+
+/**
+ * 의뢰서 상태와 품목별 생산 · 납품 수량 — 화면 미리보기와 서버 저장이 같은 규칙을 쓴다.
+ * 납품은 생산으로 넣은 수량만큼만 (출고 = 생산 = 납품). 납품 기록이 있어도 상태는 이 규칙대로이고,
+ * 화면 단계(납품 완료 · 완료)는 저장된 상태와 납품 합으로 다시 계산된다(lib/work-order/stage.ts).
+ */
+export function importPlan(order: Pick<ErpListOrder, 'items' | 'work_order_number'>, options: ImportOptions) {
   const produced = order.items.map(it => (options.producedFromShipped ? Math.min(it.shipped, it.quantity) : 0));
+  const delivered = produced.map(n => (options.producedFromShipped && options.deliveredFromShipped ? n : 0));
   const left = order.items.reduce((s, it, k) => s + (it.quantity - produced[k]), 0);
   const anyProduced = produced.some(n => n > 0);
   const status: 'pending' | 'in_progress' | 'completed' =
-    left === 0 || options.remainingStatus === 'archive' ? 'completed' : anyProduced ? 'in_progress' : 'pending';
-  return { produced, status };
+    left === 0 || remainingStatusOf(order, options) === 'archive' ? 'completed' : anyProduced ? 'in_progress' : 'pending';
+  return { produced, delivered, status };
 }

@@ -18,8 +18,11 @@ import { Badge } from '@/components/ui/badge';
 import { loadReceipts } from '@/lib/work-order/receipts';
 import { loadDeliveries } from '@/lib/production/delivery-store';
 import { deliveredByWorkOrder } from '@/lib/production/delivery';
-import { Factory, ScanLine, ClipboardList, Phone } from 'lucide-react';
+import { Factory, ScanLine, ClipboardList, Phone, FileUp } from 'lucide-react';
 import { fetchAllIn } from '@/lib/supabase/fetch-all';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { hasPermission } from '@/lib/auth/role-guard';
+import { MES_COMMIT_ENABLED } from '@/lib/production/mes';
 
 const PAGE_SIZE = 20;
 
@@ -30,6 +33,11 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
   const offset = (page - 1) * PAGE_SIZE;
 
   const supabase = await createServerSupabaseClient();
+  // MES 생산실적 가져오기는 생산 입력을 할 수 있는 사람에게만 (2026-11-13).
+  // 등록이 잠겨 있는 동안(MES_COMMIT_ENABLED = false, 사용자 "실험만 하고 아직 화면에 자동으로 채우진 마")은 관리자에게만 보인다 —
+  // 직원이 올려 보고 등록이 안 돼 헷갈리지 않게 (2026-11-15 배포)
+  const me = await getCurrentUser();
+  const canImportMes = !!me && (MES_COMMIT_ENABLED ? hasPermission(me, 'production:input') : me.role === 'master');
 
   // 남은 품목 — 진행 중 의뢰서의 품목 중 잔여가 있는 것. 열끼리 비교는 쿼리로 못 해 여기서 거른다
   const { data: openOrders } = await supabase
@@ -125,9 +133,16 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
             ? '외주로 지정한 작업의뢰서의 생산 업체와 담당자 연락처를 확인합니다.'
             : '오창공장에서 생산할 진행 중인 작업의뢰서입니다. 생산 입력에서 당일 생산 수량을 입력하세요.'}
         actions={
-          <Link href="/production/report" className={buttonVariants({ variant: 'outline' })}>
-            <ClipboardList />생산일지
-          </Link>
+          <>
+            {canImportMes && (
+              <Link href="/production/mes-import" className={buttonVariants({ variant: 'outline' })}>
+                <FileUp />MES 실적 가져오기
+              </Link>
+            )}
+            <Link href="/production/report" className={buttonVariants({ variant: 'outline' })}>
+              <ClipboardList />생산일지
+            </Link>
+          </>
         }
       />
 
