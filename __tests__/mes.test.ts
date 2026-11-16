@@ -6,7 +6,7 @@ import {
   MAX_FILL_GAP, MesCollector, dailyTotals, groupPieces, groupQty, minutesOfDay, normalizeWorkOrderNumber, parseLine, shiftOf, toIsoDate,
   type MesGroup,
 } from '@/lib/production/mes';
-import { mesToLog, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
+import { mesToLog, netDailyTotals, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
 import { isMesOrder, logArea, missingNos, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
 import { planRevision } from '@/lib/work-order/revise';
 import { parseMesBytes } from '@/lib/production/mes-read';
@@ -282,5 +282,30 @@ describe('MES 의뢰서 — 빠진 NO · 표시 · 수량 고치기', () => {
     expect(planRevision(existing, incoming).updates).toEqual([]); // 보통 의뢰서: 생산 12 밑으로 못 줄인다
     expect(planRevision(existing, incoming, { followProduction: true }).updates[0].fields.quantity).toBe(10);
     expect(planRevision(existing, [{ ...incoming[0], quantity: 3 }], { followProduction: true }).updates[0].fields.quantity).toBe(4);
+  });
+});
+
+describe('누계용 MES 날짜별 합계 — 생산 기록과 겹치는 줄은 뺀다 (lib/production/mes-db.ts netDailyTotals)', () => {
+  const mes = [
+    { production_date: '2026-10-22', work_order_number: '26-2573', quantity: 10, area_m2: 12.5 },
+    { production_date: '2026-10-22', work_order_number: '26-2600', quantity: 4, area_m2: '3.20' },
+    { production_date: '2026-10-23', work_order_number: '26-2573', quantity: 7, area_m2: 8 },
+  ];
+  it('생산 기록이 없으면 날짜별로 전부 더한다', () => {
+    expect(netDailyTotals(mes, [])).toEqual([
+      { date: '2026-10-22', quantity: 14, area_m2: 15.7 },
+      { date: '2026-10-23', quantity: 7, area_m2: 8 },
+    ]);
+  });
+  it('같은 의뢰번호 · 같은 날에 생산 기록이 있으면 그 줄은 세지 않는다 (두 번 세지 않게)', () => {
+    const manual = [{ work_order_number: '26-2573', production_date: '2026-10-22' }];
+    expect(netDailyTotals(mes, manual)).toEqual([
+      { date: '2026-10-22', quantity: 4, area_m2: 3.2 },
+      { date: '2026-10-23', quantity: 7, area_m2: 8 },
+    ]);
+  });
+  it('전부 겹치면 빈 목록', () => {
+    const manual = mes.map(r => ({ work_order_number: r.work_order_number, production_date: r.production_date }));
+    expect(netDailyTotals(mes, manual)).toEqual([]);
   });
 });

@@ -105,7 +105,58 @@ export async function fetchMesRows(supabase: SupabaseClient, from: string, to: s
   return out;
 }
 
-/** 날짜별 MES 합계 (누계용) — 표가 없으면 빈 목록 */
+/** 누계용 가벼운 MES 줄 — 겹침 판정(의뢰번호 · 날짜)과 합계에 쓰는 칸만 */
+export interface MesLightRow { production_date: string; work_order_number: string; quantity: number; area_m2: number | string | null }
+
+/**
+ * 날짜별 MES 합계에서 생산 기록과 겹치는 줄을 뺀 것 (누계용, 2026-11-16).
+ * MES 생산실적으로 만든 작업의뢰서는 같은 유리가 생산 기록에도 있다 — 날짜별 합계(dgflow_mes_daily_totals)를 그대로 더하면
+ * 누계가 두 번 세어졌다(운영 11/16: 실제 13,916조가 26,518조로 나옴). 그날 일지와 같은 규칙(withoutManualOverlap)으로 뺀다.
+ */
+export function netDailyTotals(
+  mes: MesLightRow[], manual: Pick<ProductionLogRow, 'work_order_number' | 'production_date'>[],
+): { date: string; quantity: number; area_m2: number }[] {
+  const taken = new Set(manual.map(l => `${l.work_order_number}|${l.production_date}`));
+  const byDate = new Map<string, { quantity: number; area_m2: number }>();
+  for (const r of mes) {
+    if (taken.has(`${r.work_order_number}|${r.production_date}`)) continue;
+    const t = byDate.get(r.production_date) ?? { quantity: 0, area_m2: 0 };
+    t.quantity += Number(r.quantity) || 0;
+    t.area_m2 += Number(r.area_m2) || 0;
+    byDate.set(r.production_date, t);
+  }
+  return [...byDate].sort((a, b) => a[0].localeCompare(b[0])).map(([date, t]) => ({ date, ...t }));
+}
+
+/** 기간(양 끝 포함)의 MES 줄을 가볍게 — 줄 수를 먼저 세고 1,000줄씩 여럿을 한꺼번에 읽는다. 표가 없으면 빈 목록 */
+export async function fetchMesLightRows(supabase: SupabaseClient, from: string, to: string): Promise<MesLightRow[]> {
+  const { count, error } = await supabase.from(MES_TABLE).select('production_date', { count: 'exact', head: true })
+    .gte('production_date', from).lte('production_date', to);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  const pages = Math.ceil((count ?? 0) / 1000);
+  const out: MesLightRow[] = [];
+  const PARALLEL = 8;
+  for (let start = 0; start < pages; start += PARALLEL) {
+    const batch = await Promise.all(Array.from({ length: Math.min(PARALLEL, pages - start) }, (_, i) => {
+      const offset = (start + i) * 1000;
+      // 정렬은 표의 기본 키 전체 — 나눠 읽을 때 같은 줄이 겹치거나 빠지지 않게
+      return supabase.from(MES_TABLE).select('production_date, work_order_number, quantity, area_m2')
+        .gte('production_date', from).lte('production_date', to)
+        .order('production_date').order('line_number').order('shift').order('work_order_number').order('item_no')
+        .range(offset, offset + 999);
+    }));
+    for (const { data, error: pageError } of batch) {
+      if (pageError) throw new Error(pageError.message);
+      out.push(...((data ?? []) as MesLightRow[]));
+    }
+  }
+  return out;
+}
+
+/** 날짜별 MES 합계 — MES 가져오기 화면이 '이미 등록된 날' 을 보여 줄 때 쓴다. 누계에는 쓰지 않는다(생산 기록과 겹침 — netDailyTotals). 표가 없으면 빈 목록 */
 export async function fetchMesDailyTotals(supabase: SupabaseClient, from: string, to: string): Promise<{ date: string; quantity: number; area_m2: number }[]> {
   const { data, error } = await supabase.from('dgflow_mes_daily_totals').select('production_date, quantity, area_m2')
     .gte('production_date', from).lte('production_date', to).order('production_date').limit(2000);

@@ -77,7 +77,8 @@ export async function entriesForRange(
       .select('production_date, line_number, work_order_id, composition, glass_type, quantity_note')
       .gte('production_date', from)
       .lte('production_date', to)
-      .order('production_date')
+      // 기본 키 전체로 정렬 — 나눠 읽을 때 같은 줄이 겹치거나 빠지지 않게
+      .order('production_date').order('line_number').order('work_order_id').order('composition')
       .range(offset, offset + 999);
     if (error) {
       if (isMissingTable(error)) { storage = 'none'; break; }

@@ -91,7 +91,9 @@ export function reconcile(
     });
   }
 
-  const checked = lines.filter(l => l.ok !== null).length;
+  // 'ERP 엑셀에 나간 수량' 줄은 우리가 읽은 합과 우리가 쓴 합의 비교다 — 발주서 합계와 대조한 것이 아니므로 '일치한 곳' 에 세지 않는다.
+  // 예전에는 이 줄도 세어서, 계 · 합계 행이 하나도 없는 발주서에도 "발주서 합계와 전부 일치합니다 (1곳)" 초록 띠가 떴다 (2026-11-16 실전 전 점검).
+  const checked = lines.filter(l => l.scope !== 'output' && l.ok !== null).length;
   const mismatched = lines.filter(l => l.ok === false).length;
 
   return { lines, checked, mismatched, ok: checked > 0 && mismatched === 0 };
