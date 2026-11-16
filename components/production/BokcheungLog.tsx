@@ -45,6 +45,20 @@ function addDays(date: string, n: number) {
 }
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 const weekday = (date: string) => WEEKDAYS[new Date(`${date}T12:00:00Z`).getUTCDay()];
+/**
+ * 보고 있는 날이 오늘과 며칠 차이인지 — 날짜 옆에 늘 띄운다 (2026-11-16 사용자가 지난 월요일 11/09 화면을 오늘로 읽고
+ * "오늘 날짜로 왜 뜨는 거야" 라고 물었다. 날짜 숫자만으로는 지난 날인지 안 보인다).
+ */
+function dayGap(date: string, today: string) {
+  return Math.round((Date.parse(`${date}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
+}
+/** '11월 9일(월)' */
+const shortKo = (date: string) => `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일(${weekday(date)})`;
+function gapLabel(gap: number) {
+  if (gap === 0) return '오늘';
+  if (gap === -1) return '어제';
+  return gap < 0 ? `지난 날짜 · ${-gap}일 전` : `${gap}일 뒤`;
+}
 
 export default function BokcheungLog() {
   const router = useRouter();
@@ -185,6 +199,7 @@ export default function BokcheungLog() {
   const missingType = rows.filter(r => !(entries[r.key]?.glass_type ?? '').trim()).length;
   const canEdit = !!data?.canEdit;
   const today = todayKst();
+  const gap = dayGap(date, today);
 
   return (
     <div className="space-y-4">
@@ -202,9 +217,14 @@ export default function BokcheungLog() {
             <span className={cn('pb-2 text-sm font-semibold', weekday(date) === '일' ? 'text-destructive' : 'text-muted-foreground')}>
               {weekday(date)}요일
             </span>
+            <span className={cn('mb-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset',
+              gap === 0 ? 'bg-brand-50 text-brand-700 ring-brand-600/20' : 'bg-warning-50 text-foreground ring-warning/40')}>
+              {gapLabel(gap)}
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <SaveBadge state={save} canEdit={canEdit} />
+            {/* 불러오기 전에는 권한을 모른다 — 그동안 '보기 전용' 이 잠깐 뜨던 것을 막는다 */}
+            {data && <SaveBadge state={save} canEdit={canEdit} />}
             <Button variant="outline" onClick={() => router.push('/production/report?view=period')}>
               <CalendarRange />기간별 다운로드
             </Button>
@@ -234,7 +254,7 @@ export default function BokcheungLog() {
           {rows.length === 0 ? (
             <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed bg-card py-12 text-center">
               <CalendarDays className="h-8 w-8 text-muted-foreground" />
-              <p className="font-semibold">{sheet.date} 에 입력된 복층 생산실적이 없습니다</p>
+              <p className="font-semibold">{gap === 0 ? `오늘(${sheet.date})은 아직` : `${sheet.date} 에`} 입력된 복층 생산실적이 없습니다</p>
               <p className="text-sm text-muted-foreground">다른 날짜를 선택하세요. 빈 양식도 엑셀로 다운로드할 수 있습니다.</p>
               {data?.lastDate && (
                 <Button className="mt-2" onClick={() => setDate(data.lastDate!)}>
@@ -244,6 +264,7 @@ export default function BokcheungLog() {
             </div>
           ) : (
             <p className="break-keep text-sm text-muted-foreground">
+              {gap !== 0 && <><b className="text-foreground">{shortKo(sheet.date)} 생산분</b>입니다. </>}
               <b className="text-foreground">종류</b>와 <b className="text-foreground">수량외</b>만 입력하면 회사 복층생산일지 양식 그대로 엑셀이 생성됩니다.
               가로 · 세로는 그날 그 줄에서 작업의뢰서 순서가 가장 앞인 품목입니다.
               {missingType > 0 && <span className="font-semibold text-warning"> 종류가 빈 줄 {missingType}개</span>}
