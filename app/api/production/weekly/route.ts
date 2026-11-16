@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { isIsoDate } from '@/lib/production/daily-report';
-import { fetchProductionLogs } from '@/lib/production/logs';
+import { fetchProductionLogs, lastProductionDate } from '@/lib/production/logs';
 import { DEFAULT_SETTINGS, EMPTY_DAY_ENTRY, autoOutputs, buildWeeklySheet, dayKey, weekOf, weeklyLineNumbers, type WeeklyDayEntry } from '@/lib/production/weekly';
 import { fetchMesRows } from '@/lib/production/mes-db';
 import { buildWeeklyWorkbook } from '@/lib/production/weekly-excel';
@@ -72,8 +72,14 @@ export async function GET(request: NextRequest) {
   if ('error' in p) return p.error;
   try {
     const { auto, store } = await readWeek(p.week.days);
+    // 이 주에 생산이 하나도 없으면 기록이 있는 마지막 날을 함께 알려 준다 — 화면이 그 주로 가는 버튼을 띄운다
+    const weekJo = Object.values(auto).flatMap(day => Object.values(day)).reduce((s, c) => s + c.double.jo + c.triple.jo, 0);
+    const lastDate = weekJo === 0
+      ? await lastProductionDate(createServiceRoleClient(), sundayAfter(p.week.saturday)).catch(() => null)
+      : null;
     return NextResponse.json({
       week: p.week,
+      lastDate,
       auto,
       entries: store.entries,
       storage: store.storage,

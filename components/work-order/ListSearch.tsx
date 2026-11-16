@@ -4,14 +4,17 @@ import { buttonVariants } from '@/components/ui/button';
 import Link from 'next/link';
 
 /** 목록 검색 — 현장 · 업체 · 의뢰번호 (2026-11-06 회의 "많아지면 현장만 검색해서 그것만 뜨게") */
-export default function ListSearch({ action, value }: { action: string; value: string }) {
+export default function ListSearch({ action, value, view }: { action: string; value: string; view?: string }) {
+  // 탭(view)이 있는 목록 — 검색해도 보던 탭에 머문다
+  const reset = view ? `${action}?view=${view}` : action;
   return (
     <form action={action} className="flex w-full max-w-md items-center gap-2">
+      {view && <input type="hidden" name="view" value={view} />}
       <div className="relative flex-1">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input name="q" defaultValue={value} placeholder="현장 · 업체 · 의뢰번호 검색" className="pl-9" aria-label="작업의뢰서 검색" />
       </div>
-      {value && <Link href={action} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>초기화</Link>}
+      {value && <Link href={reset} className={buttonVariants({ variant: 'ghost', size: 'sm' })}>초기화</Link>}
     </form>
   );
 }

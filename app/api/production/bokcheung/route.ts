@@ -3,7 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { createServiceRoleClient } from '@/lib/supabase/server';
 import { isIsoDate } from '@/lib/production/daily-report';
-import { fetchProductionLogs } from '@/lib/production/logs';
+import { fetchProductionLogs, lastProductionDate } from '@/lib/production/logs';
 import { buildBokcheungSheet, cumulativeOf } from '@/lib/production/bokcheung';
 import { buildBokcheungWorkbook } from '@/lib/production/bokcheung-excel';
 import { cleanEntries, loadEntries } from '@/lib/production/bokcheung-store';
@@ -42,8 +42,12 @@ async function prepare(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const p = await prepare(request);
   if ('error' in p) return p.error;
+  // 그날 생산이 없으면 기록이 있는 마지막 날을 함께 알려 준다 — 화면이 그날로 가는 버튼을 띄운다
+  const empty = p.sheet.blocks.every(b => b.rows.length === 0);
+  const lastDate = empty ? await lastProductionDate(createServiceRoleClient(), p.date).catch(() => null) : null;
   return NextResponse.json({
     sheet: p.sheet,
+    lastDate,
     storage: p.store.storage,
     entries: p.store.entries,
     suggestions: p.store.suggestions,

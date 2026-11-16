@@ -28,7 +28,10 @@ const PAGE_SIZE = 20;
 
 export default async function ProductionPage({ searchParams }: { searchParams: Promise<{ page?: string; view?: string; q?: string }> }) {
   const params = await searchParams;
-  const view = params.view === 'remaining' ? 'remaining' : params.view === 'outsource' ? 'outsource' : 'orders';
+  // done — 생산을 끝낸 의뢰서 (2026-11-16 사용자 "왜 작업의뢰서에만 들어가 있고 생산 현황에서는 확인할 수가 없냐" —
+  // MES 생산실적으로 만든 의뢰서는 처음부터 '완료' 라 진행 중 목록에 안 나왔다)
+  const view = params.view === 'remaining' ? 'remaining' : params.view === 'outsource' ? 'outsource' : params.view === 'done' ? 'done' : 'orders';
+  const listStatuses = view === 'done' ? ['completed'] : ['pending', 'in_progress'];
   const page = parseInt(params.page || '1');
   const offset = (page - 1) * PAGE_SIZE;
 
@@ -95,12 +98,16 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
       order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name)),
       items:dgflow_work_order_items(quantity, produced_quantity)
     `, { count: 'exact' })
-    .in('status', ['pending', 'in_progress'])
+    .in('status', listStatuses)
     .eq('production_site', 'ochang');
   if (search) listQuery = listQuery.or(search);
-  const { data: workOrders, count } = await listQuery
-    .order('created_at', { ascending: false })
+  // 완료 목록은 의뢰번호 큰 것(최근)부터 — MES 의뢰서는 한꺼번에 등록돼 등록 시각으로는 순서가 없다
+  const { data: workOrders, count } = await (view === 'done'
+    ? listQuery.order('work_order_number', { ascending: false })
+    : listQuery.order('created_at', { ascending: false }))
     .range(offset, offset + PAGE_SIZE - 1);
+  const { count: doneCount } = await supabase.from('dgflow_work_orders').select('id', { count: 'exact', head: true })
+    .eq('status', 'completed').eq('production_site', 'ochang');
 
   // 납품 수량 · 수신 확인 — 표가 생기기 전에는 빈 값으로 온다
   const listIds = (workOrders || []).map(wo => wo.id as string);
@@ -109,6 +116,22 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
     loadDeliveries(service, listIds), loadReceipts(service, listIds),
   ]);
   const delivered = deliveredByWorkOrder(deliveries);
+
+  // 완료 목록 — 의뢰서마다 첫 · 마지막 생산일
+  const producedSpan = new Map<string, { first: string; last: string }>();
+  if (view === 'done' && listIds.length > 0) {
+    const spanLogs = await fetchAllIn<{ work_order_id: string; production_date: string }>(listIds, (chunk, a, b) => supabase
+      .from('dgflow_production_logs').select('work_order_id, production_date')
+      .in('work_order_id', chunk).order('production_date').order('id').range(a, b)).catch(() => []);
+    for (const l of spanLogs) {
+      const s = producedSpan.get(l.work_order_id);
+      if (!s) producedSpan.set(l.work_order_id, { first: l.production_date, last: l.production_date });
+      else {
+        if (l.production_date < s.first) s.first = l.production_date;
+        if (l.production_date > s.last) s.last = l.production_date;
+      }
+    }
+  }
 
   // 외주로 준 진행 중 의뢰서 — 업체 · 담당자 · 발주서 올린 사람
   const { data: outsourced } = await supabase
@@ -131,6 +154,8 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
           ? '생산이 남은 품목입니다. 납기가 가까운 작업의뢰서부터 표시됩니다.'
           : view === 'outsource'
             ? '외주로 지정한 작업의뢰서의 생산 업체와 담당자 연락처를 확인합니다.'
+          : view === 'done'
+            ? '오창공장에서 생산을 마친 작업의뢰서입니다. MES 생산실적으로 등록한 지난 작업의뢰서도 여기에 있습니다.'
             : '오창공장에서 생산할 진행 중인 작업의뢰서입니다. 생산 입력에서 당일 생산 수량을 입력하세요.'}
         actions={
           <>
@@ -154,9 +179,12 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
         <Link href="/production?view=outsource" className={chipClass(view === 'outsource')}>
           외주<span className="tabular opacity-80">{(outsourced || []).length}</span>
         </Link>
+        <Link href="/production?view=done" className={chipClass(view === 'done')}>
+          생산 완료<span className="tabular opacity-80">{(doneCount ?? 0).toLocaleString()}</span>
+        </Link>
       </nav>
 
-      {view === 'orders' && <ListSearch action="/production" value={q} />}
+      {(view === 'orders' || view === 'done') && <ListSearch action="/production" value={q} view={view === 'done' ? 'done' : undefined} />}
 
       {view === 'remaining' ? <RemainingItems groups={remainingGroups} today={today} />
       : view === 'outsource' ? <OutsourceList rows={(outsourced || []).map(wo => ({
@@ -171,7 +199,7 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
       : <>
       {/* 폰 — 작업의뢰서당 카드 */}
       <div className="space-y-3 md:hidden">
-        {(!workOrders || workOrders.length === 0) && <Empty />}
+        {(!workOrders || workOrders.length === 0) && <Empty done={view === 'done'} />}
         {(workOrders || []).map(wo => {
           const labels = workOrderLabels(wo);
           const p = progressOf(wo.items);
@@ -192,8 +220,9 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                   <Progress value={p.percent} className="flex-1" />
                   <span className="tabular shrink-0 text-sm"><b>{p.done}</b>/{p.total}</span>
                 </div>
-                <Link href={`/production/${wo.id}`} className={buttonVariants({ size: 'lg', className: 'w-full' })}>
-                  <Factory />생산 입력
+                {view === 'done' && <p className="tabular text-sm text-muted-foreground">생산일 {spanText(producedSpan.get(wo.id))}</p>}
+                <Link href={`/production/${wo.id}`} className={buttonVariants({ size: 'lg', variant: view === 'done' ? 'outline' : 'default', className: 'w-full' })}>
+                  <Factory />{view === 'done' ? '생산 기록' : '생산 입력'}
                 </Link>
               </CardContent>
             </Card>
@@ -213,13 +242,13 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                 <TableHead>발주서 등록자</TableHead>
                 <TableHead>상태</TableHead>
                 <TableHead className="text-right">완료 / 의뢰</TableHead>
-                <TableHead className="w-52">진행률</TableHead>
+                <TableHead className="w-52">{view === 'done' ? '생산일' : '진행률'}</TableHead>
                 <TableHead className="pr-5 text-right"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(!workOrders || workOrders.length === 0) ? (
-                <TableRow><TableCell colSpan={8} className="p-6"><Empty /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="p-6"><Empty done={view === 'done'} /></TableCell></TableRow>
               ) : workOrders.map(wo => {
                 // ERP 에서 등록한 작업의뢰서는 주문이 없어 자신의 라벨을 쓴다
                 const labels = workOrderLabels(wo);
@@ -241,10 +270,12 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
                       </span>
                     </TableCell>
                     <TableCell className="tabular text-right"><b>{p.done}</b><span className="text-muted-foreground"> / {p.total}</span></TableCell>
-                    <TableCell><Progress value={p.percent} /></TableCell>
+                    <TableCell>{view === 'done'
+                      ? <span className="tabular text-sm text-muted-foreground">{spanText(producedSpan.get(wo.id))}</span>
+                      : <Progress value={p.percent} />}</TableCell>
                     <TableCell className="pr-5 text-right">
-                      <Link href={`/production/${wo.id}`} className={buttonVariants({ size: 'sm' })}>
-                        <Factory />생산 입력
+                      <Link href={`/production/${wo.id}`} className={buttonVariants({ size: 'sm', variant: view === 'done' ? 'outline' : 'default' })}>
+                        <Factory />{view === 'done' ? '생산 기록' : '생산 입력'}
                       </Link>
                     </TableCell>
                   </TableRow>
@@ -330,7 +361,16 @@ function OutsourceList({ rows }: { rows: OutsourceRow[] }) {
   );
 }
 
-function Empty() {
+/** 첫 생산일 – 마지막 생산일 (하루면 하루만) */
+function spanText(span: { first: string; last: string } | undefined) {
+  if (!span) return '-';
+  return span.first === span.last ? span.first : `${span.first} – ${span.last}`;
+}
+
+function Empty({ done = false }: { done?: boolean }) {
+  if (done) {
+    return <p className="py-6 text-center text-sm text-muted-foreground">생산을 마친 작업의뢰서가 없습니다.</p>;
+  }
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-card py-10 text-center">
       <p className="text-sm text-muted-foreground">진행 중인 생산이 없습니다.</p>

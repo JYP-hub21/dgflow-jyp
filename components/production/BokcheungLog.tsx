@@ -27,6 +27,8 @@ interface Loaded {
   entries: Record<string, BokcheungEntry>;
   suggestions: Record<string, string>;
   canEdit: boolean;
+  /** 그날 생산이 없을 때 — 기록이 있는 마지막 날 */
+  lastDate?: string | null;
 }
 type SaveState = 'idle' | 'saving' | 'saved' | 'local' | 'error';
 
@@ -234,6 +236,11 @@ export default function BokcheungLog() {
               <CalendarDays className="h-8 w-8 text-muted-foreground" />
               <p className="font-semibold">{sheet.date} 에 입력된 복층 생산실적이 없습니다</p>
               <p className="text-sm text-muted-foreground">다른 날짜를 선택하세요. 빈 양식도 엑셀로 다운로드할 수 있습니다.</p>
+              {data?.lastDate && (
+                <Button className="mt-2" onClick={() => setDate(data.lastDate!)}>
+                  생산 기록이 있는 마지막 날 {data.lastDate} 보기
+                </Button>
+              )}
             </div>
           ) : (
             <p className="break-keep text-sm text-muted-foreground">

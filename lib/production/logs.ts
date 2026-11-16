@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import type { ProductionLogRow } from './daily-report';
 import { fetchMesDailyTotals, fetchMesRows, mesToLog, withoutManualOverlap } from './mes-db';
+import { MES_TABLE } from './mes';
 
 const PAGE = 1000;
 
@@ -30,6 +31,24 @@ export async function fetchProductionLogs(
   ];
   // 날짜순 (같은 날 안에서는 손 입력 → MES 순서를 그대로 둔다)
   return merged.map((l, i) => ({ l, i })).sort((a, b) => a.l.production_date.localeCompare(b.l.production_date) || a.i - b.i).map(x => x.l);
+}
+
+/**
+ * 이날까지(이날 포함) 생산 기록이나 MES 실적이 있는 마지막 날 — 일지를 빈 날짜로 열었을 때 그날로 바로 가게 (2026-11-16 사용자
+ * "왜 작업의뢰서에만 들어가 있고 일지에서는 확인할 수가 없냐" — MES 파일이 11/11 까지라 오늘 날짜 일지가 비어 보였다).
+ */
+export async function lastProductionDate(supabase: SupabaseClient, onOrBefore: string): Promise<string | null> {
+  const [manual, mes] = await Promise.all([
+    supabase.from('dgflow_production_logs').select('production_date')
+      .lte('production_date', onOrBefore).order('production_date', { ascending: false }).limit(1),
+    supabase.from(MES_TABLE).select('production_date')
+      .lte('production_date', onOrBefore).order('production_date', { ascending: false }).limit(1),
+  ]);
+  const dates = [manual, mes]
+    .map(r => (r.error ? null : (r.data?.[0] as { production_date?: string } | undefined)?.production_date ?? null))
+    .filter((d): d is string => !!d)
+    .sort();
+  return dates.at(-1) ?? null;
 }
 
 const dayBefore = (d: string) => new Date(Date.parse(`${d}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);

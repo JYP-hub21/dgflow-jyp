@@ -32,6 +32,8 @@ interface Loaded {
   entries: Record<string, WeeklyDayEntry>;
   storage: 'db' | 'none';
   canEdit: boolean;
+  /** 이 주에 생산이 없을 때 — 기록이 있는 마지막 날 */
+  lastDate?: string | null;
 }
 type SaveState = 'idle' | 'saving' | 'saved' | 'local' | 'error';
 
@@ -275,6 +277,12 @@ export default function WeeklyLog() {
 
       {sheet && data && (
         <>
+          {data.lastDate && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed bg-card px-5 py-4">
+              <p className="text-sm"><b>이 주에는 생산 기록이 없습니다.</b> 생산 기록이 있는 마지막 날은 {data.lastDate} 입니다.</p>
+              <Button onClick={() => setDate(data.lastDate!)}>그 주 보기</Button>
+            </div>
+          )}
           {sundayJo > 0 && (
             <p className="break-keep rounded-lg border border-warning/40 bg-warning-50 px-4 py-2.5 text-sm">
               {shortDate(sundayDate)} 일요일 생산 {sundayJo.toLocaleString()}조는 주간생산일지 양식에 칸이 없어 이 표에 포함되지 않습니다.
