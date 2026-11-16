@@ -235,6 +235,19 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
         })}
       </div>
 
+      {/* 폰 — 카드를 내려가며 넣다 보면 위쪽 저장 버튼이 안 보인다. 입력한 것이 있으면 아래쪽 탭 바 바로 위에 저장 띠를 붙여 둔다
+          (카드 상자가 둥근 모서리 때문에 넘침을 숨겨 sticky 는 안 붙는다 → 화면 기준 fixed) */}
+      {editable && totalInput > 0 && (
+        <>
+          <div className="h-16 md:hidden" aria-hidden />
+          <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t bg-card/95 px-4 py-2.5 shadow-[0_-4px_12px_-6px_rgba(16,32,48,0.18)] backdrop-blur md:hidden print:hidden">
+            <Button className="h-12 w-full text-base" onClick={save} disabled={saving || !date}>
+              <Save />{saving ? '저장 중…' : `납품 저장 (${totalInput}조)`}
+            </Button>
+          </div>
+        </>
+      )}
+
       <div className="hidden overflow-x-auto md:block">
         <Table className="min-w-[900px] [&_td+td]:border-l [&_th+th]:border-l">
           <TableHeader>

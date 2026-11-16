@@ -874,7 +874,7 @@ function ReceiveForm({ onRegistered }: { onRegistered: () => void }) {
       </Card>
 
       {/* 저장 막대 — 표가 길어도 화면 아래에 붙어 있다 */}
-      <div className="sticky bottom-0 z-10 pb-1">
+      <div className="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 pb-1 md:bottom-0">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/95 px-5 py-3.5 shadow-lg backdrop-blur">
           <p className="tabular text-sm">
             <b className="text-foreground">{head.work_order_number || '의뢰번호 없음'}</b>

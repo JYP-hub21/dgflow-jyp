@@ -21,7 +21,7 @@ export default function PageHeader({ title, description, back, actions }: {
         {back ? (
           <div className="mb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <Link href={back.href}
-              className="inline-flex items-center gap-0.5 text-sm font-medium text-muted-foreground hover:text-foreground">
+              className="-my-2 inline-flex items-center gap-0.5 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
               <ChevronLeft className="h-4 w-4" />{back.label}
             </Link>
             <Suspense fallback={null}><DeptChip /></Suspense>

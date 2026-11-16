@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { affiliationLabel } from '@/types/user';
 import {
@@ -12,6 +12,7 @@ import { DEPARTMENTS, deptOf, type DeptKey } from '@/lib/departments';
 import { DEPT_STYLE } from './dept-style';
 import { MENU_ICONS } from './menu-icons';
 import { KeyRound, LayoutDashboard, LogOut, Menu, X } from 'lucide-react';
+import { InstallApp } from './AppShell';
 import Logo from './Logo';
 import AccountDialog from './AccountDialog';
 import { INITIAL_PASSWORD_FLAG } from '@/lib/auth/account';
@@ -82,12 +83,34 @@ function useLiveBadges(initial: Record<string, number>, pathname: string) {
     return () => window.clearTimeout(t);
   }, [total, pathname]);
 
+  // 홈 화면에 설치한 앱이면 아이콘에도 숫자를 붙인다 (지원하는 폰 · PC 만)
+  useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    try {
+      if (total > 0) void nav.setAppBadge?.(total).catch(() => {});
+      else void nav.clearAppBadge?.().catch(() => {});
+    } catch { /* 숫자는 알림일 뿐 */ }
+  }, [total]);
+
   return { badges, total };
 }
+
+/**
+ * 폰 아래쪽 탭 — 홈 + 내 부서에서 가장 자주 여는 화면 + 전체 메뉴 (2026-11-16 사용자 "폰 화면 편리하게").
+ * 폰에서는 메뉴가 접혀 있어 화면을 옮길 때마다 왼쪽 위 메뉴를 열어야 했다.
+ * 부서를 모르는 계정(관리자 등)은 발주서 → 작업의뢰서 → 생산 순서로 둔다.
+ */
+const BOTTOM_TABS: Record<DeptKey | 'default', string[]> = {
+  construction: ['/purchase-orders/new', '/purchase-orders?view=mine'],
+  support: ['/purchase-orders?view=todo', '/work-orders', '/production'],
+  production: ['/work-orders', '/production', '/deliveries'],
+  default: ['/purchase-orders?view=todo', '/work-orders', '/production'],
+};
 
 export default function Sidebar({ userName, user, department, position, badges: initialBadges = {}, loginId, loginIdLocked }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const menuItems = getMenuFor(user);
   const { badges, total: badgeTotal } = useLiveBadges(initialBadges, pathname);
   const [open, setOpen] = useState(false);
@@ -114,6 +137,17 @@ export default function Sidebar({ userName, user, department, position, badges: 
   const deptGroups = DEPARTMENTS
     .map(dept => ({ dept, items: menuItems.filter(i => i.group === dept.key) }))
     .filter(g => g.items.length > 0);
+
+  const tabs = BOTTOM_TABS[myDept ?? 'default']
+    .map(href => menuItems.find(i => i.href === href))
+    .filter((i): i is MenuItem => !!i);
+  /** 지금 보고 있는 탭을 다시 누르면 새로 고친다 — 앱으로 깔면 브라우저의 새로고침 버튼이 없다 */
+  const onTab = (e: React.MouseEvent, active: boolean) => {
+    if (!active) return;
+    e.preventDefault();
+    router.refresh();
+    document.getElementById('app-main')?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const link = (item: MenuItem, tone: DeptKey | 'neutral') => (
     <NavLink key={item.href} item={item} tone={tone}
@@ -231,7 +265,8 @@ export default function Sidebar({ userName, user, department, position, badges: 
         </nav>
 
         {/* 사용자 */}
-        <div className="border-t border-sidebar-border p-3">
+        <div className="border-t border-sidebar-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <InstallApp />
           <div className="flex items-center gap-3 rounded-lg px-2 py-2">
             <div className={cn(
               'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold',
@@ -265,6 +300,24 @@ export default function Sidebar({ userName, user, department, position, badges: 
           </button>
         </div>
       </aside>
+
+      {/* 폰 — 아래쪽 탭 */}
+      <nav aria-label="바로 가기"
+        className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden">
+        <div className="mx-auto flex h-14 max-w-lg items-stretch">
+          <BottomTab href="/dashboard" label="홈" icon={LayoutDashboard} active={pathname === '/dashboard'}
+            onClick={e => onTab(e, pathname === '/dashboard')} />
+          {tabs.map(item => (
+            <BottomTab key={item.href} href={item.href} label={item.label} icon={MENU_ICONS[item.icon] || LayoutDashboard}
+              active={item.href === activeHref} badge={badges[item.href]} onClick={e => onTab(e, item.href === activeHref)} />
+          ))}
+          <button type="button" onClick={() => setOpen(true)} aria-label="전체 메뉴 열기"
+            className="flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 text-muted-foreground active:bg-accent">
+            <Menu className="h-[22px] w-[22px]" />
+            <span className="text-[11px] font-medium">전체</span>
+          </button>
+        </div>
+      </nav>
 
       {accountOpen && (
         <AccountDialog loginId={loginId} loginIdLocked={loginIdLocked}
@@ -314,6 +367,27 @@ function NavLink({ item, tone, active, badge, onNavigate }: {
           active ? cn('bg-white', dept ? dept.text : 'text-brand-800') : 'bg-warning text-white'
         )}>신규 {badge}</span>
       )}
+    </Link>
+  );
+}
+
+/** 아래쪽 탭 한 칸 — 아이콘 위 · 이름 아래, 새로 온 일은 아이콘 옆 숫자 */
+function BottomTab({ href, label, icon: Icon, active, badge, onClick }: {
+  href: string; label: string; icon: React.ElementType; active: boolean; badge?: number; onClick: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <Link href={href} onClick={onClick} aria-current={active ? 'page' : undefined}
+      className={cn('relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 active:bg-accent',
+        active ? 'text-brand-800' : 'text-muted-foreground')}>
+      <span className="relative">
+        <Icon className="h-[22px] w-[22px]" strokeWidth={active ? 2.4 : 2} />
+        {badge != null && badge > 0 && (
+          <span className="tabular absolute -right-2.5 -top-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-warning px-1 text-[10.5px] font-bold text-white">
+            {badge}
+          </span>
+        )}
+      </span>
+      <span className={cn('max-w-full truncate px-0.5 text-[11px]', active ? 'font-bold' : 'font-medium')}>{label}</span>
     </Link>
   );
 }
