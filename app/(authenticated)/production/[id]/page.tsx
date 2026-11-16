@@ -386,12 +386,12 @@ export default function ProductionInputPage() {
 
       {/* 품목별 입력 · 날짜별 생산 — 카드 맨 위 탭 */}
       <Card className="gap-0 py-0">
-        <div role="tablist" aria-label="보기" className="flex gap-1 rounded-t-xl border-b bg-muted/30 px-2 sm:px-4">
+        <div role="tablist" aria-label="보기" className="flex gap-0.5 overflow-x-auto rounded-t-xl border-b bg-muted/30 px-1 [scrollbar-width:none] sm:gap-1 sm:px-4">
           <ViewTab active={view === 'items'} onClick={() => setView('items')} icon={ClipboardList} label="품목별 입력" count={`${items.length}품목`} />
           <ViewTab active={view === 'dates'} onClick={() => setView('dates')} icon={CalendarDays} label="날짜별 생산"
             count={productionDayCount ? `${productionDayCount}일` : undefined} />
           <Link href={`/deliveries/${workOrderId}`}
-            className="ml-auto flex items-center gap-1.5 px-2 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
+            className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-3 text-sm font-medium text-muted-foreground hover:text-foreground">
             <Truck className="h-4 w-4" />납품 입력
           </Link>
         </div>
@@ -602,13 +602,13 @@ function ViewTab({ active, onClick, icon: Icon, label, count }: {
 }) {
   return (
     <button type="button" role="tab" aria-selected={active} onClick={onClick}
-      className={cn('relative flex items-center gap-2 px-3 py-3.5 text-[15px] font-semibold transition-colors',
+      className={cn('relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2.5 py-3.5 text-sm font-semibold transition-colors sm:gap-2 sm:px-3 sm:text-[15px]',
         active ? 'text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-[3px] after:rounded-full after:bg-brand-800'
           : 'text-muted-foreground hover:text-foreground')}>
       <Icon className={cn('h-4 w-4', active ? 'text-brand-800' : '')} />
       {label}
       {count && (
-        <span className={cn('tabular rounded-full px-2 py-0.5 text-xs font-semibold',
+        <span className={cn('tabular hidden whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold sm:inline-block',
           active ? 'bg-brand-50 text-brand-800' : 'bg-muted text-muted-foreground')}>{count}</span>
       )}
     </button>

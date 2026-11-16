@@ -42,14 +42,14 @@ export default function QtyStepper({ value, onChange, size = 'md', invalid, high
           size === 'lg' ? 'w-20 text-lg' : size === 'sm' ? 'w-20 text-sm' : 'w-24 text-base',
           highlight && !invalid && 'border-brand-600', inputClassName)}
       />
-      <div className="flex w-7 flex-col">
+      <div className={cn('flex flex-col', size === 'lg' ? 'w-11' : 'w-7')}>
         <button type="button" aria-label="1 증가" onClick={() => step(1)} disabled={disabled}
           className="flex flex-1 items-center justify-center rounded-tr-lg border border-l-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100 disabled:opacity-40">
-          <Plus className="h-3 w-3" strokeWidth={2.5} />
+          <Plus className={size === 'lg' ? 'h-4 w-4' : 'h-3 w-3'} strokeWidth={2.5} />
         </button>
         <button type="button" aria-label="1 감소" onClick={() => step(-1)} disabled={disabled || n === 0}
           className="flex flex-1 items-center justify-center rounded-br-lg border border-l-0 border-t-0 border-input bg-card text-muted-foreground hover:bg-brand-50 hover:text-brand-800 active:bg-brand-100 disabled:opacity-40">
-          <Minus className="h-3 w-3" strokeWidth={2.5} />
+          <Minus className={size === 'lg' ? 'h-4 w-4' : 'h-3 w-3'} strokeWidth={2.5} />
         </button>
       </div>
     </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Pencil, Plus, RotateCcw, Trash2, X } from 'lucide-react';
@@ -128,7 +128,7 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
       </Button>
       {open && (
         <Dialog open onOpenChange={o => { if (!o && !busy) setOpen(false); }}>
-          <DialogContent className="max-h-[92vh] gap-4 overflow-y-auto p-6 sm:max-w-3xl">
+          <DialogContent className="max-h-[92vh] grid-cols-1 gap-4 overflow-y-auto p-4 sm:max-w-3xl sm:p-6 [&>*]:min-w-0">
             <DialogHeader>
               <DialogTitle className="text-lg font-bold">작업의뢰서 {number} 품목 수정</DialogTitle>
               <DialogDescription>
@@ -143,14 +143,14 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
 
             {/* 있는 품목 */}
             <div className="max-h-[42vh] overflow-y-auto rounded-lg border">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead className="sticky top-0 z-10 bg-muted text-xs text-muted-foreground">
                   <tr>
-                    <th className="w-12 py-2 text-center font-semibold">No</th>
+                    <th className="w-9 py-2 text-center font-semibold sm:w-12">No</th>
                     <th className="py-2 text-left font-semibold">품명 · 규격</th>
-                    <th className="w-16 py-2 text-right font-semibold">현재</th>
-                    <th className="w-24 py-2 text-right font-semibold">수정 수량</th>
-                    <th className="w-24 py-2 pr-2 text-right font-semibold">고치기 · 삭제</th>
+                    <th className="hidden w-16 py-2 text-right font-semibold sm:table-cell">현재</th>
+                    <th className="w-[74px] py-2 text-right font-semibold sm:w-24">수량</th>
+                    <th className="w-[84px] py-2 pr-2 text-right font-semibold sm:w-24">고치기 · 삭제</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -160,34 +160,18 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
                     const s = spec[i.id];
                     const changed = !gone && ((v !== '' && Number(v) !== i.quantity) || !!s);
                     return (
-                      <tr key={i.id} className={gone ? 'bg-destructive/5 text-muted-foreground' : changed ? 'bg-brand-50/60' : ''}>
+                      <Fragment key={i.id}>
+                      <tr className={gone ? 'bg-destructive/5 text-muted-foreground' : changed ? 'bg-brand-50/60' : ''}>
                         <td className="tabular py-1.5 text-center font-semibold">{i.no}</td>
                         <td className="py-1.5">
-                          {s && !gone ? (
-                            <div className="space-y-1.5 pr-2">
-                              <input aria-label={`No.${i.no} 품명`} list="mes-item-names" value={s.name}
-                                onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, name: e.target.value } }))} className={`${input} w-full`} />
-                              <div className="flex items-center gap-1.5">
-                                <input aria-label={`No.${i.no} 가로`} inputMode="numeric" value={s.w} placeholder="가로"
-                                  onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, w: digits(e.target.value) } }))} className={`${input} tabular w-24 text-right`} />
-                                <span className="text-muted-foreground">×</span>
-                                <input aria-label={`No.${i.no} 세로`} inputMode="numeric" value={s.h} placeholder="세로"
-                                  onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, h: digits(e.target.value) } }))} className={`${input} tabular w-24 text-right`} />
-                                <span className="text-xs text-muted-foreground">mm</span>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <p className={`break-keep text-[13px] leading-snug ${gone ? 'line-through' : ''}`}>{i.product_name}</p>
-                              <p className="tabular text-xs text-muted-foreground">{sizeText(i.width_mm, i.height_mm)}{gone && ' · 지웁니다(생산 기록도 함께)'}</p>
-                            </>
-                          )}
+                          <p className={`break-all text-[13px] leading-snug sm:break-keep ${gone ? 'line-through' : ''}`}>{i.product_name}</p>
+                          <p className="tabular text-xs text-muted-foreground">{sizeText(i.width_mm, i.height_mm)}{gone && ' · 지웁니다(생산 기록도 함께)'}</p>
                         </td>
-                        <td className="tabular py-1.5 text-right">{i.quantity}</td>
+                        <td className="tabular hidden py-1.5 text-right sm:table-cell">{i.quantity}</td>
                         <td className="py-1.5 text-right">
                           <input inputMode="numeric" aria-label={`No.${i.no} 수정 수량`} value={gone ? '' : v} placeholder={String(i.quantity)} disabled={gone}
                             onChange={e => setQty(prev => ({ ...prev, [i.id]: digits(e.target.value) }))}
-                            className={`${input} tabular w-20 text-right disabled:opacity-40`} />
+                            className={`${input} tabular w-16 text-right disabled:opacity-40 sm:w-20`} />
                         </td>
                         <td className="py-1.5 pr-2 text-right">
                           {gone ? (
@@ -195,7 +179,7 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
                               <RotateCcw />되돌리기
                             </Button>
                           ) : (
-                            <span className="inline-flex gap-1">
+                            <span className="inline-flex gap-0.5 sm:gap-1">
                               <Button type="button" variant={s ? 'secondary' : 'ghost'} size="icon" aria-label={`No.${i.no} 품명 · 규격 고치기`}
                                 onClick={() => setSpec(p => { const n = { ...p }; if (n[i.id]) delete n[i.id]; else n[i.id] = { name: i.product_name, w: String(i.width_mm), h: String(i.height_mm) }; return n; })}>
                                 <Pencil />
@@ -208,6 +192,26 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
                           )}
                         </td>
                       </tr>
+                      {s && !gone && (
+                        <tr className="bg-brand-50/60">
+                          <td />
+                          <td colSpan={4} className="pb-2.5 pr-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <input aria-label={`No.${i.no} 품명`} list="mes-item-names" value={s.name} placeholder="품명"
+                                onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, name: e.target.value } }))} className={`${input} min-w-[150px] flex-1`} />
+                              <span className="flex items-center gap-1.5">
+                                <input aria-label={`No.${i.no} 가로`} inputMode="numeric" value={s.w} placeholder="가로"
+                                  onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, w: digits(e.target.value) } }))} className={`${input} tabular w-20 text-right`} />
+                                <span className="text-muted-foreground">×</span>
+                                <input aria-label={`No.${i.no} 세로`} inputMode="numeric" value={s.h} placeholder="세로"
+                                  onChange={e => setSpec(p => ({ ...p, [i.id]: { ...s, h: digits(e.target.value) } }))} className={`${input} tabular w-20 text-right`} />
+                                <span className="text-xs text-muted-foreground">mm</span>
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -269,8 +273,8 @@ export default function MesItemsDialog({ workOrderId, number, items, missingNos,
               ))}
             </div>
 
-            <DialogFooter className="-mx-6 -mb-6 items-center px-6">
-              <p className={`mr-auto text-sm ${problem ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>{problem || (changes ? summary : '바꾼 내용이 없습니다')}</p>
+            <DialogFooter className="-mx-4 -mb-4 px-4 sm:-mx-6 sm:-mb-6 sm:items-center sm:px-6">
+              <p className={`text-sm sm:mr-auto ${problem ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>{problem || (changes ? summary : '바꾼 내용이 없습니다')}</p>
               <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={busy}>취소</Button>
               <Button type="button" onClick={save} disabled={busy || !!problem || changes === 0}>{busy ? '저장 중…' : '저장'}</Button>
             </DialogFooter>

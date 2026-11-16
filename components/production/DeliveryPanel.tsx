@@ -178,11 +178,11 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
         <div className="flex flex-wrap items-end gap-3">
           <label className="space-y-1.5">
             <span className="block text-[13px] font-semibold">납품일</span>
-            <Input type="date" className="w-44" value={date} onChange={e => setDate(e.target.value)} disabled={!editable} />
+            <Input type="date" className="w-44 max-w-full" value={date} onChange={e => setDate(e.target.value)} disabled={!editable} />
           </label>
           <label className="space-y-1.5">
             <span className="block text-[13px] font-semibold">비고 <span className="font-normal text-muted-foreground">(선택)</span></span>
-            <Input className="w-64" value={note} maxLength={200} onChange={e => setNote(e.target.value)} disabled={!editable}
+            <Input className="w-64 max-w-full" value={note} maxLength={200} onChange={e => setNote(e.target.value)} disabled={!editable}
               placeholder="부분 납품 사유 등" />
           </label>
         </div>
@@ -209,7 +209,33 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
         </p>
       )}
 
-      <div className="overflow-x-auto">
+      {/* 폰 — 품목마다 카드 한 장. 표는 900px 이라 옆으로 밀어야 입력 칸이 나왔다 (2026-11-16 모바일 점검) */}
+      <div className="divide-y md:hidden">
+        {items.map((item, idx) => {
+          const done = delivered.get(item.id) ?? 0;
+          const typed = parseInt(quantities[item.id]) || 0;
+          const over = done + typed > item.produced_quantity;
+          const left = Math.max(0, item.quantity - done);
+          return (
+            <div key={item.id} className={cn('px-4 py-3', typed > 0 && 'bg-brand-50/50')}>
+              {blockStarts.get(idx) && <p className="mb-2 break-keep text-[13px] font-semibold leading-snug text-brand-800">{item.product_name}</p>}
+              <div className="flex items-center gap-3">
+                <span className="tabular flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold">{itemNo(item, idx)}</span>
+                <p className="tabular min-w-0 flex-1 text-[15px] font-semibold">{sizeText(item.width_mm, item.height_mm)}</p>
+                <QtyStepper size="lg" label={`No.${itemNo(item, idx)} 납품 수량`} value={quantities[item.id] ?? ''} disabled={!editable}
+                  onChange={v => setQty(item.id, v)} highlight={typed > 0 && !over}
+                  inputClassName={cn(typed > 0 && over && 'border-warning bg-warning-50')} />
+              </div>
+              <p className="tabular mt-1.5 pl-11 text-xs text-muted-foreground">
+                의뢰 {item.quantity} · 생산 {item.produced_quantity} · 납품 {done} · <b className={left > 0 ? 'text-foreground' : ''}>미납 {left}</b>
+              </p>
+              {item.remark && <div className="mt-0.5 pl-11 text-xs text-muted-foreground"><RemarkText text={item.remark} /></div>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <Table className="min-w-[900px] [&_td+td]:border-l [&_th+th]:border-l">
           <TableHeader>
             <TableRow>
@@ -276,7 +302,7 @@ export default function DeliveryPanel({ workOrderId, items, canEdit, defaultDate
                           <span>No.{it?.no ?? '-'} {it ? sizeText(it.width_mm, it.height_mm) : ''} · {l.quantity}조{l.note ? ` · ${l.note}` : ''}</span>
                           {canEdit && (
                             <button type="button" aria-label="납품 기록 삭제" title="삭제" onClick={() => remove(l)} disabled={removing !== null}
-                              className="text-muted-foreground hover:text-destructive disabled:opacity-40">
+                              className="-m-2 p-2 text-muted-foreground hover:text-destructive disabled:opacity-40">
                               {removing === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                             </button>
                           )}

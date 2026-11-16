@@ -171,15 +171,15 @@ export default async function ProductionPage({ searchParams }: { searchParams: P
         }
       />
 
-      <nav className="flex gap-2">
-        <Link href="/production" className={chipClass(view === 'orders')}>작업의뢰서별</Link>
-        <Link href="/production?view=remaining" className={chipClass(view === 'remaining')}>
+      <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+        <Link href="/production" className={chipClass(view === 'orders', 'shrink-0 whitespace-nowrap')}>작업의뢰서별</Link>
+        <Link href="/production?view=remaining" className={chipClass(view === 'remaining', 'shrink-0 whitespace-nowrap')}>
           남은 품목<span className="tabular opacity-80">{remainingItemCount}</span>
         </Link>
-        <Link href="/production?view=outsource" className={chipClass(view === 'outsource')}>
+        <Link href="/production?view=outsource" className={chipClass(view === 'outsource', 'shrink-0 whitespace-nowrap')}>
           외주<span className="tabular opacity-80">{(outsourced || []).length}</span>
         </Link>
-        <Link href="/production?view=done" className={chipClass(view === 'done')}>
+        <Link href="/production?view=done" className={chipClass(view === 'done', 'shrink-0 whitespace-nowrap')}>
           생산 완료<span className="tabular opacity-80">{(doneCount ?? 0).toLocaleString()}</span>
         </Link>
       </nav>

@@ -53,8 +53,11 @@ export default async function WorkOrderPreviewPage({ params }: { params: Promise
         <WorkOrderPdfButton targetId="work-order-sheet" fileName={`작업의뢰서_${data.work_order_number}`} />
       </div>
 
-      <div className="flex justify-center overflow-x-auto print:block print:overflow-visible">
-        <WorkOrderSheet data={data} />
+      {/* 폰처럼 좁은 화면에서는 종이가 화면보다 넓다 — 왼쪽 끝부터 옆으로 밀어 볼 수 있게 (가운데 정렬은 안쪽 상자가 맡는다) */}
+      <div className="overflow-x-auto print:overflow-visible">
+        <div className="mx-auto w-fit print:mx-0 print:w-auto">
+          <WorkOrderSheet data={data} />
+        </div>
       </div>
     </div>
   );
