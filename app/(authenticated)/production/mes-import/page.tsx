@@ -110,6 +110,14 @@ export default function MesImportPage() {
     [parsed, range],
   );
   const groups = grouping.groups;
+  // 작업의뢰서는 통째로 — 기간을 골라도 그 기간에 생산한 의뢰서는 기간 앞의 생산까지 함께 넣는다(2026-11-16 '최근 3주' 시험).
+  // 기간 안 것만 넣으면 기간 경계에 걸린 의뢰서의 수량이 반쪽이 된다. MES 실적 표(생산일지)는 기간 안 것만.
+  const allGroups = useMemo(() => (parsed ? groupPieces(parsed.pieces).groups : []), [parsed]);
+  const orderGroups = useMemo(() => {
+    const wos = new Set(groups.map(g => g.wo));
+    return allGroups.filter(g => wos.has(g.wo));
+  }, [allGroups, groups]);
+  const earlierQty = useMemo(() => orderGroups.filter(g => range && g.date < range.from).reduce((t, g) => t + groupQty(g), 0), [orderGroups, range]);
   const days = useMemo(() => dailyTotals(groups), [groups]);
   const usedLines = useMemo(() => [...new Set(groups.map(g => g.line))].sort((a, b) => a - b), [groups]);
 
@@ -146,11 +154,15 @@ export default function MesImportPage() {
     if (groups.length === 0 || !range) return;
     if (!window.confirm(
       `${range.from} – ${range.to} MES 생산실적 ${s.total.toLocaleString()}조(바코드 ${s.scanned.toLocaleString()}장 + 번호 사이 ${s.filled.toLocaleString()}장)를 등록합니다.\n`
-      + `의뢰번호 ${s.orders.toLocaleString()}건을 작업의뢰서(생산 완료)로 만들고 날짜별 생산 기록을 붙입니다. 이미 있는 의뢰서에는 빠진 생산 기록만 붙입니다. 계속하시겠습니까?`,
+      + `의뢰번호 ${s.orders.toLocaleString()}건을 작업의뢰서(생산 완료)로 만들고 날짜별 생산 기록을 붙입니다. 이미 있는 의뢰서에는 빠진 생산 기록만 붙입니다.
+`
+      + (earlierQty > 0 ? `기간 앞에서 시작한 의뢰서는 의뢰서가 온전하도록 기간 앞의 생산 ${earlierQty.toLocaleString()}조도 함께 붙입니다.
+` : '')
+      + '계속하시겠습니까?',
     )) return;
     // 의뢰번호 단위 묶음 — 작업의뢰서 만들기용
     const byWo = new Map<string, typeof groups>();
-    for (const g of groups) { const l = byWo.get(g.wo); if (l) l.push(g); else byWo.set(g.wo, [g]); }
+    for (const g of orderGroups) { const l = byWo.get(g.wo); if (l) l.push(g); else byWo.set(g.wo, [g]); }
     const orderBatches: (typeof groups)[] = [];
     let cur: typeof groups = [], curWo = 0;
     for (const list of byWo.values()) {

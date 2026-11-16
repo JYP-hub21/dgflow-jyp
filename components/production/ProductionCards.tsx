@@ -42,9 +42,11 @@ interface Props {
   renderLogs: (itemId: string) => ReactNode;
   /** 품목별 생산 날짜 · 수량 */
   daysByItem?: Map<string, DayQty[]>;
+  /** MES 로 만든 의뢰서 — 잔여보다 많이 넣으면 의뢰 수량이 함께 는다 (lib/production/mes-quantity.ts) */
+  allowOver?: boolean;
 }
 
-export default function ProductionCards({ items, quantities, onChange, renderLogs, daysByItem }: Props) {
+export default function ProductionCards({ items, quantities, onChange, renderLogs, daysByItem, allowOver = false }: Props) {
   const [showDone, setShowDone] = useState(false);
   const [editItemId, setEditItemId] = useState<string | null>(null);
   const toggleEdit = (id: string) => setEditItemId((cur) => (cur === id ? null : id));
@@ -89,7 +91,7 @@ export default function ProductionCards({ items, quantities, onChange, renderLog
                 <span className="tabular shrink-0 text-xs text-muted-foreground">{head.count}품목</span>
               </div>
             )}
-            <ItemCard item={item} no={itemNo(item, items.indexOf(item))} remaining={remainingOf(item)}
+            <ItemCard item={item} no={itemNo(item, items.indexOf(item))} remaining={remainingOf(item)} allowOver={allowOver}
               value={quantities[item.id] ?? ''} onChange={onChange} days={daysByItem?.get(item.id) ?? []}
               editing={editItemId === item.id} onToggleEdit={() => toggleEdit(item.id)}
               logs={editItemId === item.id && renderLogs(item.id)} />
@@ -158,14 +160,14 @@ function EditToggle({ editing, onClick }: { editing: boolean; onClick: () => voi
   );
 }
 
-function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggleEdit, logs }: {
-  item: CardItem; no: number; remaining: number; value: string;
+function ItemCard({ item, no, remaining, value, onChange, days, editing, onToggleEdit, logs, allowOver }: {
+  item: CardItem; no: number; remaining: number; value: string; allowOver: boolean;
   onChange: (itemId: string, value: string) => void;
   days: DayQty[];
   editing: boolean; onToggleEdit: () => void; logs: ReactNode;
 }) {
   const entered = parseInt(value) || 0;
-  const over = entered > remaining;
+  const over = !allowOver && entered > remaining;
 
   return (
     <div className={`rounded-xl border bg-card px-4 py-3.5 shadow-xs ${over ? 'border-destructive' : entered > 0 ? 'border-brand-600 bg-brand-50/60' : ''}`}>

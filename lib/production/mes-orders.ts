@@ -20,6 +20,24 @@ import { compareGroups, groupQty, type MesGroup, type MesShift } from './mes';
 
 export const MES_ORDER_NOTE = 'MES 생산실적으로 등록';
 
+/** MES 생산실적으로 만든 의뢰서인가 — 메모로 가린다 */
+export function isMesOrder(notes: string | null | undefined): boolean {
+  return (notes ?? '').includes(MES_ORDER_NOTE);
+}
+
+/**
+ * MES 에 한 장도 안 찍혀 빠진 NO — 1 부터 가장 큰 NO 사이의 빈 번호 (2026-11-16 사용자 "품목 누락은 데이터의 한계지만
+ * 알아낼 수 있는 건 알아내야"). 규격 · 수량은 MES 에 없어 알 수 없다. 바코드 번호로 수량을 짐작해 보았으나
+ * 품목끼리 바코드 번호가 이어지지 않아(2026 파일: 빠진 NO 14곳 중 1곳만 맞음) 번호만 알린다.
+ */
+export function missingNos(nos: number[]): number[] {
+  const have = new Set(nos.filter(n => Number.isInteger(n) && n > 0));
+  const max = Math.max(0, ...have);
+  const out: number[] = [];
+  for (let n = 1; n < max; n++) if (!have.has(n)) out.push(n);
+  return out;
+}
+
 export interface MesOrderItem {
   no: number;
   product_name: string;
@@ -49,12 +67,29 @@ export interface MesOrder {
   logs: MesOrderLog[];
 }
 
-/** MES 품명 → 시스템 품명: 앞에 제품 두께를 붙인다 (이미 붙어 있으면 그대로) */
+/**
+ * MES 품명 → 시스템 품명: 앞에 제품 두께를 붙인다 (이미 붙어 있으면 그대로).
+ * 2026 파일을 ERP 목록의 두께 칸과 대조하니 2,362품목 중 2,318개가 맞았다. 틀린 것 중 가장 많은 꼴은
+ * "5CL+14단열(Ar.)+로이h/s" 처럼 뒤 유리 두께가 빠진 품명(ERP 24T) — 빠진 유리 두께는 앞 유리와 같다고 본다.
+ * 나머지(ERP 두께 칸이 8.76 · 5 처럼 품명과 안 맞는 것)는 ERP 쪽 입력 실수로 보여 따르지 않는다.
+ */
 export function systemProductName(mesName: string): string {
   const name = mesName.trim();
   if (!name || /^\d+(?:\.\d+)?\s*T\s/i.test(name)) return name;
-  const t = parseProductName(name).thickness;
+  const t = parseProductName(name).thickness ?? thicknessFillingPanes(name);
   return t ? `${Math.round(t * 100) / 100}T ${name}` : name;
+}
+
+/** 유리 · 간봉 · 유리 품명에서 두께 숫자가 빠진 유리를 첫 유리 두께로 채워 합친다. 괄호 속 + 가 있으면 손대지 않는다 */
+function thicknessFillingPanes(name: string): number | null {
+  if (/\([^)]*\+/.test(name)) return null;
+  const parts = name.split('+').map(p => p.trim());
+  if (parts.length < 3 || parts.length % 2 === 0) return null;
+  const num = (p: string) => p.match(/^\d+(?:\.\d+)?/)?.[0];
+  const first = num(parts[0]);
+  if (!first) return null;
+  const nums = parts.map((p, i) => num(p) ?? (i % 2 === 0 ? first : undefined));
+  return nums.every(Boolean) ? nums.reduce((s, n) => s + Number(n), 0) : null;
 }
 
 const area = (w: number, h: number, q: number) => (w > 0 && h > 0 ? expectedArea(w, h, q) : 0);

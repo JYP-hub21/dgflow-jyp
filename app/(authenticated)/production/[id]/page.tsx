@@ -33,6 +33,7 @@ import { CONTACT_EDITORS } from '@/lib/work-order/site-server';
 import ContactCard from '@/components/work-order/ContactCard';
 import SiteBadge from '@/components/work-order/SiteBadge';
 import ReceiptButton from '@/components/work-order/ReceiptButton';
+import { isMesOrder } from '@/lib/production/mes-orders';
 
 interface WorkOrderItem {
   id: string;
@@ -56,7 +57,7 @@ function localToday() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-type WorkOrderHead = WorkOrderLabelSource & { work_order_number: string; production_site?: string | null; outsource_partner?: unknown };
+type WorkOrderHead = WorkOrderLabelSource & { work_order_number: string; production_site?: string | null; outsource_partner?: unknown; notes?: string | null };
 
 export default function ProductionInputPage() {
   const params = useParams();
@@ -97,7 +98,7 @@ export default function ProductionInputPage() {
 
   useEffect(() => {
     supabase.from('dgflow_work_orders')
-      .select(`work_order_number, customer_label, site_label, ${SITE_SELECT}, order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`)
+      .select(`work_order_number, customer_label, site_label, notes, ${SITE_SELECT}, order:dgflow_orders(customer:dgflow_customers(short_name), site:dgflow_sites(site_name))`)
       .eq('id', workOrderId).single()
       .then(({ data }) => setWorkOrder(data as unknown as WorkOrderHead));
     loadItems();
@@ -156,7 +157,9 @@ export default function ProductionInputPage() {
   // 입력된 항목이 있는지 확인
   const hasInput = Object.values(quantities).some(v => parseInt(v) > 0);
   // 잔여보다 많이 친 품목 — 저장하면 생산량이 의뢰량을 넘으므로 고칠 때까지 막는다
-  const overCount = items.filter(i => (parseInt(quantities[i.id]) || 0) > i.quantity - i.produced_quantity).length;
+  // MES 로 만든 의뢰서는 의뢰 수량도 MES 바코드 기준 — 덜 찍힌 장을 더 넣으면 의뢰 수량이 같이 는다(서버 lib/production/mes-quantity.ts)
+  const mesMade = isMesOrder(workOrder?.notes);
+  const overCount = mesMade ? 0 : items.filter(i => (parseInt(quantities[i.id]) || 0) > i.quantity - i.produced_quantity).length;
 
   // 전체 저장
   async function handleSaveAll() {
@@ -304,6 +307,11 @@ export default function ProductionInputPage() {
         />
       </div>
 
+      {mesMade && (
+        <p className="break-keep rounded-lg bg-brand-50 px-4 py-2.5 text-sm text-brand-800">
+          MES 생산실적으로 등록한 작업의뢰서입니다. 의뢰 수량도 MES 바코드 기준이라, 잔여보다 많이 입력하거나 기록을 늘리면 의뢰 수량이 함께 늘어납니다.
+        </p>
+      )}
       {loadError && (
         <p role="alert" className="break-keep rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm font-medium text-destructive">{loadError}</p>
       )}
@@ -421,7 +429,7 @@ export default function ProductionInputPage() {
 
         {/* 폰 — 품목당 카드 한 장 */}
         <CardContent className={cn('p-3 md:hidden', view !== 'items' && 'hidden', receiptNeeded && 'pointer-events-none opacity-50')} aria-disabled={receiptNeeded}>
-          <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem}
+          <ProductionCards items={items} quantities={quantities} onChange={setQty} daysByItem={daysByItem} allowOver={mesMade}
             renderLogs={id => <ProductionLogList compact logs={logs.filter(l => l.work_order_item_id === id)} onChanged={reload} />} />
         </CardContent>
 
@@ -458,7 +466,7 @@ export default function ProductionInputPage() {
                 const isComplete = remaining <= 0;
                 const value = quantities[item.id] || '';
                 const entered = parseInt(value) || 0;
-                const over = entered > remaining;
+                const over = !mesMade && entered > remaining;
                 const editing = editItemId === item.id;
                 const editButton = item.produced_quantity > 0 && (
                   <Button variant={editing ? 'secondary' : 'ghost'} size="sm" className="h-9 px-2.5"

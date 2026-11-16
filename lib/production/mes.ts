@@ -171,11 +171,13 @@ export function toIsoDate(v: unknown, date1904 = false): string | null {
 
 /** 비고 — 날짜를 적은 칸이 엑셀 일련번호(46035)로 바뀐 것은 날짜로 되돌린다 */
 function remarkText(v: unknown, date1904: boolean): string {
+  // MES 엑셀은 빈 비고를 0 으로 내보낸다 — 작업의뢰서 비고 칸에 "0" 이 찍혔다 (2026-11-16)
+  if (v === 0 || v === '0') return '';
   if (typeof v === 'number') return v > 36_000 && v < 60_000 ? serialToIsoDate(v, date1904) ?? String(v) : String(v);
   return text(v);
 }
 
-const text = (v: unknown) => (v === undefined || v === null || v === 0 ? '' : String(v).trim());
+const text = (v: unknown) => (v === undefined || v === null || v === 0 || v === '0' ? '' : String(v).trim());
 const int = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, '').trim());
   return Number.isFinite(n) ? Math.round(n) : NaN;

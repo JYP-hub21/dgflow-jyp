@@ -7,6 +7,7 @@ import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { MANUAL_SHEET } from '@/lib/purchase-order/manual';
 import { DELIVERY_TABLE } from '@/lib/production/delivery';
 import { loadDeliveredByItem } from '@/lib/production/delivery-store';
+import { isMesWorkOrder, setMesItemQuantity } from '@/lib/production/mes-quantity';
 
 /**
  * 등록한 작업의뢰서 수정 · 삭제 (2026-11-06 회의 "이미 올린 의뢰서를 수정 · 삭제할 수 있어야").
@@ -57,9 +58,10 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ id: str
   // 납품 기록이 있는 줄도 생산한 줄처럼 지키려고 품목별 납품량을 같이 읽는다 — 예전에는 생산 기록이 없는 줄을 지우면
   // 그 줄의 납품 기록(외주 · 재고분)이 CASCADE 로 소리 없이 사라졌다 (2026-11-10 점검)
   let delivered: Map<string, number>;
-  const [{ data: existing, error: readError }, deliveredRead] = await Promise.all([
+  const [{ data: existing, error: readError }, deliveredRead, mesMade] = await Promise.all([
     supabase.from('dgflow_work_order_items').select(ITEM_COLUMNS).eq('work_order_id', id),
     loadDeliveredByItem(supabase, id).then(m => ({ m }), (e: unknown) => ({ e })),
+    isMesWorkOrder(supabase, id),
   ]);
   if (readError) return NextResponse.json({ error: readError.message }, { status: 500 });
   if ('e' in deliveredRead) {
@@ -67,7 +69,8 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ id: str
   }
   delivered = deliveredRead.m;
 
-  const plan = planRevision((existing ?? []).map(e => ({ ...e, delivered_quantity: delivered.get(e.id) ?? 0 })), body!.items!);
+  // MES 로 만든 의뢰서는 의뢰 수량을 고치면 생산 기록이 따라간다 (lib/production/mes-quantity.ts)
+  const plan = planRevision((existing ?? []).map(e => ({ ...e, delivered_quantity: delivered.get(e.id) ?? 0 })), body!.items!, { followProduction: mesMade });
   if (!body?.apply) return NextResponse.json({ plan });
 
   const head = body.head ?? {};
@@ -80,9 +83,15 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ id: str
   }).eq('id', id);
   if (headError) return NextResponse.json({ error: headError.message }, { status: 500 });
 
+  const removedIds = new Set(plan.removed.map(r => r.id));
   for (const u of plan.updates) {
     const { error } = await supabase.from('dgflow_work_order_items').update(u.fields).eq('id', u.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // MES 의뢰서 — 고친 수량만큼 생산 기록도 맞춘다 (문서에서 빠져 남긴 줄은 생산 기록을 그대로 지킨다)
+    if (mesMade && u.fields.quantity !== undefined && !removedIds.has(u.id)) {
+      try { await setMesItemQuantity(supabase, u.id, u.fields.quantity); }
+      catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : '생산 기록을 맞추지 못했습니다.' }, { status: 500 }); }
+    }
   }
   if (plan.added.length > 0) {
     const { error } = await supabase.from('dgflow_work_order_items')

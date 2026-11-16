@@ -11,6 +11,8 @@ import SiteEditor from '@/components/work-order/SiteEditor';
 import ContactCard from '@/components/work-order/ContactCard';
 import WorkOrderEditActions from '@/components/work-order/WorkOrderEditActions';
 import ReceiptButton from '@/components/work-order/ReceiptButton';
+import MesQuantityDialog from '@/components/work-order/MesQuantityDialog';
+import { isMesOrder, missingNos } from '@/lib/production/mes-orders';
 import { formatKst, loadReceipts } from '@/lib/work-order/receipts';
 import { loadDeliveries } from '@/lib/production/delivery-store';
 import { groupDeliveries } from '@/lib/production/delivery';
@@ -128,11 +130,15 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   const totalDelivered = deliveryLogs.reduce((s, l) => s + l.quantity, 0);
   const deliveryDays = groupDeliveries(deliveryLogs);
   const receipt = receipts.get(id);
+  // MES 생산실적으로 만든 의뢰서 (lib/production/mes-orders.ts) — 작성 · 수신 확인 표시, 수량 수정, MES 에 없는 NO
+  const mesMade = isMesOrder(workOrder.notes as string | null);
+  const absentNos = mesMade ? missingNos(woItems.map((it, k) => itemNo(it, k))) : [];
 
   const meta = [
-    { label: '의뢰일', value: workOrder.request_date },
+    // MES 의뢰서의 의뢰일은 MES 에 없어 첫 생산일을 넣었다 — 이름표를 그대로 밝힌다
+    { label: mesMade ? '첫 생산일' : '의뢰일', value: workOrder.request_date },
     { label: '납품일', value: workOrder.delivery_date || order?.delivery_date || '-' },
-    { label: '작성', value: order?.creator?.name ?? 'ERP 작업의뢰서' },
+    { label: '작성', value: order?.creator?.name ?? (mesMade ? 'MES 생산실적' : 'ERP 작업의뢰서') },
     { label: '시스템 등록', value: formatKst(workOrder.created_at as string) },
   ];
 
@@ -204,7 +210,9 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
           <CardContent className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs font-semibold text-muted-foreground">생산관리부 수신 확인</p>
-              {receipt
+              {receipt && mesMade
+                ? <p className="mt-1 font-semibold">확인<span className="ml-2 font-medium text-muted-foreground">MES 생산실적으로 등록할 때 함께 확인 · {formatKst(receipt.received_at)}</span></p>
+                : receipt
                 ? <p className="tabular mt-1 font-semibold">{formatKst(receipt.received_at)}{receipt.received_by_name && <span className="ml-2 font-medium text-muted-foreground">{receipt.received_by_name}</span>}</p>
                 : <p className="mt-1 font-semibold text-warning">미확인</p>}
             </div>
@@ -229,6 +237,18 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
       <Card className="gap-0 pb-0">
         <CardHeader className="border-b">
           <CardTitle className="text-lg">품목별 생산 현황 <span className="font-normal text-muted-foreground">{woItems.length}건</span></CardTitle>
+          {mesMade && (canReceive || canRevise) && (
+            <CardAction>
+              <MesQuantityDialog workOrderId={id} number={workOrder.work_order_number}
+                items={woItems.map((it, k) => ({ id: it.id, no: itemNo(it, k), product_name: it.product_name, width_mm: it.width_mm, height_mm: it.height_mm, quantity: it.quantity }))} />
+            </CardAction>
+          )}
+          {mesMade && (
+            <p className="break-keep text-sm text-muted-foreground">
+              MES 바코드로 센 수량입니다(번호 사이 빈 장 포함).
+              {absentNos.length > 0 && <> MES 에 한 장도 찍히지 않은 <b className="tabular text-warning">No.{absentNos.join(', ')}</b> 은(는) 품목이 없습니다 — 규격 · 수량을 알면 수정에서 더하세요.</>}
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <Table className="[&_td+td]:border-l [&_th+th]:border-l">

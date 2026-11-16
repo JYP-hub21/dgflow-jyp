@@ -12,6 +12,7 @@ import { syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { expectedArea } from '@/lib/work-order/verify';
 import { fetchAllIn } from '@/lib/supabase/fetch-all';
+import { RECEIPTS_TABLE } from '@/lib/work-order/receipts';
 
 /** 한 번에 받는 줄 — 화면이 나눠 보낸다 */
 const MAX_GROUPS = 2000;
@@ -183,6 +184,11 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string) {
     created = fresh.length;
     itemsCreated = items.length;
     logsInserted += logs.length;
+    // 생산관리부 수신 확인 — 이미 생산이 끝난 의뢰서라 등록할 때 함께 확인으로 남긴다(2026-11-16 사용자 "생산관리부 확인으로 하고").
+    // 표가 없으면 넘어간다
+    const { error: rcError } = await supabase.from(RECEIPTS_TABLE)
+      .upsert([...idOf.values()].map(id => ({ work_order_id: id, received_by: userId })), { onConflict: 'work_order_id', ignoreDuplicates: true });
+    if (rcError && !isMissingTable(rcError)) throw new Error(rcError.message);
   }
 
   // ── 이미 있는 의뢰서 — 빠진 기록만 붙인다

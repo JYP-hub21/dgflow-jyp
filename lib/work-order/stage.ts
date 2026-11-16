@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAll } from '@/lib/supabase/fetch-all';
 import { deliveredByItem } from '@/lib/production/delivery';
 import { loadDeliveries } from '@/lib/production/delivery-store';
+import { isMesOrder } from '@/lib/production/mes-orders';
 
 /**
  * 작업의뢰서 상태 — 2026-11-06 회의: 100% 생산한 의뢰서도 '대기' 로 나온다, 납품까지 이어지게.
@@ -76,6 +77,10 @@ export async function syncWorkOrderStatus(supabase: SupabaseClient, workOrderId:
     console.error(`작업의뢰서 ${workOrderId} 상태를 맞추지 못했습니다:`, e);
     return;
   }
+  // MES 생산실적으로 만든 의뢰서는 이미 생산 · 출고가 끝난 지난 의뢰서라 '완료' 로 둔다 — 수량을 고치거나 납품을 적어도
+  // 진행 중으로 되살아나 생산 현황 · 납품할 것에 쏟아지지 않게 (2026-11-16, lib/production/mes-orders.ts)
+  const { data: head } = await supabase.from('dgflow_work_orders').select('notes').eq('id', workOrderId).maybeSingle();
+  if (isMesOrder((head as { notes?: string | null } | null)?.notes)) return;
   const status = statusFor(items.map(i => ({ ...i, delivered: delivered.get(i.id) ?? 0 })));
   await supabase.from('dgflow_work_orders').update({ status }).eq('id', workOrderId);
 }

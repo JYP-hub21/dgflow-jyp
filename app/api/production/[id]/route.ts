@@ -3,6 +3,7 @@ import { getCurrentUser } from '@/lib/auth/get-user';
 import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
+import { isMesWorkOrder, raiseQuantityTo } from '@/lib/production/mes-quantity';
 import { NextRequest, NextResponse } from 'next/server';
 
 // PATCH: 저장한 생산 기록 고치기 (수량·생산일자·주야간·호기)
@@ -30,7 +31,9 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
     .single();
   if (!log) return NextResponse.json({ error: '기록을 찾을 수 없습니다' }, { status: 404 });
 
-  // 고친 뒤 생산 합계가 의뢰 수량을 넘으면 막는다
+  // 고친 뒤 생산 합계가 의뢰 수량을 넘으면 막는다 — MES 로 만든 의뢰서는 의뢰 수량도 MES 기준이라 대신 의뢰 수량을 늘린다
+  const mesMade = await isMesWorkOrder(createServiceRoleClient(), log.work_order_id);
+  let raiseTo = 0;
   if (log.work_order_item_id) {
     const [{ data: item }, { data: others }] = await Promise.all([
       supabase.from('dgflow_work_order_items').select('quantity').eq('id', log.work_order_item_id).single(),
@@ -38,7 +41,8 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
         .eq('work_order_item_id', log.work_order_item_id).neq('id', id),
     ]);
     const otherTotal = (others || []).reduce((s, l) => s + l.quantity_completed, 0);
-    if (item && otherTotal + qty > item.quantity) {
+    if (item && otherTotal + qty > item.quantity && mesMade) raiseTo = otherTotal + qty;
+    else if (item && otherTotal + qty > item.quantity) {
       return NextResponse.json(
         { error: `의뢰 ${item.quantity}조를 넘습니다 (다른 기록 ${otherTotal}조 + ${qty}조)` },
         { status: 400 },
@@ -46,6 +50,7 @@ export async function PATCH(request: NextRequest, ctx: RouteContext<'/api/produc
     }
   }
 
+  if (raiseTo > 0) await raiseQuantityTo(createServiceRoleClient(), log.work_order_item_id, raiseTo);
   const area = await calculateItemArea(supabase, log.work_order_item_id, qty);
   const { data, error } = await supabase
     .from('dgflow_production_logs')

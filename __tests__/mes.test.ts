@@ -7,7 +7,8 @@ import {
   type MesGroup,
 } from '@/lib/production/mes';
 import { mesToLog, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
-import { logArea, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
+import { isMesOrder, logArea, missingNos, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
+import { planRevision } from '@/lib/work-order/revise';
 import { parseMesBytes } from '@/lib/production/mes-read';
 
 const HEAD = ['S', '등록일시', 'PID', '공정', '품목코드', '품명', '가로', '세로', '수량', '평수', '의뢰번호', 'NO.', '거래처', '현장', '라인', '등록자', '비고', '일자'];
@@ -244,6 +245,10 @@ describe('MES → 지난 작업의뢰서 (lib/production/mes-orders.ts)', () => 
     expect(systemProductName('5CL+12A+5로이')).toBe('22T 5CL+12A+5로이');
     expect(systemProductName('8.76(4cl+0.76+4cl)접합+12A+5로이')).toBe('25.76T 8.76(4cl+0.76+4cl)접합+12A+5로이');
     expect(systemProductName('24T 5CL+14A+5로이')).toBe('24T 5CL+14A+5로이');
+    // 뒤 유리 두께가 빠진 품명 — 앞 유리와 같다고 본다 (ERP 두께 칸 24 와 같다)
+    expect(systemProductName('5CL+14단열(Ar.)+로이h/s')).toBe('24T 5CL+14단열(Ar.)+로이h/s');
+    // 괄호 속 + 가 있고 두께를 못 읽으면 그대로
+    expect(systemProductName('(CL+0.76+CL)접합+12A+로이')).toBe('(CL+0.76+CL)접합+12A+로이');
   });
   it('의뢰번호 하나 = 의뢰서, NO 하나 = 품목, 수량은 날짜를 합친 MES 장수, 의뢰일은 첫 생산일', () => {
     const [o, o2] = planMesOrders([
@@ -257,5 +262,25 @@ describe('MES → 지난 작업의뢰서 (lib/production/mes-orders.ts)', () => 
     expect(o2.items.map(i => [i.no, i.quantity, i.area_m2, i.remark])).toEqual([[1, 15, 10.2, '101동'], [2, 1, 0.28, null]]);
     expect(o2.logs.map(l => [l.no, l.date, l.line, l.quantity])).toEqual([[1, '2026-10-21', 2, 5], [1, '2026-10-22', 1, 10], [2, '2026-10-22', 1, 1]]);
     expect(logArea(o2.items[0], 5)).toBe(3.4);
+  });
+});
+
+describe('MES 의뢰서 — 빠진 NO · 표시 · 수량 고치기', () => {
+  it('MES 에 한 장도 안 찍힌 NO 를 찾는다', () => {
+    expect(missingNos([1, 2, 4, 7])).toEqual([3, 5, 6]);
+    expect(missingNos([1, 2, 3])).toEqual([]);
+    expect(missingNos([])).toEqual([]);
+  });
+  it('메모로 MES 의뢰서를 가린다', () => {
+    expect(isMesOrder('MES 생산실적으로 등록 2026-11-16 · 수량은 MES 바코드 기준')).toBe(true);
+    expect(isMesOrder('ERP 주문번호 260102-01 · 지난 작업의뢰서 가져오기 2026-11-16 · 생산 기록은 MES 생산실적')).toBe(false);
+    expect(isMesOrder(null)).toBe(false);
+  });
+  it('MES 의뢰서는 생산량 밑으로도 의뢰 수량을 줄일 수 있다 (생산 기록이 따라간다) — 납품량 밑으로는 아니다', () => {
+    const existing = [{ id: 'a', item_no: 1, sort_order: 0, product_name: '24T 5CL+14A+5로이', width_mm: 700, height_mm: 900, quantity: 12, area_m2: 7.56, remark: null, produced_quantity: 12, delivered_quantity: 4 }];
+    const incoming = [{ no: 1, product_name: '24T 5CL+14A+5로이', width_mm: 700, height_mm: 900, quantity: 10, area_m2: 6.3, remark: null }];
+    expect(planRevision(existing, incoming).updates).toEqual([]); // 보통 의뢰서: 생산 12 밑으로 못 줄인다
+    expect(planRevision(existing, incoming, { followProduction: true }).updates[0].fields.quantity).toBe(10);
+    expect(planRevision(existing, [{ ...incoming[0], quantity: 3 }], { followProduction: true }).updates[0].fields.quantity).toBe(4);
   });
 });

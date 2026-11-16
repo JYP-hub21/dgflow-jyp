@@ -4,6 +4,7 @@ import { hasPermission } from '@/lib/auth/role-guard';
 import { calculateItemArea, syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
 import { needsReceipt } from '@/lib/work-order/receipts';
+import { isMesWorkOrder, raiseQuantityTo } from '@/lib/production/mes-quantity';
 import { kstToday } from '@/lib/kst-date';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -42,7 +43,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '이 작업의뢰서의 품목이 아닙니다.' }, { status: 400 });
     }
     const total = (done || []).reduce((s, l) => s + l.quantity_completed, 0);
-    if (total + qty > item.quantity) {
+    // MES 로 만든 의뢰서는 의뢰 수량도 MES 바코드 기준이라, 덜 찍힌 장을 더 넣으면 의뢰 수량을 늘린다 (lib/production/mes-quantity.ts)
+    if (total + qty > item.quantity && await isMesWorkOrder(createServiceRoleClient(), work_order_id)) {
+      await raiseQuantityTo(createServiceRoleClient(), work_order_item_id, total + qty);
+    } else if (total + qty > item.quantity) {
       return NextResponse.json(
         { error: `의뢰 ${item.quantity}조를 넘습니다 (이미 ${total}조 + 이번 ${qty}조). 다른 곳에서 먼저 입력했는지 확인하세요.`, code: 'OVER_ORDERED' },
         { status: 400 },

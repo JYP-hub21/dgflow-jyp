@@ -36,6 +36,8 @@ export default function ImportWorkOrdersPage() {
   const [fileName, setFileName] = useState('');
   const [parsed, setParsed] = useState<ErpListParse | null>(null);
   const [existing, setExisting] = useState<Set<string> | null>(null);
+  /** MES 생산실적으로 만든 의뢰서 — 건너뛰지 않고 ERP 내용(의뢰일 · 납기 · 품명 · 수량 · 빠진 품목)으로 채운다. 생산 기록은 그대로 */
+  const [mesMade, setMesMade] = useState<Set<string>>(new Set());
   const [reading, setReading] = useState(false);
   const [error, setError] = useState('');
   const [producedFromShipped, setProducedFromShipped] = useState(true);
@@ -46,7 +48,7 @@ export default function ImportWorkOrdersPage() {
   const [onlyRemaining, setOnlyRemaining] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ created: number; items: number; deliveries: number; skipped: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; merged: number; items: number; deliveries: number; skipped: number } | null>(null);
 
   // 파일을 카드에 끌어다 놓아도 고른 것과 똑같이 (2026-11-02 피드백)
   const { dragging, dropProps } = useFileDrop({
@@ -82,6 +84,7 @@ export default function ImportWorkOrdersPage() {
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || '등록 여부를 확인하지 못했습니다.');
       setExisting(new Set(body.existing as string[]));
+      setMesMade(new Set((body.mes ?? []) as string[]));
     } catch (e) {
       setError(e instanceof Error ? e.message : '파일을 읽지 못했습니다.');
     } finally {
@@ -120,10 +123,11 @@ export default function ImportWorkOrdersPage() {
 
   async function runImport() {
     if (!options || fresh.length === 0) return;
-    if (!window.confirm(`새 작업의뢰서 ${fresh.length}건(품목 ${fresh.reduce((s, o) => s + o.items.length, 0)}줄)을 시스템에 등록합니다. 계속하시겠습니까?`)) return;
+    const mesCount = fresh.filter(o => mesMade.has(o.work_order_number)).length;
+    if (!window.confirm(`새 작업의뢰서 ${fresh.length - mesCount}건${mesCount > 0 ? `과 MES 생산실적으로 만든 의뢰서 ${mesCount}건(ERP 내용으로 채움, 생산 기록 유지)` : ''}을 시스템에 등록합니다. 계속하시겠습니까?`)) return;
     setProgress({ done: 0, total: fresh.length });
     setError('');
-    let created = 0, items = 0, deliveries = 0, skipped = 0;
+    let created = 0, merged = 0, items = 0, deliveries = 0, skipped = 0;
     try {
       for (let i = 0; i < fresh.length; i += BATCH) {
         const batch = fresh.slice(i, i + BATCH);
@@ -135,12 +139,14 @@ export default function ImportWorkOrdersPage() {
         const body = await res.json();
         if (!res.ok) throw new Error(body.error || '가져오지 못했습니다.');
         created += body.created ?? 0;
+        merged += body.merged ?? 0;
         items += body.items ?? 0;
         deliveries += body.deliveries ?? 0;
         skipped += (body.skipped ?? []).length;
         setProgress({ done: Math.min(fresh.length, i + BATCH), total: fresh.length });
       }
-      setResult({ created, items, deliveries, skipped });
+      setResult({ created, merged, items, deliveries, skipped });
+      setMesMade(new Set());
       setExisting(prev => new Set([...(prev ?? []), ...fresh.map(o => o.work_order_number)]));
       toast.success(`작업의뢰서 ${created}건을 가져왔습니다.`);
     } catch (e) {
@@ -186,7 +192,8 @@ export default function ImportWorkOrdersPage() {
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="작업의뢰서" value={`${parsed.orders.length.toLocaleString()}건`} sub={`품목 ${parsed.itemCount.toLocaleString()}줄`} />
             <Stat label="주문일" value={dates?.length ? `${dates[0].slice(5)} – ${dates[dates.length - 1].slice(5)}` : '-'} sub={dates?.length ? dates[0].slice(0, 4) + '년' : ''} />
-            <Stat label="이미 등록됨" value={existing ? `${parsed.orders.filter(o => existing.has(o.work_order_number)).length}건` : '확인 중'} sub="건너뜁니다" />
+            <Stat label="이미 등록됨" value={existing ? `${parsed.orders.filter(o => existing.has(o.work_order_number)).length}건` : '확인 중'}
+              sub={mesMade.size > 0 ? `건너뜁니다 · MES 의뢰서 ${mesMade.size}건은 채웁니다` : '건너뜁니다'} />
             <Stat label="신규 등록 대상" value={`${fresh.length.toLocaleString()}건`} sub={`잔여 수량 있음 ${withRemaining}건`} strong />
           </div>
           {parsed.skipped.length > 0 && (
@@ -258,7 +265,7 @@ export default function ImportWorkOrdersPage() {
               )}
               {result && (
                 <p className="flex items-center gap-1.5 rounded-lg bg-success-50 px-3 py-2 text-sm font-medium text-success">
-                  <CheckCircle2 className="h-4 w-4" />작업의뢰서 {result.created}건 · 품목 {result.items}줄{result.deliveries > 0 ? ` · 납품 기록 ${result.deliveries}줄` : ''}을 넣었습니다.
+                  <CheckCircle2 className="h-4 w-4" />작업의뢰서 {result.created}건{result.merged > 0 ? ` · MES 의뢰서 채움 ${result.merged}건` : ''} · 품목 {result.items}줄{result.deliveries > 0 ? ` · 납품 기록 ${result.deliveries}줄` : ''}을 넣었습니다.
                   {result.skipped > 0 && ` 이미 있던 ${result.skipped}건은 건너뛰었습니다.`}
                   <Link href="/work-orders" className="ml-1 underline">작업의뢰서 목록 보기</Link>
                 </p>
@@ -292,7 +299,7 @@ export default function ImportWorkOrdersPage() {
                 </TableHeader>
                 <TableBody>
                   {(showAll ? listed : listed.slice(0, PREVIEW_ROWS)).map(o => (
-                    <OrderRow key={o.work_order_number} o={o} exists={!!existing?.has(o.work_order_number)} options={options}
+                    <OrderRow key={o.work_order_number} o={o} exists={!!existing?.has(o.work_order_number)} mes={mesMade.has(o.work_order_number)} options={options}
                       picked={statusByOrder[o.work_order_number]} onPick={next => setOrderStatus(o.work_order_number, next)} />
                   ))}
                 </TableBody>
@@ -316,8 +323,8 @@ export default function ImportWorkOrdersPage() {
 
 const STATUS_LABEL = { pending: '대기', in_progress: '진행 중', completed: '완료' } as const;
 
-function OrderRow({ o, exists, options, picked, onPick }: {
-  o: ErpListOrder; exists: boolean; options: ImportOptions | null;
+function OrderRow({ o, exists, mes, options, picked, onPick }: {
+  o: ErpListOrder; exists: boolean; mes: boolean; options: ImportOptions | null;
   /** 이 의뢰서만 따로 고른 처리 */
   picked?: RemainingStatus;
   onPick: (next: RemainingStatus) => void;
@@ -327,7 +334,8 @@ function OrderRow({ o, exists, options, picked, onPick }: {
   const current = options ? remainingStatusOf(o, options) : null;
   return (
     <TableRow className={exists ? 'opacity-50' : ''}>
-      <TableCell className="pl-5 font-bold text-brand-800">{o.work_order_number}</TableCell>
+      <TableCell className="pl-5 font-bold text-brand-800">{o.work_order_number}
+        {mes && <span className="block text-xs font-medium text-muted-foreground">MES 의뢰서 채움</span>}</TableCell>
       <TableCell className="max-w-72">
         <p className="truncate text-sm font-medium">{o.customer || '-'}</p>
         <p className="truncate text-xs text-muted-foreground">{o.site || ''}</p>

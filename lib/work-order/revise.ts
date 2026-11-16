@@ -102,7 +102,12 @@ const deliveredOf = (e: ExistingItem) => Math.max(0, Math.min(e.delivered_quanti
 const floorOf = (e: ExistingItem) => Math.max(e.produced_quantity, deliveredOf(e));
 
 /** 지금 품목과 새 품목을 맞춰 무엇이 바뀌는지 계산한다 — 화면 미리보기와 저장이 같은 계획을 쓴다 */
-export function planRevision(existing: ExistingItem[], incoming: RevisionInput[]): RevisionPlan {
+/**
+ * opts.followProduction — MES 로 만든 의뢰서(lib/production/mes-quantity.ts). 의뢰 수량과 생산 기록이 둘 다 MES 바코드에서 나와,
+ * 의뢰 수량을 고치면 생산 기록이 따라 맞춰진다 → 생산량 밑으로도 줄일 수 있다(납품량 밑으로는 아니다).
+ * 문서에서 빠진 줄은 그대로 생산 기록을 지킨다.
+ */
+export function planRevision(existing: ExistingItem[], incoming: RevisionInput[], opts: { followProduction?: boolean } = {}): RevisionPlan {
   const ordered = [...existing].sort((a, b) => a.sort_order - b.sort_order);
   const free = new Set(ordered.map(e => e.id));
   const match = new Map<number, ExistingItem>();
@@ -140,7 +145,7 @@ export function planRevision(existing: ExistingItem[], incoming: RevisionInput[]
     if (!old) { plan.added.push(fields); return; }
 
     // 이미 만든 수량 · 이미 나간 수량 밑으로는 줄이지 않는다
-    const floor = floorOf(old);
+    const floor = opts.followProduction ? deliveredOf(old) : floorOf(old);
     const limited = fields.quantity < floor;
     if (limited) {
       const perSheet = fields.quantity > 0 && fields.area_m2 !== null ? fields.area_m2 / fields.quantity : null;
