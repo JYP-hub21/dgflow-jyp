@@ -7,6 +7,7 @@ import {
   type MesGroup,
 } from '@/lib/production/mes';
 import { mesToLog, netDailyTotals, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
+import { planMesItems, type MesItemRow } from '@/lib/production/mes-items';
 import { isMesOrder, logArea, missingNos, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
 import { planRevision } from '@/lib/work-order/revise';
 import { parseMesBytes } from '@/lib/production/mes-read';
@@ -307,5 +308,49 @@ describe('누계용 MES 날짜별 합계 — 생산 기록과 겹치는 줄은 �
   it('전부 겹치면 빈 목록', () => {
     const manual = mes.map(r => ({ work_order_number: r.work_order_number, production_date: r.production_date }));
     expect(netDailyTotals(mes, manual)).toEqual([]);
+  });
+});
+
+describe('MES 의뢰서 품목 수정 — 요청 검사 (lib/production/mes-items.ts planMesItems)', () => {
+  const row = (id: string, no: number, quantity = 10): MesItemRow =>
+    ({ id, item_no: no, sort_order: no - 1, product_name: '24T 6CL+12A+6CL', width_mm: 1455, height_mm: 2785, quantity, area_m2: 40.5 });
+  const items = [row('a', 2, 1), row('b', 3, 20), row('c', 4, 16)];      // No.1 이 빠진 의뢰서
+  const today = '2026-11-16';
+  const ok = (body: unknown) => { const r = planMesItems(items, body, today); if ('error' in r) throw new Error(r.error); return r.plan; };
+  const err = (body: unknown) => { const r = planMesItems(items, body, today); return 'error' in r ? r.error : ''; };
+
+  it('빠진 번호로 품목을 더한다 — 생산일이 있으면 그날 만든 것으로', () => {
+    const plan = ok({ add: [{ item_no: 1, product_name: ' 24T 5CL+14A+5CL ', width_mm: 1305, height_mm: 1963, quantity: 3, produced_date: '2026-11-10', line_number: 2 }] });
+    expect(plan.add).toEqual([{ item_no: 1, product_name: '24T 5CL+14A+5CL', width_mm: 1305, height_mm: 1963, quantity: 3, produced_date: '2026-11-10', line_number: 2, shift: 'day' }]);
+  });
+  it('생산일을 비우면 아직 안 만든 품목(생산 기록 없음)', () => {
+    expect(ok({ add: [{ item_no: 9, product_name: 'x', width_mm: 100, height_mm: 100, quantity: 1, produced_date: '' }] }).add[0].produced_date).toBeNull();
+  });
+  it('이미 있는 번호 · 서로 겹치는 번호로는 더하지 못한다', () => {
+    const add = { product_name: 'x', width_mm: 100, height_mm: 100, quantity: 1 };
+    expect(err({ add: [{ ...add, item_no: 3 }] })).toContain('No.3 은(는) 이미 있습니다');
+    expect(err({ add: [{ ...add, item_no: 7 }, { ...add, item_no: 7 }] })).toContain('No.7 은(는) 이미 있습니다');
+  });
+  it('지우는 품목의 번호는 다시 쓸 수 있다', () => {
+    const plan = ok({ remove: ['b'], add: [{ item_no: 3, product_name: 'x', width_mm: 100, height_mm: 100, quantity: 2 }] });
+    expect(plan.remove).toEqual(['b']);
+    expect(plan.add[0].item_no).toBe(3);
+  });
+  it('수량 · 품명 · 규격은 바뀐 것만 남긴다', () => {
+    const plan = ok({ update: [{ id: 'a', quantity: 1, product_name: '24T 6CL+12A+6CL' }, { id: 'b', quantity: 22, width_mm: 1500 }], remove: ['c'] });
+    expect(plan.update).toEqual([{ id: 'b', quantity: 22, width_mm: 1500 }]);
+  });
+  it('틀린 값은 아무것도 바꾸기 전에 거른다', () => {
+    expect(err({ update: [{ id: 'a', quantity: 0 }] })).toContain('수량은 1 이상');
+    expect(err({ update: [{ id: 'a', product_name: '  ' }] })).toContain('품명');
+    expect(err({ update: [{ id: 'zzz', quantity: 3 }] })).toContain('이 작업의뢰서의 품목이 아닙니다');
+    expect(err({ add: [{ item_no: 1, product_name: 'x', width_mm: 0, height_mm: 100, quantity: 1 }] })).toContain('가로 · 세로');
+    expect(err({ add: [{ item_no: 1, product_name: 'x', width_mm: 100, height_mm: 100, quantity: 1, produced_date: '2026-11-17' }] })).toContain('오늘보다 뒤');
+    expect(err({ add: [{ item_no: 1, product_name: 'x', width_mm: 100, height_mm: 100, quantity: 1, produced_date: '11/10' }] })).toContain('날짜');
+  });
+  it('품목을 전부 지울 수는 없고, 바꿀 것이 없으면 알린다', () => {
+    expect(err({ remove: ['a', 'b', 'c'] })).toContain('전부 지울 수는 없습니다');
+    expect(err({})).toContain('바꿀 내용이 없습니다');
+    expect(err({ update: [{ id: 'a', quantity: 1 }] })).toContain('바꿀 내용이 없습니다');
   });
 });

@@ -11,7 +11,7 @@ import SiteEditor from '@/components/work-order/SiteEditor';
 import ContactCard from '@/components/work-order/ContactCard';
 import WorkOrderEditActions from '@/components/work-order/WorkOrderEditActions';
 import ReceiptButton from '@/components/work-order/ReceiptButton';
-import MesQuantityDialog from '@/components/work-order/MesQuantityDialog';
+import MesItemsDialog from '@/components/work-order/MesItemsDialog';
 import { isMesOrder, missingNos } from '@/lib/production/mes-orders';
 import { formatKst, loadReceipts } from '@/lib/work-order/receipts';
 import { loadDeliveries } from '@/lib/production/delivery-store';
@@ -133,6 +133,11 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
   // MES 생산실적으로 만든 의뢰서 (lib/production/mes-orders.ts) — 작성 · 수신 확인 표시, 수량 수정, MES 에 없는 NO
   const mesMade = isMesOrder(workOrder.notes as string | null);
   const absentNos = mesMade ? missingNos(woItems.map((it, k) => itemNo(it, k))) : [];
+  // 품목 수정 창에서 더하는 품목의 기본값 — 이 의뢰서의 마지막 생산일 · 가장 많이 만든 호기
+  const lastProduced = productionLogs.reduce<string | null>((m, l) => (!m || l.production_date > m ? l.production_date : m), null);
+  const lineQty = new Map<number, number>();
+  for (const l of productionLogs) lineQty.set(l.line_number ?? 1, (lineQty.get(l.line_number ?? 1) ?? 0) + l.quantity_completed);
+  const mainLine = [...lineQty].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1;
 
   const meta = [
     // MES 의뢰서의 의뢰일은 MES 에 없어 첫 생산일을 넣었다 — 이름표를 그대로 밝힌다
@@ -239,14 +244,15 @@ export default async function WorkOrderDetailPage({ params }: { params: Promise<
           <CardTitle className="text-lg">품목별 생산 현황 <span className="font-normal text-muted-foreground">{woItems.length}건</span></CardTitle>
           {mesMade && (canReceive || canRevise) && (
             <CardAction>
-              <MesQuantityDialog workOrderId={id} number={workOrder.work_order_number}
+              <MesItemsDialog workOrderId={id} number={workOrder.work_order_number}
+                missingNos={absentNos} lastProduced={lastProduced} defaultLine={mainLine}
                 items={woItems.map((it, k) => ({ id: it.id, no: itemNo(it, k), product_name: it.product_name, width_mm: it.width_mm, height_mm: it.height_mm, quantity: it.quantity }))} />
             </CardAction>
           )}
           {mesMade && (
             <p className="break-keep text-sm text-muted-foreground">
               MES 바코드로 센 수량입니다(번호 사이 빈 장 포함).
-              {absentNos.length > 0 && <> MES 에 한 장도 찍히지 않은 <b className="tabular text-warning">No.{absentNos.join(', ')}</b> 은(는) 품목이 없습니다 — 규격 · 수량을 알면 수정에서 더하세요.</>}
+              {absentNos.length > 0 && <> MES 에 한 장도 찍히지 않은 <b className="tabular text-warning">No.{absentNos.join(', ')}</b> 은(는) 품목이 없습니다. 규격 · 수량을 알면 &lsquo;품목 수정&rsquo;에서 그 번호로 더할 수 있습니다.</>}
             </p>
           )}
         </CardHeader>
