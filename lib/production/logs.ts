@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { workOrderLabels, type WorkOrderLabelSource } from '@/lib/work-order/labels';
 import type { ProductionLogRow } from './daily-report';
-import { fetchMesLightRows, fetchMesRows, mesToLog, netDailyTotals, withoutManualOverlap } from './mes-db';
+import { fetchMesLightRows, fetchMesMadeNumbers, fetchMesRows, mesToLog, netDailyTotals, withoutManualOverlap } from './mes-db';
 import { MES_TABLE } from './mes';
 
 const PAGE = 1000;
@@ -10,6 +10,7 @@ const PARALLEL = 8;
 /**
  * 기간(양 끝 포함)의 생산 기록 + MES 실적 (2026-11-15) — 생산일지(일간 · 복층 · 주간)가 함께 쓴다.
  * MES 실적은 작업의뢰서 없이 들어온 바코드 기록이다(lib/production/mes-db.ts). 같은 의뢰번호 · 날짜에 손 입력이 있으면 손 입력을 쓴다.
+ * MES 로 만든 작업의뢰서는 생산 기록이 원본이라 그 의뢰번호의 MES 줄은 날짜와 상관없이 쓰지 않는다(화면에서 고친 수량이 일지에 그대로 나오게).
  * detailFrom 을 주면 그 앞날의 MES 는 날짜별 합계 한 줄씩으로 줄인다 — 복층일지 누계(1월 1일부터)용.
  * 이 합계에서도 생산 기록과 겹치는 (의뢰번호 · 날짜)는 뺀다 — MES 로 만든 작업의뢰서는 같은 유리가 생산 기록에도 있어
  * 그대로 더하면 누계가 두 번 세어진다 (2026-11-16 실전 전 점검에서 발견).
@@ -18,15 +19,16 @@ export async function fetchProductionLogs(
   supabase: SupabaseClient, from: string, to: string, opts: { detailFrom?: string } = {},
 ): Promise<ProductionLogRow[]> {
   const detailFrom = opts.detailFrom && opts.detailFrom > from ? opts.detailFrom : from;
-  const [manual, mes, early] = await Promise.all([
+  const [manual, mes, early, mesMade] = await Promise.all([
     fetchManualLogs(supabase, from, to),
     fetchMesRows(supabase, detailFrom, to),
     detailFrom > from ? fetchMesLightRows(supabase, from, dayBefore(detailFrom)) : Promise.resolve([]),
+    fetchMesMadeNumbers(supabase),
   ]);
-  const totals = netDailyTotals(early, manual);
+  const totals = netDailyTotals(early, manual, mesMade);
   const merged = [
     ...manual,
-    ...withoutManualOverlap(mes, manual).map(mesToLog),
+    ...withoutManualOverlap(mes, manual, mesMade).map(mesToLog),
     ...totals.map((t): ProductionLogRow => ({
       production_date: t.date, quantity_completed: t.quantity, area_m2: t.area_m2, shift: null, line_number: null,
       work_order_id: 'mes:total', work_order_item_id: null, work_order_number: '-', customer: null, site: null,

@@ -132,6 +132,65 @@ export function planMesOrders(groups: MesGroup[]): MesOrder[] {
   return out.sort((a, b) => a.work_order_number.localeCompare(b.work_order_number));
 }
 
+/** 지난번에 올린 MES 한 줄 — MES 실적 표(dgflow_mes_production)에서 읽는다 */
+export interface MesSeenRow { no: number; date: string; line: number; shift: MesShift; quantity: number }
+
+export interface MesReuploadPlan {
+  /** 새 품목으로 더할 NO — 지난번에 없던 번호 */
+  newNos: number[];
+  /** 새로 붙일 생산 — 지난번에 없던 날 · 호기 · 주야간 */
+  fresh: MesOrderLog[];
+  /** 지난번과 장수가 달라진 줄 — delta 만큼만 더하거나 뺀다 */
+  changed: (MesOrderLog & { delta: number })[];
+  /** 지난번에 넣었는데 지금은 없는 NO — 사람이 지운 품목이라 다시 만들지 않는다 */
+  removedNos: number[];
+}
+
+const seenKey = (l: { no: number; date: string; line: number; shift: MesShift }) => `${l.no}|${l.date}|${l.line}|${l.shift}`;
+
+/**
+ * MES 로 만든 작업의뢰서에 MES 파일을 다시 올릴 때 무엇을 바꿀지 (2026-11-17, 11/16 점검 P2).
+ *
+ * 예전에는 "그 품목 · 날 · 호기 · 주야간의 생산 기록이 없으면 넣는다" 만 보았다. 그래서 화면에서 수량을 줄여 지워진 기록,
+ * 지운 품목이 다시 올릴 때마다 되살아났다. 이제 지난번에 올린 내용(seen — MES 실적 표)과 견주어 **달라진 것만** 넣는다:
+ *  - 지난번에도 있던 줄(같은 NO · 날 · 호기 · 주야간)인데 장수가 같다 → 건드리지 않는다. 사람이 고친 것이 그대로 남는다.
+ *  - 장수가 달라졌다(뒤늦게 올라온 바코드) → 달라진 만큼만 더하거나 뺀다.
+ *  - 지난번에 없던 줄 → 새 생산으로 붙인다.
+ *  - 지난번에 넣은 NO 가 지금 없다 → 사람이 지운 품목이다. 다시 만들지 않는다.
+ *
+ * MES 실적 표에는 올릴 때 고른 기간의 줄만 있고, 작업의뢰서는 기간 앞의 생산까지 통째로 넣는다.
+ * 그래서 표에 없는 줄이라도 그 의뢰서의 표 첫 날보다 앞선 날짜면 그때 이미 넣은 것으로 본다.
+ * seen 이 비어 있으면(표가 생기기 전에 만든 의뢰서) 견줄 것이 없다 — 전부 새 줄로 돌려주고, 넣는 쪽이 같은 날 · 호기 기록이 있으면 건너뛴다.
+ */
+export function planMesReupload(order: Pick<MesOrder, 'logs'>, seen: MesSeenRow[], currentNos: Iterable<number>): MesReuploadPlan {
+  const have = new Set(currentNos);
+  const seenQty = new Map(seen.map(r => [seenKey(r), r.quantity]));
+  const firstSeen = seen.reduce<string | null>((m, r) => (m === null || r.date < m ? r.date : m), null);
+  const known = new Set(seen.map(r => r.no));
+  if (firstSeen) for (const l of order.logs) if (l.date < firstSeen) known.add(l.no);
+
+  const newNos = new Set<number>(), removedNos = new Set<number>();
+  const fresh: MesOrderLog[] = [];
+  const changed: (MesOrderLog & { delta: number })[] = [];
+  for (const l of order.logs) {
+    if (!have.has(l.no)) {
+      if (known.has(l.no)) { removedNos.add(l.no); continue; }
+      newNos.add(l.no);
+      fresh.push(l);
+      continue;
+    }
+    const before = seenQty.get(seenKey(l));
+    if (before !== undefined) {
+      if (l.quantity !== before) changed.push({ ...l, delta: l.quantity - before });
+      continue;
+    }
+    if (firstSeen && l.date < firstSeen) continue;
+    fresh.push(l);
+  }
+  const asc = (a: number, b: number) => a - b;
+  return { newNos: [...newNos].sort(asc), fresh, changed, removedNos: [...removedNos].sort(asc) };
+}
+
 /** 생산 기록 한 줄의 면적 — 품목 면적을 수량 비율로 (작업의뢰서와 같은 규칙) */
 export function logArea(item: Pick<MesOrderItem, 'width_mm' | 'height_mm' | 'quantity' | 'area_m2'>, qty: number): number {
   if (item.quantity > 0 && item.area_m2 > 0) return Math.round(item.area_m2 / item.quantity * qty * 100) / 100;

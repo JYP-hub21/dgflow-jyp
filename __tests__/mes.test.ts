@@ -8,7 +8,7 @@ import {
 } from '@/lib/production/mes';
 import { mesToLog, netDailyTotals, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
 import { planMesItems, type MesItemRow } from '@/lib/production/mes-items';
-import { isMesOrder, logArea, missingNos, planMesOrders, systemProductName } from '@/lib/production/mes-orders';
+import { isMesOrder, logArea, missingNos, planMesOrders, planMesReupload, systemProductName, type MesOrderLog, type MesSeenRow } from '@/lib/production/mes-orders';
 import { planRevision } from '@/lib/work-order/revise';
 import { parseMesBytes } from '@/lib/production/mes-read';
 
@@ -352,5 +352,81 @@ describe('MES 의뢰서 품목 수정 — 요청 검사 (lib/production/mes-item
     expect(err({ remove: ['a', 'b', 'c'] })).toContain('전부 지울 수는 없습니다');
     expect(err({})).toContain('바꿀 내용이 없습니다');
     expect(err({ update: [{ id: 'a', quantity: 1 }] })).toContain('바꿀 내용이 없습니다');
+  });
+});
+
+describe('MES 파일 다시 올리기 — 지난번과 달라진 것만 (lib/production/mes-orders.ts planMesReupload, 11/16 점검 P2)', () => {
+  const log = (no: number, date: string, quantity: number, line = 1, shift: 'day' | 'night' = 'day'): MesOrderLog => ({ no, date, line, shift, quantity });
+  const seen = (no: number, date: string, quantity: number, line = 1, shift: 'day' | 'night' = 'day'): MesSeenRow => ({ no, date, line, shift, quantity });
+  // 지난번: 10/22 – 11/11 을 골라 올렸다. 의뢰서는 통째로라 10/20 생산(NO 1)도 그때 들어갔다
+  const file = [log(1, '2026-10-20', 4), log(1, '2026-10-22', 6), log(2, '2026-10-23', 10), log(3, '2026-11-11', 5, 2, 'night')];
+  const before = [seen(1, '2026-10-22', 6), seen(2, '2026-10-23', 10), seen(3, '2026-11-11', 5, 2, 'night')];
+
+  it('같은 파일을 다시 올리면 아무것도 바꾸지 않는다 — 사람이 고친 수량이 되돌아가지 않는다', () => {
+    expect(planMesReupload({ logs: file }, before, [1, 2, 3])).toEqual({ newNos: [], fresh: [], changed: [], removedNos: [] });
+  });
+
+  it('기간 앞의 생산(표에는 없지만 그때 통째로 넣은 것)도 다시 넣지 않는다', () => {
+    const plan = planMesReupload({ logs: file }, before, [1, 2, 3]);
+    expect(plan.fresh.some(l => l.date === '2026-10-20')).toBe(false);
+  });
+
+  it('화면에서 지운 품목은 다시 만들지 않는다', () => {
+    const plan = planMesReupload({ logs: file }, before, [1, 3]);
+    expect(plan.removedNos).toEqual([2]);
+    expect(plan.newNos).toEqual([]);
+    expect(plan.fresh).toEqual([]);
+    // 기간 앞에만 생산이 있던 품목을 지운 경우도 같다
+    const early = [log(9, '2026-10-01', 3), ...file];
+    expect(planMesReupload({ logs: early }, before, [1, 2, 3]).removedNos).toEqual([9]);
+  });
+
+  it('새 파일에 새로 생긴 생산 — 뒤 날짜 · 다른 호기 · 새 NO 만 붙인다', () => {
+    const next = [...file, log(2, '2026-11-12', 8), log(2, '2026-10-23', 3, 2), log(7, '2026-11-13', 2)];
+    const plan = planMesReupload({ logs: next }, before, [1, 2, 3]);
+    expect(plan.fresh).toEqual([log(2, '2026-11-12', 8), log(2, '2026-10-23', 3, 2), log(7, '2026-11-13', 2)]);
+    expect(plan.newNos).toEqual([7]);
+    expect(plan.changed).toEqual([]);
+  });
+
+  it('지난번에도 있던 줄의 장수가 달라졌으면 달라진 만큼만', () => {
+    const next = [log(1, '2026-10-20', 4), log(1, '2026-10-22', 6), log(2, '2026-10-23', 13), log(3, '2026-11-11', 4, 2, 'night')];
+    const plan = planMesReupload({ logs: next }, before, [1, 2, 3]);
+    expect(plan.changed).toEqual([{ ...log(2, '2026-10-23', 13), delta: 3 }, { ...log(3, '2026-11-11', 4, 2, 'night'), delta: -1 }]);
+    expect(plan.fresh).toEqual([]);
+  });
+
+  it('화면에서 손으로 더한 품목(MES 에 없던 NO)에 뒤늦게 MES 생산이 오면 새 생산으로 붙인다', () => {
+    const plan = planMesReupload({ logs: [...file, log(5, '2026-11-12', 2)] }, before, [1, 2, 3, 5]);
+    expect(plan.fresh).toEqual([log(5, '2026-11-12', 2)]);
+    expect(plan.newNos).toEqual([]);
+  });
+
+  it('지난번 내용이 없으면(표가 생기기 전 의뢰서) 전부 새 줄로 돌려준다 — 넣는 쪽이 같은 날 · 호기 기록을 건너뛴다', () => {
+    const plan = planMesReupload({ logs: file }, [], [1, 2]);
+    expect(plan.fresh).toEqual(file);
+    expect(plan.newNos).toEqual([3]);
+    expect(plan.removedNos).toEqual([]);
+  });
+});
+
+describe('MES 로 만든 작업의뢰서는 생산 기록이 원본 — 그 의뢰번호의 MES 줄은 일지에 쓰지 않는다 (11/16 점검 P6)', () => {
+  const grp: MesGroup = {
+    wo: '26-2573', no: 3, date: '2026-10-22', line: 1, shift: 'day', scanned: 2, filled: 8,
+    product: '5CL+12A+5로이', width: 559, height: 1217, customer: '거래처A', site: '현장A', remark: '',
+  };
+  const rows = [toMesRow(grp), toMesRow({ ...grp, date: '2026-10-23' }), toMesRow({ ...grp, wo: '26-2600' })];
+  const made = new Set(['26-2573']);
+
+  it('그날 생산 기록이 통째로 지워져도 MES 줄이 되살아나지 않는다', () => {
+    // 26-2573 은 10/22 기록만 남고 10/23 기록은 수량을 줄이다 지워졌다
+    const manual = [{ work_order_number: '26-2573', production_date: '2026-10-22' }];
+    expect(withoutManualOverlap(rows, manual).map(r => `${r.work_order_number} ${r.production_date}`)).toEqual(['26-2573 2026-10-23', '26-2600 2026-10-22']);
+    expect(withoutManualOverlap(rows, manual, made).map(r => `${r.work_order_number} ${r.production_date}`)).toEqual(['26-2600 2026-10-22']);
+  });
+
+  it('누계도 같다', () => {
+    const light = rows.map(r => ({ production_date: r.production_date, work_order_number: r.work_order_number, quantity: r.quantity, area_m2: r.area_m2 }));
+    expect(netDailyTotals(light, [], made)).toEqual([{ date: '2026-10-22', quantity: 10, area_m2: 6.8 }]);
   });
 });

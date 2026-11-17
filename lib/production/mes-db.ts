@@ -3,6 +3,8 @@ import { expectedArea } from '@/lib/work-order/verify';
 import { isMissingTable } from './bokcheung-store';
 import type { ProductionLogRow } from './daily-report';
 import { MES_TABLE, groupQty, type MesGroup } from './mes';
+import { MES_ORDER_NOTE } from './mes-orders';
+import { fetchAll } from '@/lib/supabase/fetch-all';
 
 /**
  * MES 실적 표(dgflow_mes_production) 읽고 쓰기 — 생산일지가 생산 기록과 함께 쓴다 (2026-11-15).
@@ -79,10 +81,21 @@ export function mesToLog(r: MesRow): ProductionLogRow {
 
 /**
  * 손 입력과 겹치는 MES 줄을 뺀다 — 같은 의뢰번호 · 같은 날에 손으로 넣은 생산 기록이 있으면 MES 줄을 쓰지 않는다.
+ * mesMade(MES 로 만든 작업의뢰서의 의뢰번호)에 든 번호는 날짜와 상관없이 전부 뺀다 — 그 의뢰서는 생산 기록이 원본이다.
+ * 날짜만 보면, 화면에서 수량을 줄여 어느 날의 기록이 통째로 지워졌을 때 그날 MES 줄이 일지에 되살아났다(2026-11-17, 11/16 점검 P6).
  */
-export function withoutManualOverlap(mes: MesRow[], manual: Pick<ProductionLogRow, 'work_order_number' | 'production_date'>[]): MesRow[] {
+export function withoutManualOverlap(
+  mes: MesRow[], manual: Pick<ProductionLogRow, 'work_order_number' | 'production_date'>[], mesMade?: ReadonlySet<string>,
+): MesRow[] {
   const taken = new Set(manual.map(l => `${l.work_order_number}|${l.production_date}`));
-  return mes.filter(r => !taken.has(`${r.work_order_number}|${r.production_date}`));
+  return mes.filter(r => !mesMade?.has(r.work_order_number) && !taken.has(`${r.work_order_number}|${r.production_date}`));
+}
+
+/** MES 로 만든 작업의뢰서의 의뢰번호 — 생산일지가 이 번호의 MES 줄을 쓰지 않게 */
+export async function fetchMesMadeNumbers(supabase: SupabaseClient): Promise<Set<string>> {
+  const rows = await fetchAll<{ work_order_number: string | null }>((a, b) => supabase.from('dgflow_work_orders')
+    .select('work_order_number').ilike('notes', `%${MES_ORDER_NOTE}%`).order('id').range(a, b));
+  return new Set(rows.map(r => r.work_order_number).filter((n): n is string => !!n));
 }
 
 const COLUMNS = 'production_date, line_number, shift, work_order_number, item_no, product_name, width_mm, height_mm, customer, site, remark, scanned, filled, quantity, area_m2';
@@ -114,12 +127,12 @@ export interface MesLightRow { production_date: string; work_order_number: strin
  * 누계가 두 번 세어졌다(운영 11/16: 실제 13,916조가 26,518조로 나옴). 그날 일지와 같은 규칙(withoutManualOverlap)으로 뺀다.
  */
 export function netDailyTotals(
-  mes: MesLightRow[], manual: Pick<ProductionLogRow, 'work_order_number' | 'production_date'>[],
+  mes: MesLightRow[], manual: Pick<ProductionLogRow, 'work_order_number' | 'production_date'>[], mesMade?: ReadonlySet<string>,
 ): { date: string; quantity: number; area_m2: number }[] {
   const taken = new Set(manual.map(l => `${l.work_order_number}|${l.production_date}`));
   const byDate = new Map<string, { quantity: number; area_m2: number }>();
   for (const r of mes) {
-    if (taken.has(`${r.work_order_number}|${r.production_date}`)) continue;
+    if (mesMade?.has(r.work_order_number) || taken.has(`${r.work_order_number}|${r.production_date}`)) continue;
     const t = byDate.get(r.production_date) ?? { quantity: 0, area_m2: 0 };
     t.quantity += Number(r.quantity) || 0;
     t.area_m2 += Number(r.area_m2) || 0;
