@@ -14,7 +14,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import { chipClass } from '@/components/ui/chip';
 import Link from 'next/link';
 import { Download, Loader2, CalendarDays, ChevronRight } from 'lucide-react';
-import type { DailyReport } from '@/lib/production/daily-report';
+import { isIsoDate, type DailyReport } from '@/lib/production/daily-report';
 import { readDraftsBetween } from '@/lib/production/bokcheung-drafts';
 import { lineName } from '@/lib/production/lines';
 import { useProductionLines } from '@/components/production/useProductionLines';
@@ -83,7 +83,11 @@ export default function ProductionLogPage() {
 }
 
 function PeriodReport() {
+  // 주소에 from · to 가 있으면 그 기간으로 연다 — DG 프리즘의 "기간 합계 열기" 버튼 (2026-11-17)
+  const params = useSearchParams();
   const [range, setRange] = useState(() => {
+    const from = params.get('from'), to = params.get('to');
+    if (isIsoDate(from) && isIsoDate(to) && from <= to) return { from, to };
     const week = presets().find(p => p.key === 'week')!;
     return { from: week.from, to: week.to };
   });

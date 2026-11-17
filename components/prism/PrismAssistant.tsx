@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ArrowUp, ChevronRight, Loader2, RotateCcw, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, Check, ChevronRight, Download, Loader2, RotateCcw, X } from 'lucide-react';
 import PrismMark from '@/components/prism/PrismMark';
 import { useCurrentUser } from '@/components/layout/CurrentUser';
-import { answerAsText, LINKS, MAX_QUESTION, type ChatTurn, type PrismAnswer, type Tone } from '@/lib/prism/chat';
+import { answerAsText, LINKS, MAX_QUESTION, type ChatTurn, type PrismAction, type PrismAnswer, type Tone } from '@/lib/prism/chat';
+import { readDraftsBetween } from '@/lib/production/bokcheung-drafts';
 import { cn } from '@/lib/utils';
 
 /**
@@ -15,6 +16,7 @@ import { cn } from '@/lib/utils';
  * 사용자: "AI 기능이면 어떤 질문이든 다 답은 할 수 있어야지 — 동일유리 발주서에 관련해서는 전문가인 AI",
  *        "코멘트 주는 것들도 너무 많아서 읽지 않게 된다 — 좀 더 보기 쉽게 가시화".
  * 답은 짧은 글 한 덩어리 + 숫자 칸 · 막대 · 목록 · 화면 링크. 숫자는 서버가 DB 에서 센 값이다(/api/prism/chat).
+ * 2026-11-17: "다운로드해 줘 · 열어 줘" 는 답 아래 버튼으로 — 엑셀 내려받기 · 날짜나 의뢰번호로 화면 열기 (lib/prism/actions.ts).
  * 화면 아래 떠 있는 버튼은 생산 입력 · 작업의뢰서 등록의 아래 고정 저장 줄을 가려서 쓰지 않는다.
  */
 
@@ -36,8 +38,9 @@ interface Message {
 const SUGGESTIONS = [
   '요즘 발주 상황 어때?',
   '이번 주 생산 얼마나 했어?',
+  '지난달 생산 실적을 주별로 보여 줘',
+  '이번 달 복층생산일지를 엑셀로 받아 줘',
   '납기 가까운 작업의뢰서 알려 줘',
-  '바로 납품할 수 있는 거 얼마나 돼?',
   '복층유리랑 강화유리 차이가 뭐야?',
 ];
 
@@ -156,7 +159,7 @@ export default function PrismAssistant() {
             <div>
               <p className="text-[19px] font-bold leading-snug tracking-tight">무엇이든 물어보세요</p>
               <p className="mt-1 break-keep text-sm text-muted-foreground">
-                발주 · 생산 · 납품 현황은 지금 시스템 숫자로 답합니다.
+                발주 · 생산 · 납품 현황은 지금 시스템 숫자로 답합니다. 생산일지 엑셀 다운로드나 화면 열기도 말로 부탁하시면 됩니다.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -182,7 +185,7 @@ export default function PrismAssistant() {
           <div className="flex items-center gap-2.5">
             <PrismMark small />
             <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />현황을 보고 답을 쓰는 중입니다
+              <Loader2 className="h-4 w-4 animate-spin" />자료를 찾아보고 답을 쓰는 중입니다
             </span>
           </div>
         )}
@@ -297,6 +300,24 @@ function AnswerView({ answer, krw, onLink }: { answer: PrismAnswer; krw?: number
           </ul>
         )}
 
+        {(answer.actions ?? []).length > 0 && (
+          <div className="space-y-1.5">
+            {(answer.actions ?? []).map((a, i) => a.type === 'download'
+              ? <DownloadAction key={i} action={a} />
+              : (
+                <Link key={i} href={a.href} onClick={onLink}
+                  className="flex items-center gap-3 rounded-xl bg-card px-3 py-2.5 ring-1 ring-border transition-colors hover:bg-brand-50 hover:ring-brand-600/30">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-800"><ArrowUpRight className="h-[18px] w-[18px]" /></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-semibold">{a.label}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{a.detail}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </Link>
+              ))}
+          </div>
+        )}
+
         {(answer.links.length > 0 || krw != null) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {answer.links.filter(h => h in LINKS).map(h => (
@@ -309,6 +330,67 @@ function AnswerView({ answer, krw, onLink }: { answer: PrismAnswer; krw?: number
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+type DownloadOf = Extract<PrismAction, { type: 'download' }>;
+
+/** 응답 머리의 파일 이름 (filename*=UTF-8''…) */
+function fileNameOf(res: Response): string | null {
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(res.headers.get('Content-Disposition') ?? '');
+  try { return m ? decodeURIComponent(m[1]) : null; } catch { return null; }
+}
+
+/**
+ * 엑셀 다운로드 버튼 — 생산일지 화면의 다운로드와 같은 API 를 부른다.
+ * 복층생산일지는 기간 합계 화면처럼 이 PC 에 임시로 적어 둔 종류 · 수량외도 함께 보낸다. 주간생산일지는 서버에 저장된 값으로 만든다.
+ */
+function DownloadAction({ action }: { action: DownloadOf }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
+  const [error, setError] = useState('');
+
+  async function run() {
+    if (state === 'busy') return;
+    setState('busy');
+    setError('');
+    try {
+      const init = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+      const res = action.kind === 'bokcheung'
+        ? await fetch(`/api/production/bokcheung/range?from=${action.from}&to=${action.to}`, { ...init, body: JSON.stringify({ drafts: readDraftsBetween(action.from, action.to) }) })
+        : await fetch(`/api/production/weekly?date=${action.from}`, { ...init, body: '{}' });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || '엑셀을 만들지 못했습니다.');
+      const name = fileNameOf(res) ?? (action.kind === 'bokcheung'
+        ? (action.from === action.to ? `복층생산일지_${action.from}.xlsx` : `복층생산일지_${action.from}_${action.to}.xlsx`)
+        : `주간생산일지_${action.from}.xlsx`);
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+      setState('done');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '엑셀을 만들지 못했습니다.');
+      setState('idle');
+    }
+  }
+
+  return (
+    <div>
+      <button type="button" onClick={run} disabled={state === 'busy'}
+        className="flex w-full items-center gap-3 rounded-xl bg-brand-800 px-3 py-2.5 text-left text-white transition-colors hover:bg-brand-700 disabled:opacity-70">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
+          {state === 'busy' ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : state === 'done' ? <Check className="h-[18px] w-[18px]" /> : <Download className="h-[18px] w-[18px]" />}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13.5px] font-semibold">
+            {state === 'busy' ? '엑셀 생성 중…' : state === 'done' ? `${action.label.replace(' 다운로드', '')} 받음 · 다시 받기` : action.label}
+          </span>
+          <span className="block truncate text-xs text-white/75">{action.detail}</span>
+        </span>
+      </button>
+      {error && <p className="mt-1 break-keep px-1 text-xs text-destructive">{error}</p>}
     </div>
   );
 }

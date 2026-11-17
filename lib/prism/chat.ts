@@ -4,9 +4,18 @@
  * 사용자: "AI 기능이면 어떤 질문이든 다 답은 할 수 있어야지 — 동일유리 발주서에 관련해서는 전문가인 AI"
  *        "코멘트 주는 것들도 너무 많아서 읽지 않게 된다 — 좀 더 보기 쉽게 가시화"
  * → 답은 짧은 글(reply) 하나 + 필요할 때만 숫자 칸(stats) · 막대(chart) · 목록(items) · 이어서 볼 화면(links).
+ * 2026-11-17: "해 주는 일" 버튼(actions) — 엑셀 다운로드 · 날짜나 의뢰번호로 화면 열기 (lib/prism/actions.ts).
  */
 
 export type Tone = 'normal' | 'good' | 'warn' | 'danger';
+
+/**
+ * 답 아래에 붙는 "해 주는 일" 버튼. 서버가 날짜 · 의뢰번호를 확인해서 만든다(AI 가 주소를 지어내지 못한다).
+ * download 는 화면이 kind · from · to 로 정해진 엑셀 API 를 부르고, open 은 그 화면으로 간다.
+ */
+export type PrismAction =
+  | { type: 'download'; kind: 'bokcheung' | 'weekly'; label: string; detail: string; from: string; to: string }
+  | { type: 'open'; label: string; detail: string; href: string };
 
 export interface PrismAnswer {
   reply: string;
@@ -16,6 +25,8 @@ export interface PrismAnswer {
   chart: { label: string; value: number }[];
   items: { title: string; detail: string; tone: Tone }[];
   links: LinkHref[];
+  /** 없을 수도 있다 — 예전에 저장된 대화 */
+  actions?: PrismAction[];
 }
 
 export interface ChatTurn {
@@ -58,6 +69,7 @@ export function answerAsText(a: PrismAnswer): string {
   if (a.stats.length) lines.push(a.stats.map(s => `${s.label} ${s.value}${s.unit}`).join(' · '));
   if (a.chart.length) lines.push(`${a.chart_title}: ${a.chart.map(p => `${p.label} ${p.value}${a.chart_unit}`).join(', ')}`);
   for (const it of a.items) lines.push(`- ${it.title}${it.detail ? ` — ${it.detail}` : ''}`);
+  for (const act of a.actions ?? []) lines.push(`[버튼을 드렸음: ${act.label} · ${act.detail}]`);
   return lines.join('\n');
 }
 
