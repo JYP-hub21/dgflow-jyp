@@ -191,6 +191,46 @@ export function planMesReupload(order: Pick<MesOrder, 'logs'>, seen: MesSeenRow[
   return { newNos: [...newNos].sort(asc), fresh, changed, removedNos: [...removedNos].sort(asc) };
 }
 
+/** 사람이 등록한 작업의뢰서(등록 화면 · 지난 의뢰서 가져오기)의 품목 하나 — MES 를 붙이기 전 상태 */
+export interface OtherItemState {
+  /** 의뢰 수량 */
+  quantity: number;
+  /** 생산 수량 — 품목에 저장된 값. 생산 기록 없이 수량만 있는 '출고만큼 생산'(지난 의뢰서 가져오기)도 들어 있다 */
+  produced: number;
+  /** 그 가운데 MES 가져오기가 넣은 생산 기록의 합 */
+  mesQty: number;
+  /** 이미 있는 생산 기록의 날 · 호기 · 주야간 (otherKey) */
+  have: Set<string>;
+}
+
+export const otherKey = (l: { date: string; line: number; shift: MesShift }) => `${l.date}|${l.line}|${l.shift}`;
+
+/**
+ * 사람이 등록한 작업의뢰서에 MES 생산을 붙일 때 (2026-11-17, 11/16 점검 P3).
+ *
+ * 예전에는 "그 날 · 호기 · 주야간 기록이 없으면 넣는다" 만 보아, 생산관리부가 11/17 주간 1호기로 넣은 유리를
+ * MES 가 11/16 이나 2호기 · 야간으로 찍었으면 또 넣었다 — 의뢰 40조에 생산 80조가 될 수 있었다.
+ * 이제:
+ *  - 손으로 넣은 생산이 있는 품목은 MES 로 더하지 않는다(손 입력이 먼저 — 생산일지와 같은 규칙).
+ *    MES 가 넣은 기록만 있으면 손 입력이 아니다(MES 를 두 번 올린 경우).
+ *  - 손 입력이 없는 품목은 MES 생산을 붙이되 의뢰 수량까지만. 넘는 장수(재작업 등)는 capped 로 센다.
+ *  - 이미 있는 날 · 호기 · 주야간 줄은 건너뛴다(같은 파일을 다시 올렸거나 중간에 끊겨 다시 보낸 경우).
+ */
+export function planOtherOrderMes(item: OtherItemState, lines: MesOrderLog[]): { add: MesOrderLog[]; manual: boolean; capped: number } {
+  if (item.produced - item.mesQty > 0) return { add: [], manual: true, capped: 0 };
+  let room = Math.max(0, item.quantity - item.mesQty);
+  const add: MesOrderLog[] = [];
+  let capped = 0;
+  const sorted = [...lines].sort((a, b) => a.date.localeCompare(b.date) || a.line - b.line || (a.shift === b.shift ? 0 : a.shift === 'day' ? -1 : 1));
+  for (const l of sorted) {
+    if (item.have.has(otherKey(l))) continue;
+    const take = Math.min(l.quantity, room);
+    capped += l.quantity - take;
+    if (take > 0) { add.push({ ...l, quantity: take }); room -= take; }
+  }
+  return { add, manual: false, capped };
+}
+
 /** 생산 기록 한 줄의 면적 — 품목 면적을 수량 비율로 (작업의뢰서와 같은 규칙) */
 export function logArea(item: Pick<MesOrderItem, 'width_mm' | 'height_mm' | 'quantity' | 'area_m2'>, qty: number): number {
   if (item.quantity > 0 && item.area_m2 > 0) return Math.round(item.area_m2 / item.quantity * qty * 100) / 100;

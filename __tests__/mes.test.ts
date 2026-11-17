@@ -8,7 +8,7 @@ import {
 } from '@/lib/production/mes';
 import { mesToLog, netDailyTotals, toMesRow, withoutManualOverlap } from '@/lib/production/mes-db';
 import { planMesItems, type MesItemRow } from '@/lib/production/mes-items';
-import { isMesOrder, logArea, missingNos, planMesOrders, planMesReupload, systemProductName, type MesOrderLog, type MesSeenRow } from '@/lib/production/mes-orders';
+import { isMesOrder, logArea, missingNos, otherKey, planMesOrders, planMesReupload, planOtherOrderMes, systemProductName, type MesOrderLog, type MesSeenRow } from '@/lib/production/mes-orders';
 import { planRevision } from '@/lib/work-order/revise';
 import { parseMesBytes } from '@/lib/production/mes-read';
 
@@ -428,5 +428,55 @@ describe('MES 로 만든 작업의뢰서는 생산 기록이 원본 — 그 의�
   it('누계도 같다', () => {
     const light = rows.map(r => ({ production_date: r.production_date, work_order_number: r.work_order_number, quantity: r.quantity, area_m2: r.area_m2 }));
     expect(netDailyTotals(light, [], made)).toEqual([{ date: '2026-10-22', quantity: 10, area_m2: 6.8 }]);
+  });
+});
+
+describe('사람이 등록한 작업의뢰서에 MES 붙이기 — 손 입력과 두 번 세지 않게 (planOtherOrderMes, 11/16 점검 P3)', () => {
+  const log = (date: string, quantity: number, line = 1, shift: 'day' | 'night' = 'day'): MesOrderLog => ({ no: 1, date, line, shift, quantity });
+  const state = (over: Partial<{ quantity: number; produced: number; mesQty: number; have: Set<string> }> = {}) =>
+    ({ quantity: 40, produced: 0, mesQty: 0, have: new Set<string>(), ...over });
+
+  it('손으로 넣은 생산이 있으면 MES 는 더하지 않는다 — 날 · 호기가 달라도', () => {
+    // 생산관리부가 11/17 주간 1호기로 40조를 넣었고, MES 는 같은 유리를 11/16 2호기 야간으로 찍었다
+    const r = planOtherOrderMes(state({ produced: 40, have: new Set([otherKey(log('2026-11-17', 40))]) }), [log('2026-11-16', 40, 2, 'night')]);
+    expect(r).toEqual({ add: [], manual: true, capped: 0 });
+  });
+
+  it('지난 의뢰서 가져오기의 "출고만큼 생산"(기록 없이 수량만)도 손 입력으로 본다', () => {
+    expect(planOtherOrderMes(state({ produced: 30 }), [log('2026-11-16', 40)]).manual).toBe(true);
+  });
+
+  it('손 입력이 없으면 MES 생산을 붙이되 의뢰 수량까지만', () => {
+    const r = planOtherOrderMes(state(), [log('2026-11-17', 30), log('2026-11-16', 15)]);
+    // 날짜순으로 채운다 — 11/16 15조, 11/17 25조, 넘는 5조는 넣지 않는다
+    expect(r.add).toEqual([log('2026-11-16', 15), log('2026-11-17', 25)]);
+    expect(r.capped).toBe(5);
+    expect(r.manual).toBe(false);
+  });
+
+  it('MES 가 넣은 기록만 있으면 손 입력이 아니다 — 다음 파일의 새 생산을 이어서 붙인다', () => {
+    const before = state({ produced: 15, mesQty: 15, have: new Set([otherKey(log('2026-11-16', 15))]) });
+    const r = planOtherOrderMes(before, [log('2026-11-16', 15), log('2026-11-18', 20)]);
+    expect(r.add).toEqual([log('2026-11-18', 20)]);
+    expect(r.capped).toBe(0);
+  });
+
+  it('같은 파일을 다시 올리면 아무것도 더하지 않는다', () => {
+    const r = planOtherOrderMes(state({ produced: 40, mesQty: 40, have: new Set([otherKey(log('2026-11-16', 15)), otherKey(log('2026-11-17', 25))]) }),
+      [log('2026-11-16', 15), log('2026-11-17', 30)]);
+    expect(r.add).toEqual([]);
+    // 이미 들어간 줄은 건너뛸 뿐 '넘는 수량' 으로 세지 않는다
+    expect(r.capped).toBe(0);
+  });
+
+  it('생산일지 — 시스템에 의뢰서가 있으면 날짜가 달라도 MES 줄을 쓰지 않는다', () => {
+    const grp: MesGroup = {
+      wo: '26-3001', no: 1, date: '2026-11-16', line: 2, shift: 'night', scanned: 2, filled: 38,
+      product: '5CL+12A+5로이', width: 559, height: 1217, customer: '거래처A', site: '현장A', remark: '',
+    };
+    const manual = [{ work_order_number: '26-3001', production_date: '2026-11-17' }];
+    // 예전: 날짜가 다르면 MES 줄도 일지에 들어가 손 입력 40조와 함께 두 번 셌다
+    expect(withoutManualOverlap([toMesRow(grp)], manual)).toHaveLength(1);
+    expect(withoutManualOverlap([toMesRow(grp)], manual, new Set(['26-3001']))).toHaveLength(0);
   });
 });

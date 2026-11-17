@@ -56,7 +56,7 @@ export default function MesImportPage() {
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ created: number; existing: number; existingLogs: number; changed: number; keptRemoved: number } | null>(null);
+  const [result, setResult] = useState<{ created: number; existing: number; existingLogs: number; changed: number; keptRemoved: number; manualKept: number; cappedQty: number } | null>(null);
   const [stored, setStored] = useState<Stored | null>(null);
 
   const loadStored = () => {
@@ -177,7 +177,7 @@ export default function MesImportPage() {
 
     setProgress({ done: 0, total: steps });
     setError('');
-    let created = 0, existing = 0, existingLogs = 0, changed = 0, keptRemoved = 0, step = 0;
+    let created = 0, existing = 0, existingLogs = 0, changed = 0, keptRemoved = 0, manualKept = 0, cappedQty = 0, step = 0;
     try {
       // 의뢰번호 묶음마다 한 번 — 서버가 작업의뢰서 · 생산 기록을 먼저 넣고, 기간 안의 줄을 MES 실적 표에 적는다
       for (const batch of orderBatches) {
@@ -192,9 +192,11 @@ export default function MesImportPage() {
         existingLogs += body.existingLogs ?? 0;
         changed += body.changed ?? 0;
         keptRemoved += body.keptRemoved ?? 0;
+        manualKept += body.manualKept ?? 0;
+        cappedQty += body.cappedQty ?? 0;
         setProgress({ done: ++step, total: steps });
       }
-      setResult({ created, existing, existingLogs, changed, keptRemoved });
+      setResult({ created, existing, existingLogs, changed, keptRemoved, manualKept, cappedQty });
       toast.success(created > 0
         ? `작업의뢰서 ${created.toLocaleString()}건을 새로 만들었습니다.`
         : `새로 만든 작업의뢰서는 없습니다. 이미 있던 의뢰서에 새 생산 기록 ${existingLogs.toLocaleString()}줄을 붙였습니다.`);
@@ -358,7 +360,7 @@ export default function MesImportPage() {
                 <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />
                   <span>다시 올려도 두 번 세지 않습니다. 이미 만든 작업의뢰서에는 <b className="text-foreground">지난번에 올린 뒤 새로 생긴 생산만</b> 붙이고, 화면에서 고친 수량 · 지운 품목은 그대로 둡니다.</span></li>
                 <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />작업의뢰서는 MES 의 의뢰번호 · 거래처 · 현장 · 품목(NO · 품명 · 규격 · 비고)으로 만들고, 수량은 MES 장수, 의뢰일은 첫 생산일, 상태는 완료입니다(납품은 기록하지 않습니다).</li>
-                <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />등록 화면이나 지난 작업의뢰서 가져오기로 넣은 작업의뢰서는 새로 만들지 않고, 같은 NO 품목에 그 날 · 호기의 생산 기록이 없을 때만 붙입니다.</li>
+                <li className="flex gap-1.5"><Info className="mt-px h-3.5 w-3.5 shrink-0" />등록 화면이나 지난 작업의뢰서 가져오기로 넣은 작업의뢰서는 새로 만들지 않습니다. <b className="text-foreground">손으로 생산을 입력한 품목은 그대로 두고</b>, 입력이 없는 품목만 의뢰 수량까지 MES 로 채웁니다.</li>
               </ul>
               {result && (
                 <div className="flex flex-wrap items-center gap-2 rounded-lg bg-success-50 px-3 py-2 text-sm font-medium text-success">
@@ -367,6 +369,8 @@ export default function MesImportPage() {
                     작업의뢰서 {result.created.toLocaleString()}건을 새로 만들었습니다.
                     {result.existing > 0 && ` 이미 있던 ${result.existing.toLocaleString()}건에는 새로 생긴 생산 기록 ${result.existingLogs.toLocaleString()}줄${result.changed > 0 ? ` · 장수가 달라진 ${result.changed.toLocaleString()}줄` : ''}만 반영했습니다.`}
                     {result.keptRemoved > 0 && ` 화면에서 지운 품목 ${result.keptRemoved.toLocaleString()}개는 다시 만들지 않았습니다.`}
+                    {result.manualKept > 0 && ` 손으로 생산을 입력한 품목 ${result.manualKept.toLocaleString()}개는 MES 로 더하지 않았습니다.`}
+                    {result.cappedQty > 0 && ` 의뢰 수량을 넘는 ${result.cappedQty.toLocaleString()}조는 넣지 않았습니다.`}
                   </span>
                   <span className="ml-auto flex gap-1.5">
                     <Link href="/work-orders" className={buttonVariants({ variant: 'outline', size: 'sm' })}>작업의뢰서</Link>

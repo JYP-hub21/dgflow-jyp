@@ -6,7 +6,12 @@ import { isIsoDate } from '@/lib/production/daily-report';
 import { isMissingTable } from '@/lib/production/bokcheung-store';
 import { fetchMesDailyTotals, toMesRow } from '@/lib/production/mes-db';
 import { MES_COMMIT_ENABLED, MES_TABLE, normalizeWorkOrderNumber, type MesGroup } from '@/lib/production/mes';
-import { MES_ORDER_NOTE, logArea, planMesOrders, planMesReupload, type MesOrderItem, type MesOrderLog, type MesSeenRow } from '@/lib/production/mes-orders';
+import {
+  MES_ORDER_NOTE, logArea, otherKey, planMesOrders, planMesReupload, planOtherOrderMes, type MesOrderItem, type MesOrderLog, type MesSeenRow,
+} from '@/lib/production/mes-orders';
+
+/** MES 가져오기가 넣은 생산 기록의 비고 — 손 입력과 가른다 */
+const MES_LOG_REMARK = 'MES 바코드';
 import { itemNo } from '@/lib/production/item-view';
 import { syncProducedQuantity } from '@/lib/production/produced-quantity';
 import { syncWorkOrderStatus } from '@/lib/work-order/stage';
@@ -27,7 +32,8 @@ const MAX_ORDER_GROUPS = 8000;
  *        1) 없는 의뢰번호는 새 작업의뢰서(상태 완료) · 품목 · 생산 기록을 만든다.
  *        2) MES 로 만든 의뢰서가 이미 있으면 지난번에 올린 내용(MES 실적 표)과 견주어 달라진 것만 넣는다 —
  *           화면에서 고친 수량 · 지운 품목은 다시 올려도 그대로다 (planMesReupload, 2026-11-17).
- *        3) 그 밖의 의뢰서(등록 화면 · 지난 의뢰서 가져오기)는 같은 NO 품목에 그 날 · 호기 · 주야간 기록이 없을 때만 붙인다.
+ *        3) 그 밖의 의뢰서(등록 화면 · 지난 의뢰서 가져오기)는 손으로 넣은 생산이 있는 품목은 건드리지 않고, 없는 품목만 의뢰 수량까지
+ *           붙인다 — 손 입력과 MES 가 같은 유리를 두 번 세지 않게 (planOtherOrderMes, 2026-11-17 · 11/16 점검 P3).
  *        4) 끝으로 기간(from–to) 안의 줄을 MES 실적 표에 덮어쓴다. 이 표가 "지난번에 올린 내용" 이라, 반드시 2) 뒤에 쓴다.
  * 생산 입력 권한이 있어야 한다.
  */
@@ -148,7 +154,7 @@ const logKey = (itemId: string, date: string, line: number, shift: string) => `$
  * 없는 의뢰번호 → 새 작업의뢰서(완료) · 품목 · 생산 기록.
  * MES 로 만든 의뢰서가 이미 있다 → 지난번에 올린 내용과 견주어 달라진 것만(planMesReupload). 새 NO 는 품목을 더하고,
  *   생산이 의뢰 수량을 넘으면 수량을 늘린다. 사람이 고친 수량 · 지운 품목은 그대로 둔다.
- * 그 밖의 의뢰서 → 같은 NO 품목에 그 날 · 호기 · 주야간 기록이 없을 때만 붙인다.
+ * 그 밖의 의뢰서 → 손으로 넣은 생산이 있는 품목은 그대로, 없는 품목만 의뢰 수량까지 붙인다(planOtherOrderMes).
  */
 async function createOrders(supabase: Db, groups: MesGroup[], userId: string, file: string | null) {
   const plans = planMesOrders(groups);
@@ -185,7 +191,7 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
         return {
           work_order_id: woId, work_order_item_id: itemId.get(`${woId}|${l.no}`), production_date: l.date,
           log_type: l.quantity >= it.quantity ? 'full' : 'partial', quantity_completed: l.quantity, area_m2: logArea(it, l.quantity),
-          shift: l.shift, line_number: l.line, remark: 'MES 바코드', created_by: userId,
+          shift: l.shift, line_number: l.line, remark: MES_LOG_REMARK, created_by: userId,
         };
       });
     });
@@ -205,23 +211,26 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
 
   // ── 이미 있는 의뢰서
   const old = plans.filter(p => existing.has(p.work_order_number));
-  let changedLogs = 0, keptRemoved = 0, existingLogs = 0;
+  let changedLogs = 0, keptRemoved = 0, existingLogs = 0, manualKept = 0, cappedQty = 0;
   if (old.length > 0) {
-    type DbItem = { id: string; work_order_id: string; item_no: number | null; sort_order: number | null; quantity: number; area_m2: number | string | null; width_mm: number; height_mm: number };
-    type DbLog = { id: string; work_order_item_id: string; production_date: string; line_number: number | null; shift: string | null; quantity_completed: number };
+    type DbItem = { id: string; work_order_id: string; item_no: number | null; sort_order: number | null; quantity: number; produced_quantity: number | null; area_m2: number | string | null; width_mm: number; height_mm: number };
+    type DbLog = { id: string; work_order_item_id: string; production_date: string; line_number: number | null; shift: string | null; quantity_completed: number; remark: string | null };
     const woIds = old.map(p => existing.get(p.work_order_number)!.id);
     const dbItems = await fetchAllIn<DbItem>(
-      woIds, (chunk, a, b) => supabase.from('dgflow_work_order_items').select('id, work_order_id, item_no, sort_order, quantity, area_m2, width_mm, height_mm')
+      woIds, (chunk, a, b) => supabase.from('dgflow_work_order_items').select('id, work_order_id, item_no, sort_order, quantity, produced_quantity, area_m2, width_mm, height_mm')
         .in('work_order_id', chunk).order('id').range(a, b));
     const dbLogs = dbItems.length === 0 ? [] : await fetchAllIn<DbLog>(
-      dbItems.map(i => i.id), (chunk, a, b) => supabase.from('dgflow_production_logs').select('id, work_order_item_id, production_date, line_number, shift, quantity_completed')
+      dbItems.map(i => i.id), (chunk, a, b) => supabase.from('dgflow_production_logs').select('id, work_order_item_id, production_date, line_number, shift, quantity_completed, remark')
         .in('work_order_item_id', chunk).order('id').range(a, b));
     const logOf = new Map<string, DbLog>();
     const producedBefore = new Map<string, number>();
+    const logsOfItem = new Map<string, DbLog[]>();
     for (const l of dbLogs) {
       const k = logKey(l.work_order_item_id, l.production_date, l.line_number ?? 1, l.shift === 'night' ? 'night' : 'day');
       if (!logOf.has(k)) logOf.set(k, l);
       producedBefore.set(l.work_order_item_id, (producedBefore.get(l.work_order_item_id) ?? 0) + l.quantity_completed);
+      const list = logsOfItem.get(l.work_order_item_id);
+      if (list) list.push(l); else logsOfItem.set(l.work_order_item_id, [l]);
     }
     const isMes = (p: typeof old[number]) => (existing.get(p.work_order_number)!.notes ?? '').includes(MES_ORDER_NOTE);
     // 지난번에 올린 내용 — MES 로 만든 의뢰서만 견준다
@@ -235,10 +244,44 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
       const mesMade = isMes(p);
       const mine = dbItems.filter(i => i.work_order_id === wo.id);
       const byNo = new Map(mine.map((i, k) => [itemNo(i, k), i]));
-      // MES 로 만든 의뢰서는 지난번과 달라진 것만, 그 밖의 의뢰서는 예전처럼 전부 견준다(같은 날 · 호기 기록이 있으면 건너뜀)
-      const plan = mesMade
-        ? planMesReupload(p, seenOf.get(p.work_order_number) ?? [], byNo.keys())
-        : { newNos: [] as number[], fresh: p.logs, changed: [] as (MesOrderLog & { delta: number })[], removedNos: [] as number[] };
+      // 사람이 등록한 의뢰서 — 손으로 넣은 생산이 있는 품목은 그대로 두고, 없는 품목만 의뢰 수량까지 MES 로 채운다 (planOtherOrderMes, P3)
+      if (!mesMade) {
+        const linesOf = new Map<number, MesOrderLog[]>();
+        for (const l of p.logs) { const list = linesOf.get(l.no); if (list) list.push(l); else linesOf.set(l.no, [l]); }
+        const rows = [];
+        for (const [no, lines] of linesOf) {
+          const it = byNo.get(no);
+          if (!it) continue;
+          const logs = logsOfItem.get(it.id) ?? [];
+          const r = planOtherOrderMes({
+            quantity: it.quantity,
+            produced: it.produced_quantity ?? 0,
+            mesQty: logs.filter(l => l.remark === MES_LOG_REMARK).reduce((s, l) => s + l.quantity_completed, 0),
+            have: new Set(logs.map(l => otherKey({ date: l.production_date, line: l.line_number ?? 1, shift: l.shift === 'night' ? 'night' : 'day' }))),
+          }, lines);
+          if (r.manual) manualKept++;
+          cappedQty += r.capped;
+          for (const l of r.add) {
+            rows.push({
+              work_order_id: wo.id, work_order_item_id: it.id, production_date: l.date, log_type: 'partial',
+              quantity_completed: l.quantity, area_m2: logArea({ ...it, area_m2: Number(it.area_m2) || 0 }, l.quantity),
+              shift: l.shift, line_number: l.line, remark: MES_LOG_REMARK, created_by: userId,
+            });
+            touchedItems.add(it.id);
+            touchedOrders.add(wo.id);
+          }
+        }
+        if (rows.length > 0) {
+          const { error: logError } = await supabase.from('dgflow_production_logs').insert(rows);
+          if (logError) throw new Error(logError.message);
+          logsInserted += rows.length;
+          existingLogs += rows.length;
+        }
+        continue;
+      }
+
+      // MES 로 만든 의뢰서 — 지난번에 올린 내용과 견주어 달라진 것만
+      const plan = planMesReupload(p, seenOf.get(p.work_order_number) ?? [], byNo.keys());
       keptRemoved += plan.removedNos.length;
 
       // 지난번에 없던 NO — 품목을 더한다
@@ -261,11 +304,11 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
         if (!it) continue;
         const k = logKey(it.id, l.date, l.line, l.shift);
         if (logOf.has(k)) continue;
-        logOf.set(k, { id: '', work_order_item_id: it.id, production_date: l.date, line_number: l.line, shift: l.shift, quantity_completed: l.quantity });
+        logOf.set(k, { id: '', work_order_item_id: it.id, production_date: l.date, line_number: l.line, shift: l.shift, quantity_completed: l.quantity, remark: MES_LOG_REMARK });
         rows.push({
           work_order_id: wo.id, work_order_item_id: it.id, production_date: l.date, log_type: 'partial',
           quantity_completed: l.quantity, area_m2: logArea({ ...it, area_m2: Number(it.area_m2) || 0 }, l.quantity),
-          shift: l.shift, line_number: l.line, remark: 'MES 바코드', created_by: userId,
+          shift: l.shift, line_number: l.line, remark: MES_LOG_REMARK, created_by: userId,
         });
         touchedItems.add(it.id);
         touchedOrders.add(wo.id);
@@ -292,7 +335,7 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
         } else if (c.delta > 0 && !cur) {
           const { error: e } = await supabase.from('dgflow_production_logs').insert({
             work_order_id: wo.id, work_order_item_id: it.id, production_date: c.date, log_type: 'partial',
-            quantity_completed: c.delta, area_m2: logArea(sized, c.delta), shift: c.shift, line_number: c.line, remark: 'MES 바코드', created_by: userId,
+            quantity_completed: c.delta, area_m2: logArea(sized, c.delta), shift: c.shift, line_number: c.line, remark: MES_LOG_REMARK, created_by: userId,
           });
           if (e) throw new Error(e.message);
         } else continue;
@@ -320,7 +363,7 @@ async function createOrders(supabase: Db, groups: MesGroup[], userId: string, fi
     }
     for (const id of touchedOrders) if (!mesOrderIds.has(id)) await syncWorkOrderStatus(supabase, id);
   }
-  return { created, existing: old.length, items: itemsCreated, logs: logsInserted, existingLogs, changed: changedLogs, keptRemoved };
+  return { created, existing: old.length, items: itemsCreated, logs: logsInserted, existingLogs, changed: changedLogs, keptRemoved, manualKept, cappedQty };
 }
 
 /** 의뢰번호별 "지난번에 올린 내용" — MES 실적 표의 줄. 표가 없으면 빈 것으로 */
